@@ -8,7 +8,10 @@ import { useApiMutation } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import Wrap from "@/components/kiosk/Wrap";
 
-const GSI_CLIENT_ID = "267995313560-0mllsvc5d4iqpc75sajnffl9vujc4v9t.apps.googleusercontent.com";
+// Must match the backend's GOOGLE_CLIENT_ID (nest-backend/src/auth/auth.service.ts
+// verifies ID tokens against this same client) and have this frontend's origin
+// listed under that client's Authorized JavaScript origins in Google Cloud Console.
+const GSI_CLIENT_ID = "622557455047-g94ndk9q21dhubdb37u3t4itamu1vvua.apps.googleusercontent.com";
 
 export default function LoginPage() {
     const router = useRouter();
