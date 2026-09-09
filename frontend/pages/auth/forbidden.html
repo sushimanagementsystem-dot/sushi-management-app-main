@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍣</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Access denied</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+    <div class="wrap" style="text-align: center; padding-top: 3rem">
+        <div style="font-size: 3rem">🚫</div>
+        <h2 style="margin: 0.6rem 0 0.4rem">Access denied</h2>
+        <p id="msg" style="color: var(--muted); font-size: 0.95rem; max-width: 26rem; margin: 0 auto"></p>
+        <p style="margin-top: 1.5rem">
+            <a href="/" style="color: var(--ink)">← Back</a>
+        </p>
+    </div>
+
+    <script>
+        const REASONS = {
+            role: "You're signed in, but you don't have access to this page. Contact the owner if you think this is a mistake.",
+            kiosk: "This page needs to be opened through your kiosk's QR code or link, not typed directly. Scan the code posted at your kiosk, or use the link you were given.",
+            link: "This kiosk link is not recognised. Please use the QR code / link for your kiosk, or contact the owner.",
+        };
+        const reason = new URLSearchParams(window.location.search).get("reason");
+        document.getElementById("msg").textContent =
+            REASONS[reason] ||
+            "You don't have access to this. Contact the owner if you think this is a mistake.";
+    </script>
+</body>
+</html>

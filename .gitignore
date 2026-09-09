@@ -1,0 +1,7 @@
+# deploy.sh's own local state/secrets
+.deploy.env
+.version
+
+# clasp project config — must live in backend/ (clasp reads it from the
+# directory it's run in), gitignored the same as the two above
+backend/.clasp.json

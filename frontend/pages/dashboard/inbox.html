@@ -1,0 +1,1627 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📥</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard — Action Inbox</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+</head>
+<body>
+    <div class="dash-shell">
+        <nav class="dash-sidebar" id="dashSidebar"></nav>
+
+        <!-- Hidden until initDashboard() confirms access. -->
+        <main class="dash-main" id="dashMain" style="display: none">
+            <div class="dash-content">
+                <h1>Action Inbox</h1>
+                <div class="inbox-filters" id="inboxFilters"></div>
+                <div class="inbox-counts" id="inboxCounts"></div>
+                <div class="dash-spinner" id="inboxSpinner"></div>
+                <div class="inbox-card-list" id="inboxCardList"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/assets/common.js"></script>
+    <script src="/assets/dashboard-common.js"></script>
+    <script src="/assets/search-pick.js"></script>
+    <script>
+        // Every category value the backend recognizes today — including
+        // ones not wired to any form yet (see the Action Inbox plan's
+        // phase order). Harmless to list before its category's owner_action
+        // rows exist; the filter just never matches anything until then.
+        const INBOX_CATEGORIES = [
+            "INVOICE_REVIEW", "DAMAGE_REVIEW", "HELP_ISSUE", "AUDIT_REVIEW",
+            "AUDIT_CORRECTION_REVIEW", "TRANSFER_APPROVAL", "TRANSFER_APPLY",
+            "STOCKTAKE_REVIEW", "OTHER",
+        ];
+        const INBOX_STATUSES = ["OPEN", "IN_PROGRESS", "WAITING_FOR_OWNER", "RESOLVED", "CLOSED", "NOT_PROCEEDING"];
+        const INBOX_PRIORITIES = ["LOW", "NORMAL", "URGENT"];
+
+        const OPEN_STATUSES = ["OPEN", "IN_PROGRESS", "WAITING_FOR_OWNER"];
+
+        let INBOX_FILTERS = { includeClosed: false };
+        let INBOX_KIOSKS = [];
+        // Every row bootstrap_action_inbox returned, fetched exactly once
+        // per page load (or after a save). Filtering (status/category/
+        // kiosk/priority/show-closed) is applied against this in memory —
+        // never a refetch, same "fetch everything up front" reasoning as
+        // opening a card's detail below.
+        let INBOX_ALL_ROWS = [];
+        // Keyed by id, derived from INBOX_ALL_ROWS — the single source of
+        // truth for opening a card's detail. Opening a card is a pure
+        // lookup against this, never a fetch.
+        let INBOX_ROWS_BY_ID = {};
+        // { ownerActionId, forceClose() } for whichever detail modal is
+        // currently open, or null.
+        let ACTIVE_INBOX_MODAL = null;
+        // user_id -> name, fetched once alongside the owner_action list —
+        // used to resolve activity_log's changed_by (a user_id reference,
+        // never a plain name; see database_schema.md) at render time.
+        let INBOX_USERS_BY_ID = {};
+
+        const REQUEST_STATUSES = ["NEW", "IN_PROGRESS", "WAITING_FOR_KIOSK", "WAITING_FOR_OWNER", "RESOLVED", "CLOSED", "NOT_PROCEEDING"];
+        const REQUEST_PRIORITIES = ["", "LOW", "NORMAL", "URGENT"];
+
+        // Active stock items, fetched once alongside the owner_action list —
+        // used by the Stocktake "add item" picker (and later Invoice/
+        // Transfer sections that need the same list).
+        let INBOX_STOCK_ITEMS = [];
+
+        function resolveChangedBy_(changedBy) {
+            if (changedBy === "system") return "System";
+            const u = INBOX_USERS_BY_ID[changedBy];
+            return u ? u.name : changedBy;
+        }
+
+        // saveUpload_ (backend) stores driveFile.getUrl() — a "/view" link,
+        // never a bare file id — into every *_reference/file_url column.
+        // Build an embeddable preview src by extracting the id and
+        // swapping in Drive's /preview path. Returns "" if the url doesn't
+        // look like a Drive file link (nothing to embed).
+        function drivePreviewSrc_(url) {
+            const m = String(url || "").match(/\/d\/([^/]+)\//);
+            return m ? "https://drive.google.com/file/d/" + m[1] + "/preview" : "";
+        }
+        function drivePreviewNode_(url, label) {
+            const src = drivePreviewSrc_(url);
+            if (!src) return document.createTextNode("");
+            const wrap = document.createElement("div");
+            wrap.className = "inbox-file-preview";
+            if (label) {
+                const cap = document.createElement("div");
+                cap.className = "inbox-file-preview-label";
+                cap.textContent = label;
+                wrap.appendChild(cap);
+            }
+            const iframe = document.createElement("iframe");
+            iframe.src = src;
+            iframe.allow = "autoplay";
+            wrap.appendChild(iframe);
+            return wrap;
+        }
+
+        function detailIdFromUrl() {
+            const segments = window.location.pathname.split("/").filter(Boolean);
+            return segments[2] || "";
+        }
+
+        initDashboard("inbox").then((ok) => {
+            if (!ok) return;
+            buildInboxFilters();
+            loadInboxList().then(() => {
+                const deepLinkId = detailIdFromUrl();
+                if (deepLinkId) openActionDetail(deepLinkId, { pushUrl: false });
+            });
+        });
+
+        // --- Filters ---------------------------------------------------------
+
+        function buildInboxFilters() {
+            const el = document.getElementById("inboxFilters");
+            el.innerHTML = "";
+
+            const statusSel = filterSelect("status", ["", ...INBOX_STATUSES], "Any status");
+            const categorySel = filterSelect("category", ["", ...INBOX_CATEGORIES], "Any category");
+            const prioritySel = filterSelect("priority", ["", ...INBOX_PRIORITIES], "Any priority");
+            const kioskSel = document.createElement("select");
+            kioskSel.innerHTML = '<option value="">Any kiosk</option>';
+            kioskSel.addEventListener("change", () => {
+                INBOX_FILTERS.kiosk_id = kioskSel.value;
+                applyFiltersAndRender();
+            });
+
+            const closedLabel = document.createElement("label");
+            closedLabel.className = "inbox-filter-closed";
+            const closedCheck = document.createElement("input");
+            closedCheck.type = "checkbox";
+            closedCheck.addEventListener("change", () => {
+                INBOX_FILTERS.includeClosed = closedCheck.checked;
+                applyFiltersAndRender();
+            });
+            closedLabel.appendChild(closedCheck);
+            closedLabel.appendChild(document.createTextNode(" Show closed"));
+
+            el.appendChild(statusSel);
+            el.appendChild(categorySel);
+            el.appendChild(prioritySel);
+            el.appendChild(kioskSel);
+            el.appendChild(closedLabel);
+
+            el._kioskSel = kioskSel;
+
+            function filterSelect(key, values, placeholderLabel) {
+                const sel = document.createElement("select");
+                sel.innerHTML = values
+                    .map((v) => `<option value="${v}">${v || placeholderLabel}</option>`)
+                    .join("");
+                sel.addEventListener("change", () => {
+                    INBOX_FILTERS[key] = sel.value;
+                    applyFiltersAndRender();
+                });
+                return sel;
+            }
+        }
+
+        // --- List --------------------------------------------------------------
+
+        // The only network call this page makes for list data — everything
+        // after this is filtering/rendering against INBOX_ALL_ROWS in
+        // memory. Called once at page load, and again after a save (a real
+        // write, not a filter change) to pick up what changed.
+        function loadInboxList() {
+            const spinner = document.getElementById("inboxSpinner");
+            const list = document.getElementById("inboxCardList");
+            spinner.style.display = "";
+            list.style.display = "none";
+            return apiCall("bootstrap_action_inbox", {})
+                .then((res) => {
+                    spinner.style.display = "none";
+                    list.style.display = "";
+                    if (!res.ok) {
+                        list.textContent = res.error || "Failed to load.";
+                        return;
+                    }
+                    INBOX_KIOSKS = res.kiosks || [];
+                    INBOX_ALL_ROWS = res.rows || [];
+                    INBOX_STOCK_ITEMS = res.stockItems || [];
+                    INBOX_USERS_BY_ID = {};
+                    (res.users || []).forEach((u) => (INBOX_USERS_BY_ID[u.id] = u));
+                    INBOX_ROWS_BY_ID = {};
+                    INBOX_ALL_ROWS.forEach((r) => (INBOX_ROWS_BY_ID[r.owner_action_id] = r));
+                    syncKioskFilterOptions();
+                    renderCounts(res.counts || { byStatus: {}, byCategory: {} });
+                    applyFiltersAndRender();
+                })
+                .catch(() => {
+                    spinner.style.display = "none";
+                    list.style.display = "";
+                    list.textContent = "Failed to load.";
+                });
+        }
+
+        // Pure in-memory filter against INBOX_ALL_ROWS — no network call.
+        function applyFiltersAndRender() {
+            let rows = INBOX_ALL_ROWS;
+            if (!INBOX_FILTERS.includeClosed) rows = rows.filter((r) => OPEN_STATUSES.includes(r.status));
+            if (INBOX_FILTERS.status) rows = rows.filter((r) => r.status === INBOX_FILTERS.status);
+            if (INBOX_FILTERS.category) rows = rows.filter((r) => r.category === INBOX_FILTERS.category);
+            if (INBOX_FILTERS.kiosk_id) rows = rows.filter((r) => r.kiosk_id === INBOX_FILTERS.kiosk_id);
+            if (INBOX_FILTERS.priority) rows = rows.filter((r) => r.priority === INBOX_FILTERS.priority);
+            renderCards(rows);
+        }
+
+        function syncKioskFilterOptions() {
+            const sel = document.getElementById("inboxFilters")._kioskSel;
+            if (!sel || sel.options.length > 1) return;
+            INBOX_KIOSKS.forEach((k) => {
+                const opt = document.createElement("option");
+                opt.value = k.id;
+                opt.textContent = k.name;
+                sel.appendChild(opt);
+            });
+        }
+
+        function renderCounts(counts) {
+            const el = document.getElementById("inboxCounts");
+            const parts = Object.keys(counts.byStatus || {}).map(
+                (s) => `<span class="inbox-badge">${s}: ${counts.byStatus[s]}</span>`,
+            );
+            el.innerHTML = parts.join(" ");
+        }
+
+        function renderCards(rows) {
+            const el = document.getElementById("inboxCardList");
+            if (!rows.length) {
+                el.innerHTML = '<p style="color: var(--muted)">Nothing here.</p>';
+                return;
+            }
+            el.innerHTML = "";
+            rows.forEach((r) => {
+                const card = document.createElement("div");
+                card.className = "inbox-card inbox-priority-" + (r.priority || "NORMAL").toLowerCase();
+                card.innerHTML = `
+                    <div class="inbox-card-top">
+                        <span class="inbox-card-category">${r.category}</span>
+                        <span class="inbox-card-priority">${r.priority || ""}</span>
+                    </div>
+                    <div class="inbox-card-title">${escapeHtml_(r.title || "")}</div>
+                    <div class="inbox-card-meta">${escapeHtml_(r.kioskName || "")} — ${r.status} — ${r.created_at || ""}</div>
+                `;
+                card.addEventListener("click", () => openActionDetail(r.owner_action_id));
+                el.appendChild(card);
+            });
+        }
+
+        function escapeHtml_(s) {
+            const d = document.createElement("div");
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        /**
+         * Shared Edit/Save/Cancel toggle for a section of the detail modal.
+         * View mode (default) renders read-only via opts.renderView; an
+         * "Edit" button switches to opts.renderEdit, which returns
+         * {save: () => Promise<{ok, error}>} (or nothing, for a section
+         * with no Save concept). Only Save triggers any network call —
+         * Cancel discards edits and re-renders the view with zero fetches.
+         * opts.canEdit (default true) hides the Edit button entirely.
+         * opts.onModeChange(editMode) lets the caller show/hide sibling UI
+         * (e.g. Approve/Confirm buttons that shouldn't be usable mid-edit).
+         */
+        function buildEditSection_(mount, opts) {
+            let editMode = false;
+            render();
+
+            function render() {
+                mount.innerHTML = "";
+                if (opts.onModeChange) opts.onModeChange(editMode);
+
+                if (!editMode) {
+                    opts.renderView(mount);
+                    if (opts.canEdit !== false) {
+                        const editBtn = document.createElement("button");
+                        editBtn.type = "button";
+                        editBtn.className = "dash-btn";
+                        editBtn.textContent = "Edit";
+                        editBtn.addEventListener("click", () => {
+                            editMode = true;
+                            render();
+                        });
+                        mount.appendChild(editBtn);
+                    }
+                    return;
+                }
+
+                const editCtx = opts.renderEdit(mount) || {};
+                if (!editCtx.save) return; // edit view with nothing to save (shouldn't normally happen)
+
+                const btnWrap = document.createElement("div");
+                btnWrap.className = "modal-actions";
+                mount.appendChild(btnWrap);
+
+                const cancelBtn = document.createElement("button");
+                cancelBtn.type = "button";
+                cancelBtn.className = "dash-btn";
+                cancelBtn.style.background = "var(--line)";
+                cancelBtn.style.color = "var(--ink)";
+                cancelBtn.textContent = "Cancel";
+                cancelBtn.addEventListener("click", () => {
+                    editMode = false;
+                    render();
+                });
+
+                const saveBtn = document.createElement("button");
+                saveBtn.type = "button";
+                saveBtn.className = "dash-btn";
+                saveBtn.textContent = "Save";
+                saveBtn.addEventListener("click", () => {
+                    saveBtn.disabled = true;
+                    editCtx.save().then((res) => {
+                        saveBtn.disabled = false;
+                        if (!res || res.ok === false) {
+                            alert((res && res.error) || "Save failed.");
+                            return;
+                        }
+                        editMode = false;
+                        if (opts.onSaved) opts.onSaved();
+                    });
+                });
+
+                btnWrap.appendChild(cancelBtn);
+                btnWrap.appendChild(saveBtn);
+            }
+        }
+
+        /** Runs a list of no-arg task functions (each returning
+         * Promise<{ok, error}>) one after another, stopping at the first
+         * failure. Used to batch several apiCalls behind one Save click
+         * without them racing each other. */
+        function runSequential_(tasks) {
+            let p = Promise.resolve({ ok: true });
+            tasks.forEach((task) => {
+                p = p.then((prev) => (prev && prev.ok === false ? prev : task()));
+            });
+            return p;
+        }
+
+        // --- Detail modal --------------------------------------------------------
+
+        // Opening a card fetches its detail (activity history + category-
+        // specific linked data) fresh from get_action_detail — the list
+        // itself only ever carries the lightweight owner_action fields
+        // (see bootstrapActionInbox). This is the one deliberate per-click
+        // fetch on this page: scoped to a single record, so its cost never
+        // grows with how much history exists elsewhere in the table.
+        function openActionDetail(ownerActionId, opts) {
+            const pushUrl = !opts || opts.pushUrl !== false;
+            // INBOX_ROWS_BY_ID always holds every row regardless of the
+            // current display filters (those only affect what's rendered
+            // as cards, see applyFiltersAndRender) — so a miss here means
+            // a genuinely bad id, not a filtered-out row.
+            const row = INBOX_ROWS_BY_ID[ownerActionId];
+            if (!row) {
+                alert("That action couldn't be found.");
+                return;
+            }
+            // If this card is outside the current display filters (e.g.
+            // closed, with "show closed" off), flip it on so the list
+            // behind the modal isn't confusingly empty when it closes.
+            if (!INBOX_FILTERS.includeClosed && !OPEN_STATUSES.includes(row.status)) {
+                INBOX_FILTERS.includeClosed = true;
+                const closedCheck = document.querySelector(".inbox-filter-closed input");
+                if (closedCheck) closedCheck.checked = true;
+                applyFiltersAndRender();
+            }
+
+            const loadingOverlay = document.createElement("div");
+            loadingOverlay.className = "modal-overlay";
+            const spinner = document.createElement("div");
+            spinner.className = "dash-spinner";
+            loadingOverlay.appendChild(spinner);
+            document.body.appendChild(loadingOverlay);
+
+            apiCall("get_action_detail", { ownerActionId: ownerActionId })
+                .then((res) => {
+                    loadingOverlay.remove();
+                    if (!res.ok) {
+                        alert(res.error || "Failed to load action.");
+                        return;
+                    }
+                    buildDetailModal(Object.assign({}, row, res), ownerActionId);
+                    if (pushUrl) history.pushState(null, "", "/dashboard/inbox/" + ownerActionId);
+                })
+                .catch(() => {
+                    loadingOverlay.remove();
+                    alert("Failed to load action.");
+                });
+        }
+
+        // row is INBOX_ROWS_BY_ID's lightweight owner_action fields merged
+        // with this one open's get_action_detail response (activity +
+        // category-specific linked data) — see openActionDetail.
+        function buildDetailModal(row, ownerActionId) {
+            const overlay = document.createElement("div");
+            overlay.className = "modal-overlay";
+            const box = document.createElement("div");
+            box.className = "modal-box detail-modal-box";
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+
+            const closeBtn = document.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className = "dash-btn detail-modal-close";
+            closeBtn.textContent = "Close";
+            closeBtn.addEventListener("click", closeModal);
+
+            const heading = document.createElement("h3");
+            heading.textContent = row.category + " — " + (row.kioskName || "");
+            box.appendChild(heading);
+
+            const triageMount = document.createElement("div");
+            box.appendChild(triageMount);
+            renderTriageEditor(triageMount, row, ownerActionId);
+
+            const categoryMount = document.createElement("div");
+            categoryMount.className = "detail-subtable-section";
+            box.appendChild(categoryMount);
+            renderCategorySection(categoryMount, row);
+
+            if ((row.activity || []).length) {
+                const activityMount = document.createElement("div");
+                activityMount.className = "detail-subtable-section";
+                activityMount.innerHTML =
+                    "<h4>History</h4>" +
+                    row.activity
+                        .map(
+                            (a) =>
+                                `<div class="inbox-activity-row">${a.changed_at} — ${escapeHtml_(resolveChangedBy_(a.changed_by))}: ${a.field_changed} "${escapeHtml_(String(a.old_value))}" → "${escapeHtml_(String(a.new_value))}"${a.note ? " (" + escapeHtml_(a.note) + ")" : ""}</div>`,
+                        )
+                        .join("");
+                box.appendChild(activityMount);
+            }
+
+            box.appendChild(closeBtn);
+
+            // removeDom_ only tears down this modal's DOM/state — no
+            // refetch. closeModal (the normal X-button/back-button path)
+            // additionally refetches, since closing is usually the only
+            // signal that something might have changed. A structural
+            // category-action (line added, header locked) instead already
+            // triggers its own loadInboxList() before reopening — see
+            // closeActiveModalAndReopen_ — so it uses removeDom_ directly
+            // to avoid fetching twice and racing itself.
+            function removeDom_() {
+                overlay.remove();
+                ACTIVE_INBOX_MODAL = null;
+                history.replaceState(null, "", "/dashboard/inbox");
+            }
+            function closeModal() {
+                removeDom_();
+                loadInboxList();
+            }
+
+            ACTIVE_INBOX_MODAL = { ownerActionId: ownerActionId, forceClose: closeModal, removeDom: removeDom_ };
+        }
+
+        function renderTriageEditor(mount, action, ownerActionId) {
+            buildEditSection_(mount, {
+                renderView: (c) => renderViewFields_(c, [
+                    ["Status", action.status],
+                    ["Priority", action.priority],
+                    ["Assigned to", action.assigned_to],
+                    ["Owner note", action.owner_note],
+                    ["Due date", action.due_date],
+                ]),
+                renderEdit: (c) => {
+                    const grid = document.createElement("div");
+                    grid.className = "detail-fields-grid";
+                    c.appendChild(grid);
+                    const fields = {
+                        status: fieldSelect_(grid, "Status", action.status, INBOX_STATUSES),
+                        priority: fieldSelect_(grid, "Priority", action.priority, INBOX_PRIORITIES),
+                        assigned_to: fieldText_(grid, "Assigned to", action.assigned_to),
+                        owner_note: fieldText_(grid, "Owner note", action.owner_note),
+                        due_date: fieldDate_(grid, "Due date", action.due_date),
+                    };
+                    return {
+                        save: () => {
+                            const changes = {};
+                            Object.keys(fields).forEach((k) => (changes[k] = fields[k].get()));
+                            return apiCall("update_owner_action", { ownerActionId: ownerActionId, changes: changes }).then((res) => {
+                                if (res.ok) Object.assign(action, res.row);
+                                return res;
+                            });
+                        },
+                    };
+                },
+                onSaved: () => {
+                    loadInboxList().then(() => closeActiveModalAndReopen_(ownerActionId));
+                },
+            });
+        }
+
+        // Read-only label/value grid — shared by every section's view mode.
+        // pairs: [[label, value], ...]; blank values show as "—".
+        function renderViewFields_(container, pairs) {
+            const grid = document.createElement("div");
+            grid.className = "detail-fields-grid";
+            pairs.forEach(([label, value]) => {
+                const wrap = document.createElement("div");
+                wrap.className = "modal-field";
+                wrap.innerHTML = "<label>" + label + "</label><div>" + escapeHtml_(value || "—") + "</div>";
+                grid.appendChild(wrap);
+            });
+            container.appendChild(grid);
+        }
+
+        // --- Category-specific sections --------------------------------------
+
+        function renderCategorySection(mount, row) {
+            mount.innerHTML = "";
+            if (row.category === "HELP_ISSUE") {
+                renderHelpIssueSection(mount, row);
+                return;
+            }
+            if (row.category === "STOCKTAKE_REVIEW") {
+                renderStocktakeSection(mount, row);
+                return;
+            }
+            if (row.category === "TRANSFER_APPROVAL" || row.category === "TRANSFER_APPLY") {
+                renderTransferSection(mount, row);
+                return;
+            }
+            if (row.category === "INVOICE_REVIEW") {
+                renderInvoiceSection(mount, row);
+                return;
+            }
+            if (row.category === "AUDIT_REVIEW") {
+                renderAuditReviewSection(mount, row);
+                return;
+            }
+            if (row.category === "AUDIT_CORRECTION_REVIEW") {
+                renderAuditCorrectionSection(mount, row);
+                return;
+            }
+            if (row.category === "DAMAGE_REVIEW") {
+                renderDamageSection(mount, row);
+                return;
+            }
+            if (row.category === "PURCHASING_RECOMMENDATION") {
+                renderPurchasingRecommendationSection(mount, row);
+                return;
+            }
+            mount.innerHTML = '<p style="color: var(--muted)">No category-specific detail yet for this type.</p>';
+        }
+
+        // Same stock_transfer rows for this submission shown on both
+        // TRANSFER_APPROVAL and TRANSFER_APPLY cards (see
+        // bootstrapActionInbox). View mode shows the table with its real
+        // action buttons (Approve/Decline per PENDING row, a bulk Apply for
+        // APPROVED rows) — those are discrete submit actions, always live.
+        // Edit mode (only offered when a PENDING row exists) swaps PENDING
+        // rows' kiosk names for pickers and hides the action buttons until
+        // Save/Cancel — no more "Save kiosks" living in the middle of the
+        // action row.
+        function renderTransferSection(mount, row) {
+            const transfers = row.transfers || [];
+            if (!transfers.length) {
+                mount.innerHTML = '<p style="color: var(--muted)">No linked transfers found.</p>';
+                return;
+            }
+            const hasPending = transfers.some((t) => t.status === "PENDING");
+
+            buildEditSection_(mount, {
+                canEdit: hasPending,
+                renderView: (c) => renderTransferTable_(c, row, false),
+                renderEdit: (c) => renderTransferTable_(c, row, true),
+                onSaved: () => {
+                    loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                },
+            });
+        }
+
+        function renderTransferTable_(container, row, editable) {
+            const transfers = row.transfers || [];
+            const wrap = document.createElement("div");
+            wrap.className = "inbox-request-table-wrap";
+            container.appendChild(wrap);
+
+            const table = document.createElement("table");
+            table.className = "inbox-request-table";
+            table.innerHTML =
+                "<thead><tr><th>Item</th><th>Qty</th><th>Source</th><th>Destination</th><th>Status</th><th></th></tr></thead>";
+            const tbody = document.createElement("tbody");
+            table.appendChild(tbody);
+            wrap.appendChild(table);
+
+            const tdCell = (content) => {
+                const td = document.createElement("td");
+                if (content instanceof Node) td.appendChild(content);
+                else td.textContent = content;
+                return td;
+            };
+
+            const kioskEdits = [];
+            const applyCheckboxes = [];
+            const pendingTransferIds = [];
+
+            transfers.forEach((t) => {
+                const tr = document.createElement("tr");
+                tr.appendChild(tdCell(t.stockItemName || t.stock_item_id));
+                tr.appendChild(tdCell(t.qty + " " + t.count_unit));
+
+                if (editable && t.status === "PENDING") {
+                    const sourceHost = document.createElement("div");
+                    const sourcePicker = kioskPicker_(sourceHost, t.source_kiosk_id);
+                    const destHost = document.createElement("div");
+                    const destPicker = kioskPicker_(destHost, t.destination_kiosk_id);
+                    kioskEdits.push({ t: t, sourcePicker: sourcePicker, destPicker: destPicker });
+
+                    tr.appendChild(tdCell(sourceHost));
+                    tr.appendChild(tdCell(destHost));
+                    tr.appendChild(tdCell(t.status));
+                    tr.appendChild(tdCell(""));
+                } else if (!editable && t.status === "PENDING") {
+                    // No per-row buttons here on purpose — Approve/Decline
+                    // act on the whole submission at once, one click each,
+                    // rendered once below the table (see pendingTransferIds).
+                    pendingTransferIds.push(t.transfer_id);
+
+                    tr.appendChild(tdCell(kioskName_(t.source_kiosk_id)));
+                    tr.appendChild(tdCell(kioskName_(t.destination_kiosk_id)));
+                    tr.appendChild(tdCell(t.status));
+                    tr.appendChild(tdCell(""));
+                } else if (!editable && t.status === "APPROVED") {
+                    const check = document.createElement("input");
+                    check.type = "checkbox";
+                    check.checked = true;
+                    check._transferId = t.transfer_id;
+                    applyCheckboxes.push(check);
+
+                    tr.appendChild(tdCell(kioskName_(t.source_kiosk_id)));
+                    tr.appendChild(tdCell(kioskName_(t.destination_kiosk_id)));
+                    tr.appendChild(tdCell(t.status));
+                    tr.appendChild(tdCell(check));
+                } else {
+                    tr.appendChild(tdCell(kioskName_(t.source_kiosk_id)));
+                    tr.appendChild(tdCell(kioskName_(t.destination_kiosk_id)));
+                    tr.appendChild(tdCell(t.status));
+                    tr.appendChild(tdCell(""));
+                }
+                tbody.appendChild(tr);
+            });
+
+            if (!editable && pendingTransferIds.length) {
+                const approveBtn = document.createElement("button");
+                approveBtn.type = "button";
+                approveBtn.className = "dash-btn";
+                approveBtn.style.marginTop = "0.8rem";
+                approveBtn.textContent =
+                    "Approve all (" + pendingTransferIds.length + ")";
+                approveBtn.addEventListener("click", () => {
+                    apiCall("approve_stock_transfers", { transferIds: pendingTransferIds }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Approve failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+                const declineBtn = document.createElement("button");
+                declineBtn.type = "button";
+                declineBtn.className = "dash-btn";
+                declineBtn.style.marginTop = "0.8rem";
+                declineBtn.style.marginLeft = "0.3rem";
+                declineBtn.style.background = "var(--line)";
+                declineBtn.style.color = "var(--ink)";
+                declineBtn.textContent = "Decline all";
+                declineBtn.addEventListener("click", () => {
+                    apiCall("decline_stock_transfers", { transferIds: pendingTransferIds }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Decline failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+                container.appendChild(approveBtn);
+                container.appendChild(declineBtn);
+            }
+
+            if (!editable && applyCheckboxes.length) {
+                const applyBtn = document.createElement("button");
+                applyBtn.type = "button";
+                applyBtn.className = "dash-btn";
+                applyBtn.style.marginTop = "0.8rem";
+                applyBtn.textContent = "Apply selected — post stock movements";
+                applyBtn.addEventListener("click", () => {
+                    const ids = applyCheckboxes.filter((c) => c.checked).map((c) => c._transferId);
+                    if (!ids.length) {
+                        alert("Select at least one transfer to apply.");
+                        return;
+                    }
+                    apiCall("apply_stock_transfers", { transferIds: ids }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Apply failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+                container.appendChild(applyBtn);
+            }
+
+            if (editable) {
+                return {
+                    save: () => {
+                        const tasks = kioskEdits
+                            .filter(
+                                ({ t, sourcePicker, destPicker }) =>
+                                    sourcePicker.getId() !== (t.source_kiosk_id || "") ||
+                                    destPicker.getId() !== (t.destination_kiosk_id || ""),
+                            )
+                            .map(
+                                ({ t, sourcePicker, destPicker }) =>
+                                    () =>
+                                        apiCall("update_stock_transfer", {
+                                            transferId: t.transfer_id,
+                                            changes: {
+                                                source_kiosk_id: sourcePicker.getId(),
+                                                destination_kiosk_id: destPicker.getId(),
+                                            },
+                                        }),
+                            );
+                        return tasks.length ? runSequential_(tasks) : Promise.resolve({ ok: true });
+                    },
+                };
+            }
+        }
+
+        function kioskName_(kioskId) {
+            const k = INBOX_KIOSKS.find((k) => k.id === kioskId);
+            return k ? k.name : kioskId || "—";
+        }
+
+        function kioskPicker_(host, currentId) {
+            let pickedId = currentId || "";
+            const picker = makeSearchPick(host, {
+                placeholder: "Kiosk…",
+                getItems: (q) =>
+                    INBOX_KIOSKS.filter((k) => k.name.toLowerCase().includes(q)).map((k) => ({ id: k.id, label: k.name })),
+                onSelect: (item) => {
+                    pickedId = item.id;
+                    picker.setLabel(item.label);
+                },
+            });
+            if (currentId) picker.setLabel(kioskName_(currentId));
+            return { getId: () => pickedId };
+        }
+
+        function stockItemName_(stockItemId) {
+            const it = INBOX_STOCK_ITEMS.find((i) => i.id === stockItemId);
+            return it ? it.name : stockItemId || "—";
+        }
+
+        function stockItemPicker_(host, currentId) {
+            let pickedId = currentId || "";
+            const picker = makeSearchPick(host, {
+                placeholder: "Stock item…",
+                getItems: (q) =>
+                    INBOX_STOCK_ITEMS.filter((it) => it.name.toLowerCase().includes(q)).map((it) => ({ id: it.id, label: it.name })),
+                onSelect: (item) => {
+                    pickedId = item.id;
+                    picker.setLabel(item.label);
+                },
+            });
+            if (currentId) picker.setLabel(stockItemName_(currentId));
+            return { getId: () => pickedId };
+        }
+
+        // --- Delivery Invoice --------------------------------------------------
+
+        // delivery_header + delivery_file[] + invoice_line[] for the
+        // submission that raised this action (see bootstrapActionInbox).
+        // Whole-invoice Confirm/Decline, not per-line — matches this
+        // codebase's existing "Confirm Production" batch-confirm shape.
+        // Line edits (desc/stock item/qty/cost/remove/add) are batched
+        // behind one Edit/Save toggle — Confirm/Decline are hidden while
+        // editing, since committing the invoice mid-edit doesn't make sense.
+        function renderInvoiceSection(mount, row) {
+            const header = row.deliveryHeader;
+            if (!header) {
+                mount.innerHTML = '<p style="color: var(--muted)">Linked delivery not found.</p>';
+                return;
+            }
+            const inReview = header.status === "IN_REVIEW";
+
+            const summary = document.createElement("p");
+            summary.style.color = "var(--muted)";
+            summary.textContent =
+                (row.supplierName || "") + " — " + header.document_type + " — " + header.delivery_date +
+                " — status: " + header.status;
+            mount.appendChild(summary);
+
+            (row.deliveryFiles || []).forEach((f) => {
+                mount.appendChild(
+                    drivePreviewNode_(f.file_url, f.file_name + " — AI: " + f.ai_status + (f.ai_error ? " (" + f.ai_error + ")" : "")),
+                );
+            });
+
+            const sectionMount = document.createElement("div");
+            mount.appendChild(sectionMount);
+
+            const actionsWrap = document.createElement("div");
+            actionsWrap.className = "modal-actions";
+            mount.appendChild(actionsWrap);
+
+            buildEditSection_(sectionMount, {
+                canEdit: inReview,
+                renderView: (c) => renderInvoiceLinesTable_(c, row, false, header),
+                renderEdit: (c) => renderInvoiceLinesTable_(c, row, true, header),
+                onSaved: () => {
+                    loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                },
+                onModeChange: (editMode) => {
+                    actionsWrap.style.display = inReview && !editMode ? "" : "none";
+                },
+            });
+
+            if (inReview) {
+                const confirmBtn = document.createElement("button");
+                confirmBtn.type = "button";
+                confirmBtn.className = "dash-btn";
+                confirmBtn.textContent = "Confirm — approve lines, post stock movements";
+                confirmBtn.addEventListener("click", () => {
+                    apiCall("confirm_invoice_review", { deliveryHeaderId: header.delivery_header_id }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Confirm failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+
+                const declineBtn = document.createElement("button");
+                declineBtn.type = "button";
+                declineBtn.className = "dash-btn";
+                declineBtn.style.background = "var(--line)";
+                declineBtn.style.color = "var(--ink)";
+                declineBtn.textContent = "Decline — post nothing";
+                declineBtn.addEventListener("click", () => {
+                    apiCall("decline_invoice_review", { deliveryHeaderId: header.delivery_header_id }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Decline failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+
+                actionsWrap.appendChild(declineBtn);
+                actionsWrap.appendChild(confirmBtn);
+            }
+        }
+
+        function renderInvoiceLinesTable_(container, row, editable, header) {
+            const wrap = document.createElement("div");
+            wrap.className = "inbox-request-table-wrap";
+            container.appendChild(wrap);
+
+            const table = document.createElement("table");
+            table.className = "inbox-request-table";
+            table.innerHTML =
+                "<thead><tr><th>Description</th><th>Stock item</th><th>Qty</th><th>Unit cost</th><th>Source</th><th>Status</th>" +
+                (editable ? "<th>Remove</th>" : "") +
+                "</tr></thead>";
+            const tbody = document.createElement("tbody");
+            table.appendChild(tbody);
+            wrap.appendChild(table);
+
+            const tdCell = (content) => {
+                const td = document.createElement("td");
+                if (content instanceof Node) td.appendChild(content);
+                else td.textContent = content;
+                return td;
+            };
+
+            const lineEdits = [];
+
+            (row.invoiceLines || []).forEach((line) => {
+                const tr = document.createElement("tr");
+
+                if (editable && line.status === "DRAFT") {
+                    const descInp = document.createElement("input");
+                    descInp.type = "text";
+                    descInp.value = line.description_raw || "";
+
+                    const pickerHost = document.createElement("div");
+                    const picker = stockItemPicker_(pickerHost, line.stock_item_id);
+
+                    const qtyInp = document.createElement("input");
+                    qtyInp.type = "number";
+                    qtyInp.step = "0.01";
+                    qtyInp.value = line.qty;
+
+                    const costInp = document.createElement("input");
+                    costInp.type = "number";
+                    costInp.step = "0.01";
+                    costInp.value = line.unit_cost;
+
+                    const removeCheck = document.createElement("input");
+                    removeCheck.type = "checkbox";
+
+                    lineEdits.push({ line: line, descInp: descInp, picker: picker, qtyInp: qtyInp, costInp: costInp, removeCheck: removeCheck });
+
+                    tr.appendChild(tdCell(descInp));
+                    tr.appendChild(tdCell(pickerHost));
+                    tr.appendChild(tdCell(qtyInp));
+                    tr.appendChild(tdCell(costInp));
+                    tr.appendChild(tdCell(line.source));
+                    tr.appendChild(tdCell(line.status));
+                    tr.appendChild(tdCell(removeCheck));
+                } else {
+                    tr.appendChild(tdCell(line.description_raw || ""));
+                    tr.appendChild(tdCell(line.stockItemName || ""));
+                    tr.appendChild(tdCell(String(line.qty)));
+                    tr.appendChild(tdCell(String(line.unit_cost)));
+                    tr.appendChild(tdCell(line.source));
+                    tr.appendChild(tdCell(line.status));
+                    if (editable) tr.appendChild(tdCell(""));
+                }
+                tbody.appendChild(tr);
+            });
+
+            if (!editable) return;
+
+            const addWrap = document.createElement("div");
+            addWrap.className = "inbox-stocktake-add";
+            container.appendChild(addWrap);
+            const newDescInp = document.createElement("input");
+            newDescInp.type = "text";
+            newDescInp.placeholder = "New line — description";
+            addWrap.appendChild(newDescInp);
+            const newPickerWrap = document.createElement("div");
+            addWrap.appendChild(newPickerWrap);
+            const newPicker = stockItemPicker_(newPickerWrap, "");
+            const newQtyInp = document.createElement("input");
+            newQtyInp.type = "number";
+            newQtyInp.step = "0.01";
+            newQtyInp.placeholder = "Qty";
+            addWrap.appendChild(newQtyInp);
+            const newCostInp = document.createElement("input");
+            newCostInp.type = "number";
+            newCostInp.step = "0.01";
+            newCostInp.placeholder = "Unit cost";
+            addWrap.appendChild(newCostInp);
+
+            return {
+                save: () => {
+                    const tasks = [];
+                    lineEdits.forEach(({ line, descInp, picker, qtyInp, costInp, removeCheck }) => {
+                        if (removeCheck.checked) {
+                            tasks.push(() => apiCall("delete_invoice_line", { invoiceLineId: line.invoice_line_id }));
+                            return;
+                        }
+                        const changed =
+                            descInp.value !== (line.description_raw || "") ||
+                            picker.getId() !== (line.stock_item_id || "") ||
+                            String(qtyInp.value) !== String(line.qty) ||
+                            String(costInp.value) !== String(line.unit_cost);
+                        if (changed) {
+                            tasks.push(() =>
+                                apiCall("save_invoice_line", {
+                                    deliveryHeaderId: header.delivery_header_id,
+                                    isNew: false,
+                                    line: {
+                                        invoice_line_id: line.invoice_line_id,
+                                        description_raw: descInp.value,
+                                        stock_item_id: picker.getId(),
+                                        qty: qtyInp.value,
+                                        unit_cost: costInp.value,
+                                    },
+                                }),
+                            );
+                        }
+                    });
+                    if (newDescInp.value.trim()) {
+                        tasks.push(() =>
+                            apiCall("save_invoice_line", {
+                                deliveryHeaderId: header.delivery_header_id,
+                                isNew: true,
+                                line: {
+                                    description_raw: newDescInp.value,
+                                    stock_item_id: newPicker.getId(),
+                                    qty: newQtyInp.value,
+                                    unit_cost: newCostInp.value,
+                                },
+                            }),
+                        );
+                    }
+                    return tasks.length ? runSequential_(tasks) : Promise.resolve({ ok: true });
+                },
+            };
+        }
+
+        // --- Monthly Audit -------------------------------------------------------
+
+        // audit_response + audit_answer[] (joined with audit_question) for
+        // the submission that raised this action (see bootstrapActionInbox).
+        // Per spec §18.1, a confirmed failure auto-creates a
+        // corrective_action — no separate "select questions" step, the
+        // owner's per-question decision is the selection.
+        function renderAuditReviewSection(mount, row) {
+            const response = row.auditResponse;
+            const answers = row.auditAnswers || [];
+            if (!response) {
+                mount.innerHTML = '<p style="color: var(--muted)">Linked audit not found.</p>';
+                return;
+            }
+
+            const reviewedCount = answers.filter((a) => !!a.owner_decision).length;
+            const summary = document.createElement("p");
+            summary.style.color = "var(--muted)";
+            summary.textContent =
+                response.review_status + " — " + reviewedCount + "/" + answers.length + " reviewed" +
+                (response.review_status === "FULLY_REVIEWED"
+                    ? " — final: " + response.final_score + "% (" + response.final_rating + ")"
+                    : "");
+            mount.appendChild(summary);
+
+            answers.forEach((a) => {
+                const card = document.createElement("div");
+                card.className = "inbox-question-card" + (a.critical ? " is-critical" : "");
+
+                const meta = document.createElement("div");
+                meta.className = "inbox-question-meta";
+                meta.textContent =
+                    a.sectionName + (a.critical ? " — CRITICAL" : "") +
+                    " — staff answer: " + a.staff_answer +
+                    (a.owner_decision ? " — owner: " + a.owner_decision : "");
+                card.appendChild(meta);
+
+                const qText = document.createElement("div");
+                qText.textContent = a.questionText;
+                card.appendChild(qText);
+
+                if (a.evidence_photo_reference) {
+                    card.appendChild(drivePreviewNode_(a.evidence_photo_reference, "Evidence"));
+                }
+                if (a.owner_note) {
+                    const noteP = document.createElement("p");
+                    noteP.style.color = "var(--muted)";
+                    noteP.textContent = "Owner note: " + a.owner_note;
+                    card.appendChild(noteP);
+                }
+
+                if (!a.owner_decision) {
+                    const noteInp = document.createElement("input");
+                    noteInp.type = "text";
+                    noteInp.placeholder = "Note (required for fail / insufficient evidence)";
+                    noteInp.style.width = "100%";
+                    card.appendChild(noteInp);
+
+                    const decisions = document.createElement("div");
+                    decisions.className = "inbox-question-decisions";
+
+                    const decide = (decision) => {
+                        apiCall("review_audit_answer", {
+                            auditAnswerId: a.audit_answer_id,
+                            decision: decision,
+                            note: noteInp.value,
+                        }).then((res) => {
+                            if (!res.ok) {
+                                alert(res.error || "Save failed.");
+                                return;
+                            }
+                            loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                        });
+                    };
+
+                    if (a.staff_answer === "NA") {
+                        const ackBtn = document.createElement("button");
+                        ackBtn.type = "button";
+                        ackBtn.className = "dash-btn";
+                        ackBtn.textContent = "Acknowledge (N/A)";
+                        ackBtn.addEventListener("click", () => decide("ACCEPT"));
+                        decisions.appendChild(ackBtn);
+                    } else {
+                        [
+                            ["ACCEPT", "Accept"],
+                            ["OVERRIDE_PASS", "Override -> Pass"],
+                            ["OVERRIDE_FAIL", "Override -> Fail"],
+                            ["EVIDENCE_INSUFFICIENT", "Evidence insufficient"],
+                        ].forEach(([value, label]) => {
+                            const btn = document.createElement("button");
+                            btn.type = "button";
+                            btn.className = "dash-btn";
+                            btn.textContent = label;
+                            btn.addEventListener("click", () => decide(value));
+                            decisions.appendChild(btn);
+                        });
+                    }
+                    card.appendChild(decisions);
+                }
+
+                mount.appendChild(card);
+            });
+        }
+
+        // --- Audit Correction ----------------------------------------------------
+
+        // audit_correction (replacement evidence) + its corrective_action
+        // (original failing question/kiosk/deadline) for the submission
+        // that raised this action (see bootstrapActionInbox).
+        function renderAuditCorrectionSection(mount, row) {
+            const correction = row.auditCorrection;
+            if (!correction) {
+                mount.innerHTML = '<p style="color: var(--muted)">Linked correction not found.</p>';
+                return;
+            }
+            const ca = correction.correctiveAction;
+            const pending = ca && ca.status === "REPLACEMENT_SUBMITTED";
+
+            const summary = document.createElement("p");
+            summary.style.color = "var(--muted)";
+            summary.textContent =
+                (correction.questionText || "") + " — cycle " + correction.correction_cycle +
+                (ca ? " — deadline " + ca.deadline + " — status: " + ca.status : "");
+            mount.appendChild(summary);
+
+            const note = document.createElement("p");
+            note.textContent = correction.correction_note || "";
+            mount.appendChild(note);
+
+            if (correction.replacement_photo_reference) {
+                mount.appendChild(drivePreviewNode_(correction.replacement_photo_reference, "Replacement evidence"));
+            }
+
+            if (pending) {
+                const actionsWrap = document.createElement("div");
+                actionsWrap.className = "modal-actions";
+                mount.appendChild(actionsWrap);
+
+                const acceptBtn = document.createElement("button");
+                acceptBtn.type = "button";
+                acceptBtn.className = "dash-btn";
+                acceptBtn.textContent = "Accept — close corrective action";
+                acceptBtn.addEventListener("click", () => {
+                    apiCall("review_audit_correction", { auditCorrectionId: correction.audit_correction_id, decision: "ACCEPT" }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Save failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+
+                const rejectBtn = document.createElement("button");
+                rejectBtn.type = "button";
+                rejectBtn.className = "dash-btn";
+                rejectBtn.style.background = "var(--line)";
+                rejectBtn.style.color = "var(--ink)";
+                rejectBtn.textContent = "Reject — needs resubmission";
+                rejectBtn.addEventListener("click", () => {
+                    apiCall("review_audit_correction", { auditCorrectionId: correction.audit_correction_id, decision: "REJECT" }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Save failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+
+                actionsWrap.appendChild(rejectBtn);
+                actionsWrap.appendChild(acceptBtn);
+            }
+        }
+
+        // --- Damaged Product Log --------------------------------------------------
+
+        // Read-only card (the triggering product_movement row) + a single
+        // OK button — no dedicated backend action, this is exactly the
+        // generic triage editor's own status:RESOLVED save (see Part 9b of
+        // the plan).
+        function renderDamageSection(mount, row) {
+            const m = row.damageMovement;
+            if (!m) {
+                mount.innerHTML = '<p style="color: var(--muted)">Linked damage record not found.</p>';
+                return;
+            }
+
+            const summary = document.createElement("p");
+            summary.textContent =
+                m.productName + " — qty " + m.qty + (m.cost !== "" ? " — cost " + m.cost : " — uncosted") +
+                (m.damage_cause ? " — " + m.damage_cause : "");
+            mount.appendChild(summary);
+
+            if (m.photo_reference) mount.appendChild(drivePreviewNode_(m.photo_reference, "Photo"));
+
+            if (row.status !== "RESOLVED" && row.status !== "CLOSED" && row.status !== "NOT_PROCEEDING") {
+                const okBtn = document.createElement("button");
+                okBtn.type = "button";
+                okBtn.className = "dash-btn";
+                okBtn.textContent = "OK";
+                okBtn.addEventListener("click", () => {
+                    apiCall("update_owner_action", {
+                        ownerActionId: row.owner_action_id,
+                        changes: { status: "RESOLVED" },
+                    }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Save failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+                mount.appendChild(okBtn);
+            }
+        }
+
+        // Read-only — no Edit/Save toggle, nothing here posts anything
+        // (the owner sends the Gmail draft or places the online order
+        // manually, outside the app). Per-kiosk breakdown is computed live
+        // by the backend on every open, not stored, so it always reflects
+        // current stock rather than a stale snapshot from generation time.
+        function renderPurchasingRecommendationSection(mount, row) {
+            const batch = row.purchasingBatch;
+            if (!batch) {
+                mount.innerHTML = '<p style="color: var(--muted)">Linked purchasing batch not found.</p>';
+                return;
+            }
+
+            const summary = document.createElement("p");
+            summary.style.color = "var(--muted)";
+            summary.textContent = batch.supplier_id
+                ? (row.purchasingSupplierName || batch.supplier_id) + " — " + batch.order_output_method + " — generated " + batch.generated_at
+                : "Items missing par setup or a supplier mapping — generated " + batch.generated_at;
+            mount.appendChild(summary);
+
+            const lines = row.purchasingLines || [];
+            if (!lines.length) {
+                const p = document.createElement("p");
+                p.style.color = "var(--muted)";
+                p.textContent = "No line items.";
+                mount.appendChild(p);
+            } else {
+                const wrap = document.createElement("div");
+                wrap.className = "inbox-request-table-wrap";
+                mount.appendChild(wrap);
+
+                const table = document.createElement("table");
+                table.className = "inbox-request-table";
+                table.innerHTML = "<thead><tr><th>Item</th><th>Recommended</th><th>Flags</th><th>Kiosk breakdown</th></tr></thead>";
+                const tbody = document.createElement("tbody");
+                table.appendChild(tbody);
+                wrap.appendChild(table);
+
+                lines.forEach((line) => {
+                    const tr = document.createElement("tr");
+
+                    const itemTd = document.createElement("td");
+                    itemTd.textContent = line.stockItemName;
+                    tr.appendChild(itemTd);
+
+                    const recTd = document.createElement("td");
+                    recTd.textContent =
+                        line.recommended_packs !== "" && line.recommended_packs !== undefined
+                            ? line.recommended_packs + " pack(s) = " + line.recommended_qty + " " + line.unit
+                            : "—";
+                    tr.appendChild(recTd);
+
+                    const flagsTd = document.createElement("td");
+                    flagsTd.textContent = (line.flagList || []).join(", ") || "—";
+                    tr.appendChild(flagsTd);
+
+                    const breakdownTd = document.createElement("td");
+                    const breakdownList = document.createElement("ul");
+                    breakdownList.style.margin = "0";
+                    breakdownList.style.paddingLeft = "1.1rem";
+                    (line.kioskBreakdown || []).forEach((kb) => {
+                        const li = document.createElement("li");
+                        const stockText = kb.currentStock === null ? "no data" : "stock " + kb.currentStock;
+                        li.textContent =
+                            kb.kioskName + ": " + stockText + (kb.triggered ? " — short " + kb.shortfall : "") + (kb.flag ? " (" + kb.flag + ")" : "");
+                        if (kb.triggered) li.style.fontWeight = "600";
+                        breakdownList.appendChild(li);
+                    });
+                    breakdownTd.appendChild(breakdownList);
+                    tr.appendChild(breakdownTd);
+
+                    tbody.appendChild(tr);
+                });
+            }
+
+            if (row.status !== "RESOLVED" && row.status !== "CLOSED" && row.status !== "NOT_PROCEEDING") {
+                const okBtn = document.createElement("button");
+                okBtn.type = "button";
+                okBtn.className = "dash-btn";
+                okBtn.textContent = "OK — reviewed";
+                okBtn.addEventListener("click", () => {
+                    apiCall("update_owner_action", {
+                        ownerActionId: row.owner_action_id,
+                        changes: { status: "RESOLVED" },
+                    }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Save failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+                mount.appendChild(okBtn);
+            }
+        }
+
+        // The stocktake header+lines from the submission that raised this
+        // action (see bootstrapActionInbox). Line edits (qty/remove/add)
+        // are batched behind one Edit/Save toggle; Confirm/Decline (posts
+        // reconciliation movements, or nothing) are hidden while editing.
+        function renderStocktakeSection(mount, row) {
+            const header = row.stocktakeHeader;
+            if (!header) {
+                mount.innerHTML = '<p style="color: var(--muted)">Linked stocktake not found.</p>';
+                return;
+            }
+            const pending = header.reconciliation_status === "PENDING";
+
+            const summary = document.createElement("p");
+            summary.style.color = "var(--muted)";
+            summary.textContent =
+                header.stocktake_date + " — " + header.completion_status +
+                " — reconciliation: " + header.reconciliation_status;
+            mount.appendChild(summary);
+
+            const sectionMount = document.createElement("div");
+            mount.appendChild(sectionMount);
+
+            const actionsWrap = document.createElement("div");
+            actionsWrap.className = "modal-actions";
+            mount.appendChild(actionsWrap);
+
+            buildEditSection_(sectionMount, {
+                canEdit: pending,
+                renderView: (c) => renderStocktakeLinesTable_(c, row, false, header),
+                renderEdit: (c) => renderStocktakeLinesTable_(c, row, true, header),
+                onSaved: () => {
+                    loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                },
+                onModeChange: (editMode) => {
+                    actionsWrap.style.display = pending && !editMode ? "" : "none";
+                },
+            });
+
+            if (pending) {
+                const confirmBtn = document.createElement("button");
+                confirmBtn.type = "button";
+                confirmBtn.className = "dash-btn";
+                confirmBtn.textContent = "Confirm — post reconciliation movements";
+                confirmBtn.addEventListener("click", () => {
+                    apiCall("confirm_stocktake", { stocktakeHeaderId: header.stocktake_header_id }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Confirm failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+
+                const declineBtn = document.createElement("button");
+                declineBtn.type = "button";
+                declineBtn.className = "dash-btn";
+                declineBtn.style.background = "var(--line)";
+                declineBtn.style.color = "var(--ink)";
+                declineBtn.textContent = "Decline — post nothing";
+                declineBtn.addEventListener("click", () => {
+                    apiCall("decline_stocktake", { stocktakeHeaderId: header.stocktake_header_id }).then((res) => {
+                        if (!res.ok) {
+                            alert(res.error || "Decline failed.");
+                            return;
+                        }
+                        loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                    });
+                });
+
+                actionsWrap.appendChild(declineBtn);
+                actionsWrap.appendChild(confirmBtn);
+            }
+        }
+
+        function renderStocktakeLinesTable_(container, row, editable, header) {
+            const wrap = document.createElement("div");
+            wrap.className = "inbox-request-table-wrap";
+            container.appendChild(wrap);
+
+            const table = document.createElement("table");
+            table.className = "inbox-request-table";
+            table.innerHTML =
+                "<thead><tr><th>Stock item</th><th>Counted qty</th><th>Unit</th>" +
+                (editable ? "<th>Remove</th>" : "") +
+                "</tr></thead>";
+            const tbody = document.createElement("tbody");
+            table.appendChild(tbody);
+            wrap.appendChild(table);
+
+            const tdCell = (content) => {
+                const td = document.createElement("td");
+                if (content instanceof Node) td.appendChild(content);
+                else td.textContent = content;
+                return td;
+            };
+
+            const lineEdits = [];
+
+            (row.stocktakeLines || []).forEach((line) => {
+                const tr = document.createElement("tr");
+                tr.appendChild(tdCell(line.stockItemName || line.stock_item_id));
+
+                if (editable) {
+                    const qtyInp = document.createElement("input");
+                    qtyInp.type = "number";
+                    qtyInp.step = "0.01";
+                    qtyInp.value = line.counted_qty;
+                    const removeCheck = document.createElement("input");
+                    removeCheck.type = "checkbox";
+                    lineEdits.push({ line: line, qtyInp: qtyInp, removeCheck: removeCheck });
+
+                    tr.appendChild(tdCell(qtyInp));
+                    tr.appendChild(tdCell(line.count_unit || ""));
+                    tr.appendChild(tdCell(removeCheck));
+                } else {
+                    tr.appendChild(tdCell(String(line.counted_qty)));
+                    tr.appendChild(tdCell(line.count_unit || ""));
+                }
+                tbody.appendChild(tr);
+            });
+
+            if (!editable) return;
+
+            const addWrap = document.createElement("div");
+            addWrap.className = "inbox-stocktake-add";
+            container.appendChild(addWrap);
+            const pickerHost = document.createElement("div");
+            addWrap.appendChild(pickerHost);
+            let newItem = null;
+            const picker = makeSearchPick(pickerHost, {
+                placeholder: "Add item — search stock items…",
+                getItems: (q) =>
+                    INBOX_STOCK_ITEMS.filter((it) => it.name.toLowerCase().includes(q)).map((it) => ({
+                        id: it.id,
+                        label: it.name,
+                    })),
+                onSelect: (item) => {
+                    newItem = INBOX_STOCK_ITEMS.find((it) => it.id === item.id) || null;
+                    picker.setLabel(item.label);
+                },
+            });
+            const newQtyInp = document.createElement("input");
+            newQtyInp.type = "number";
+            newQtyInp.step = "0.01";
+            newQtyInp.placeholder = "Qty";
+            addWrap.appendChild(newQtyInp);
+
+            return {
+                save: () => {
+                    const tasks = [];
+                    lineEdits.forEach(({ line, qtyInp, removeCheck }) => {
+                        if (removeCheck.checked) {
+                            tasks.push(() => apiCall("delete_stocktake_line", { stocktakeLineId: line.stocktake_line_id }));
+                        } else if (String(qtyInp.value) !== String(line.counted_qty)) {
+                            tasks.push(() =>
+                                apiCall("save_stocktake_line", {
+                                    stocktakeHeaderId: header.stocktake_header_id,
+                                    isNew: false,
+                                    line: {
+                                        stocktake_line_id: line.stocktake_line_id,
+                                        stock_item_id: line.stock_item_id,
+                                        counted_qty: qtyInp.value,
+                                    },
+                                }),
+                            );
+                        }
+                    });
+                    if (newItem) {
+                        tasks.push(() =>
+                            apiCall("save_stocktake_line", {
+                                stocktakeHeaderId: header.stocktake_header_id,
+                                isNew: true,
+                                line: { stock_item_id: newItem.id, counted_qty: newQtyInp.value },
+                            }),
+                        );
+                    }
+                    return tasks.length ? runSequential_(tasks) : Promise.resolve({ ok: true });
+                },
+            };
+        }
+
+        // Full re-render of the open modal after a category-specific action
+        // changes structural state (line added/removed, header locked) —
+        // simpler and less error-prone than patching the existing DOM in
+        // place for every such change. Only ever called right after this
+        // page's own loadInboxList() has already resolved, so it tears down
+        // the DOM without triggering closeModal's own refetch (which would
+        // otherwise race this one).
+        function closeActiveModalAndReopen_(ownerActionId) {
+            if (ACTIVE_INBOX_MODAL) ACTIVE_INBOX_MODAL.removeDom();
+            openActionDetail(ownerActionId);
+        }
+
+        // The one request that triggered this specific owner_action (see
+        // bootstrapActionInbox — linked via source_submission_id). Staff-
+        // entered fields (title/details/category/photo) are always
+        // read-only; owner-side fields go through the same Edit/Save
+        // toggle as the generic triage editor.
+        function renderHelpIssueSection(mount, row) {
+            const req = row.request;
+            if (!req) {
+                mount.innerHTML = '<p style="color: var(--muted)">Linked request not found.</p>';
+                return;
+            }
+
+            const heading = document.createElement("h4");
+            heading.textContent = "Request: " + req.title;
+            mount.appendChild(heading);
+
+            const summary = document.createElement("p");
+            summary.style.color = "var(--muted)";
+            summary.textContent = req.request_type + " — " + req.details;
+            mount.appendChild(summary);
+
+            if (req.photo_reference) mount.appendChild(drivePreviewNode_(req.photo_reference, "Photo/video"));
+
+            const sectionMount = document.createElement("div");
+            mount.appendChild(sectionMount);
+
+            buildEditSection_(sectionMount, {
+                renderView: (c) => renderViewFields_(c, [
+                    ["Status", req.owner_status],
+                    ["Priority", req.owner_priority],
+                    ["Assigned to", req.assigned_to],
+                    ["Due date", req.due_date],
+                    ["Owner note", req.owner_note],
+                    ["Resolution note", req.resolution_note],
+                ]),
+                renderEdit: (c) => {
+                    const grid = document.createElement("div");
+                    grid.className = "detail-fields-grid";
+                    c.appendChild(grid);
+                    const fields = {
+                        owner_status: fieldSelect_(grid, "Status", req.owner_status, REQUEST_STATUSES),
+                        owner_priority: fieldSelect_(grid, "Priority", req.owner_priority, REQUEST_PRIORITIES),
+                        assigned_to: fieldText_(grid, "Assigned to", req.assigned_to),
+                        due_date: fieldDate_(grid, "Due date", req.due_date),
+                        owner_note: fieldText_(grid, "Owner note", req.owner_note),
+                        resolution_note: fieldText_(grid, "Resolution note", req.resolution_note),
+                    };
+                    return {
+                        save: () => {
+                            const changes = {};
+                            Object.keys(fields).forEach((k) => (changes[k] = fields[k].get()));
+                            return apiCall("update_request", {
+                                requestId: req.request_id,
+                                changes: changes,
+                                ownerActionId: row.owner_action_id,
+                            }).then((res) => {
+                                if (res.ok) Object.assign(req, res.row);
+                                return res;
+                            });
+                        },
+                    };
+                },
+                onSaved: () => {
+                    loadInboxList().then(() => closeActiveModalAndReopen_(row.owner_action_id));
+                },
+            });
+        }
+
+        // Shared field builders (also usable outside renderTriageEditor).
+        function fieldSelect_(grid, label, value, options) {
+            const wrap = document.createElement("div");
+            wrap.className = "modal-field";
+            const sel = document.createElement("select");
+            sel.innerHTML = options
+                .map((o) => `<option value="${o}"${o === (value || "") ? " selected" : ""}>${o || "—"}</option>`)
+                .join("");
+            wrap.innerHTML = `<label>${label}</label>`;
+            wrap.appendChild(sel);
+            grid.appendChild(wrap);
+            return { get: () => sel.value };
+        }
+        function fieldText_(grid, label, value) {
+            const wrap = document.createElement("div");
+            wrap.className = "modal-field";
+            const inp = document.createElement("input");
+            inp.type = "text";
+            inp.value = value || "";
+            wrap.innerHTML = `<label>${label}</label>`;
+            wrap.appendChild(inp);
+            grid.appendChild(wrap);
+            return { get: () => inp.value };
+        }
+        function fieldDate_(grid, label, value) {
+            const wrap = document.createElement("div");
+            wrap.className = "modal-field";
+            const inp = document.createElement("input");
+            inp.type = "date";
+            inp.value = value || "";
+            wrap.innerHTML = `<label>${label}</label>`;
+            wrap.appendChild(inp);
+            grid.appendChild(wrap);
+            return { get: () => inp.value };
+        }
+
+        window.addEventListener("popstate", () => {
+            const id = detailIdFromUrl();
+            if (!id && ACTIVE_INBOX_MODAL) {
+                ACTIVE_INBOX_MODAL.forceClose();
+            } else if (id && (!ACTIVE_INBOX_MODAL || ACTIVE_INBOX_MODAL.ownerActionId !== id)) {
+                if (ACTIVE_INBOX_MODAL) ACTIVE_INBOX_MODAL.forceClose();
+                openActionDetail(id, { pushUrl: false });
+            }
+        });
+    </script>
+</body>
+</html>

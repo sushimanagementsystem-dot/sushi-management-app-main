@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍣</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Staff Forms</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+    <div class="topbar">
+        <span class="kiosk" id="kioskName">Loading…</span>
+    </div>
+
+    <!-- Deliberately empty — the menu is only ever built by JS, after both
+         the kiosk token and sign-in checks pass. Nothing to reveal via
+         devtools before that: there's no markup here to reveal. -->
+    <div class="wrap" id="menu"></div>
+
+    <script src="/assets/common.js"></script>
+    <script>
+        const TOKEN = requireKioskToken();
+        let SLUG = "";
+
+        const MENU_GROUPS = [
+            {
+                label: "Daily tasks",
+                note: "Complete each of these tasks every day.",
+                items: [
+                    { page: "morning-waste", icon: "🗑️", label: "Morning Waste" },
+                    { page: "fridge-count", icon: "🧊", label: "Morning Fridge Count" },
+                    { page: "staff-food", icon: "🍱", label: "Staff Food" },
+                ],
+            },
+            {
+                label: "As needed",
+                note: "Complete the relevant task whenever the event occurs.",
+                items: [
+                    { page: "food-waste", icon: "⚖️", label: "Food Waste" },
+                    { page: "damaged-product", icon: "📸", label: "Damaged Product Log" },
+                    { page: "delivery-invoices", icon: "📄", label: "Delivery Invoices" },
+                    { page: "help-issues", icon: "🆘", label: "Help / Issues" },
+                    { page: "move-stock", icon: "🔄", label: "Move Stock Between Kiosks" },
+                ],
+            },
+            {
+                label: "Scheduled",
+                note: "Weekly and monthly routines.",
+                items: [
+                    { page: "weekly-stocktake", icon: "📋", label: "Weekly Stocktake" },
+                    { page: "monthly-audit", icon: "🔍", label: "Monthly Audit" },
+                    { page: "audit-corrections", icon: "🛠️", label: "Audit Corrections" },
+                ],
+            },
+        ];
+
+        if (TOKEN) {
+            SLUG = getSlugFromPath();
+            if (!getStoredSessionToken()) {
+                window.location.replace("/login?return=" + SLUG);
+            } else {
+                showMenu();
+            }
+        }
+
+        function showMenu() {
+            apiCall("kiosk_info", { token: TOKEN }).then((res) => {
+                if (!res.ok || !res.kiosk) {
+                    document.getElementById("kioskName").textContent =
+                        "Invalid kiosk link";
+                    return;
+                }
+                document.title = res.kiosk.name + " — Staff Forms";
+                document.getElementById("kioskName").textContent =
+                    res.kiosk.name + " — Staff Forms";
+                renderMenu();
+            });
+        }
+
+        function renderMenu() {
+            const container = document.getElementById("menu");
+            MENU_GROUPS.forEach((group) => {
+                const label = document.createElement("div");
+                label.className = "group-label";
+                label.textContent = group.label;
+                container.appendChild(label);
+
+                const note = document.createElement("div");
+                note.className = "group-note";
+                note.textContent = group.note;
+                container.appendChild(note);
+
+                group.items.forEach((item) => {
+                    const a = document.createElement("a");
+                    a.className = "btn-card";
+                    a.href = "/" + SLUG + "/" + item.page;
+                    a.innerHTML =
+                        '<span class="icon">' +
+                        item.icon +
+                        "</span> " +
+                        item.label +
+                        ' <span class="chev">›</span>';
+                    container.appendChild(a);
+                });
+            });
+        }
+    </script>
+</body>
+</html>

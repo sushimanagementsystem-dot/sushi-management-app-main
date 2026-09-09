@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍣</text></svg>" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Sushi Management System</title>
+        <link rel="stylesheet" href="/assets/style.css" />
+    </head>
+    <body>
+        <div class="wrap" id="wrap" style="text-align: center; padding-top: 3rem">
+            <div style="font-size: 3rem">🍣</div>
+            <h2 style="margin: 0.6rem 0 0.4rem">Open your kiosk's link</h2>
+            <p style="color: var(--muted); font-size: 0.95rem; max-width: 26rem; margin: 0 auto">
+                This app is opened through your kiosk's QR code or link, not
+                this page directly — each kiosk has its own. Scan the code
+                posted at your kiosk, or use the link you were given.
+            </p>
+            <p style="color: var(--muted); font-size: 0.85rem; margin-top: 1.5rem">
+                Don't have your kiosk's link? Contact the owner.
+            </p>
+        </div>
+    </body>
+    <script src="/assets/common.js"></script>
+    <script>
+        // If this device already has a kiosk remembered (from a previous
+        // /enter?token= visit), skip the dead-end message and go straight
+        // there instead of making staff dig up the link/QR code again.
+        // Dashboard joins the list the same way kiosks do — only once
+        // access to it has actually been confirmed here before (see
+        // requireRole() in common.js), never from a live check on load.
+        const options = listStoredKiosks()
+            .slice()
+            .sort()
+            .map((slug) => ({
+                href: "/" + slug + "/home",
+                label: getStoredKioskName(slug) || slug.toUpperCase(),
+                icon: "🍣",
+            }));
+        if (hasAllowedSlug("dashboard")) {
+            options.push({ href: "/dashboard", label: "Dashboard", icon: "📊" });
+        }
+
+        if (options.length === 1) {
+            window.location.replace(options[0].href);
+        } else if (options.length > 1) {
+            const wrap = document.getElementById("wrap");
+            wrap.innerHTML =
+                '<div style="font-size:3rem">🍣</div>' +
+                '<h2 style="margin:0.6rem 0 0.4rem">Continue to…</h2>' +
+                '<p style="color:var(--muted);font-size:0.95rem">This device has more than one option saved.</p>';
+            const list = document.createElement("div");
+            list.style.cssText = "margin-top:1.2rem;text-align:left";
+            options.forEach((opt) => {
+                const a = document.createElement("a");
+                a.href = opt.href;
+                a.className = "btn-card";
+                a.innerHTML =
+                    '<span class="icon">' +
+                    opt.icon +
+                    "</span><span>" +
+                    opt.label +
+                    '</span><span class="chev">›</span>';
+                list.appendChild(a);
+            });
+            wrap.appendChild(list);
+        }
+    </script>
+</html>

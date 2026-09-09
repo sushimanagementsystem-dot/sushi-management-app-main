@@ -1,0 +1,300 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚖️</text></svg>" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Food Waste</title>
+        <link rel="stylesheet" href="/assets/style.css" />
+        <script src="/assets/search-pick.js"></script>
+        <style>
+            .line {
+                display: flex;
+                gap: 0.4rem;
+                margin-bottom: 0.6rem;
+            }
+            .line select.cat {
+                width: 6.5rem;
+                flex: none;
+            }
+            .line .searchpick {
+                flex: 1;
+                min-width: 0;
+            }
+            .line input[type="number"] {
+                width: 5rem;
+                flex: none;
+            }
+            .line .rm {
+                border: none;
+                background: none;
+                color: var(--muted);
+                font-size: 1.2rem;
+                padding: 0 0.2rem;
+            }
+            .actions button {
+                width: 100%;
+                margin-top: 0.6rem;
+                font-weight: 700;
+                cursor: pointer;
+            }
+            #submitBtn {
+                background: var(--accent);
+                color: var(--accent-ink);
+                border-color: var(--accent);
+            }
+            .note {
+                font-size: 0.85rem;
+                color: var(--muted);
+                margin: 0.6rem 0.1rem;
+            }
+            #result {
+                margin-top: 1rem;
+                padding: 1rem;
+                border-radius: 10px;
+                display: none;
+                white-space: pre-wrap;
+            }
+            #result.err {
+                display: block;
+                background: #fce8e6;
+            }
+            .spinner {
+                display: none;
+                margin: 1rem auto 0;
+                width: 2.2rem;
+                height: 2.2rem;
+                border: 4px solid var(--line);
+                border-top-color: var(--accent);
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+            }
+            .busy .spinner,
+            .spinner.loading {
+                display: block;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            #successPanel {
+                display: none;
+                text-align: center;
+                padding: 3rem 1rem;
+            }
+            #successPanel .big {
+                font-size: 3rem;
+            }
+            #successPanel .msg {
+                margin: 0.8rem 0 1.6rem;
+                font-size: 1.05rem;
+            }
+            #successPanel a {
+                display: inline-block;
+                background: var(--ink);
+                color: #fff;
+                text-decoration: none;
+                font-weight: 700;
+                padding: 0.8rem 1.6rem;
+                border-radius: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="topbar">
+            <span class="kiosk">⚖️ Food Waste</span>
+            <a class="staff" style="color: #fff" data-menu-link>‹ Menu</a>
+        </div>
+        <div class="wrap">
+            <div id="formArea">
+                <p class="note">
+                    Ingredients or prepared food placed in the bin, weighed in
+                    grams. Not for expired finished products — use Morning
+                    Waste.
+                </p>
+
+                <div id="lines"></div>
+
+                <div class="actions" style="display: none">
+                    <button id="addLine" onclick="addLine()">+ Add item</button>
+                    <button id="submitBtn" onclick="submitWaste()">
+                        Submit
+                    </button>
+                </div>
+                <div class="spinner loading"></div>
+                <div id="result"></div>
+            </div>
+
+            <div id="successPanel">
+                <div class="big">✅</div>
+                <div class="msg" id="successMsg"></div>
+                <a data-menu-link>Back to menu</a>
+            </div>
+        </div>
+
+        <script src="/assets/common.js"></script>
+        <script>
+            const TOKEN = initPage();
+            const CLIENT_KEY =
+                crypto && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : String(Date.now()) +
+                      "-" +
+                      Math.random().toString(36).slice(2);
+            let BOOT = null;
+            let byName = {};
+            let categories = [];
+
+            if (TOKEN) {
+                apiCall("bootstrap_food_waste", { token: TOKEN })
+                    .then(init)
+                    .catch((e) => showError("Could not load: " + e.message));
+            }
+
+            function init(boot) {
+                if (!boot.ok) return showError(boot.error);
+                BOOT = boot;
+                boot.items.forEach((p) => (byName[p.name] = p.id));
+                categories = [...new Set(boot.items.map((p) => p.cat))].sort();
+
+                addLine();
+                document.querySelector(".actions").style.display = "";
+                document.querySelector(".spinner").classList.remove("loading");
+            }
+
+            function addLine() {
+                const div = document.createElement("div");
+                div.className = "line";
+
+                const sel = document.createElement("select");
+                sel.className = "cat";
+                sel.innerHTML = '<option value="">All</option>';
+                categories.forEach(
+                    (c) =>
+                        (sel.innerHTML +=
+                            '<option value="' + c + '">' + c + "</option>"),
+                );
+
+                const wrap = document.createElement("div");
+                const gramsInp = document.createElement("input");
+                gramsInp.type = "number";
+                gramsInp.min = "1";
+                gramsInp.step = "any";
+                gramsInp.inputMode = "decimal";
+                gramsInp.placeholder = "Grams";
+
+                const rm = document.createElement("button");
+                rm.className = "rm";
+                rm.textContent = "✕";
+                rm.onclick = () => div.remove();
+
+                const picker = makeSearchPick(wrap, {
+                    placeholder: "Search item…",
+                    getItems: (q) => {
+                        const taken = new Set(
+                            [
+                                ...document.querySelectorAll(
+                                    ".line .searchpick input",
+                                ),
+                            ]
+                                .filter((i) => i !== picker.input)
+                                .map((i) => i.value.trim())
+                                .filter((v) => byName[v]),
+                        );
+                        return BOOT.items
+                            .filter(
+                                (p) =>
+                                    !taken.has(p.name) &&
+                                    (!sel.value || p.cat === sel.value) &&
+                                    (!q || p.name.toLowerCase().includes(q)),
+                            )
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((p) => ({ id: p.id, label: p.name }));
+                    },
+                    onSelect: () => gramsInp.focus(),
+                });
+                sel.onchange = () => {
+                    picker.setLabel("");
+                    if (document.activeElement === picker.input)
+                        picker.refresh();
+                };
+
+                div.append(sel, wrap, gramsInp, rm);
+                document.getElementById("lines").appendChild(div);
+
+                div._picker = picker;
+                div._gramsInp = gramsInp;
+            }
+
+            function submitWaste() {
+                const lines = [];
+                for (const div of document.querySelectorAll(".line")) {
+                    const name = div._picker.input.value.trim();
+                    const gramsVal = div._gramsInp.value;
+                    if (!name && !gramsVal) continue;
+
+                    const id = byName[name];
+                    if (!id)
+                        return showError(
+                            'Unknown item: "' +
+                                name +
+                                '". Pick from the list.',
+                        );
+                    const grams = Number(gramsVal);
+                    if (!Number.isFinite(grams) || grams <= 0)
+                        return showError(
+                            name +
+                                ": weight must be a number greater than 0 grams.",
+                        );
+                    lines.push({ stock_item_id: id, grams: grams });
+                }
+                if (!lines.length) return showError("Add at least one item.");
+
+                setBusy(true);
+                apiCall("submit", {
+                    token: TOKEN,
+                    formType: "FOOD_WASTE",
+                    payload: {
+                        client_key: CLIENT_KEY,
+                        business_date: BOOT.businessDate,
+                        lines: lines,
+                    },
+                })
+                    .then((res) => {
+                        setBusy(false);
+                        if (res.ok) {
+                            showSuccess("Food waste recorded.");
+                            kickProcessing();
+                        } else showError(res.error);
+                    })
+                    .catch((e) => {
+                        setBusy(false);
+                        showError("Submit failed: " + e.message);
+                    });
+            }
+
+            function setBusy(b) {
+                document.body.classList.toggle("busy", b);
+                for (const el of document.querySelectorAll(
+                    "#formArea button, #formArea input, #formArea select",
+                ))
+                    el.disabled = b;
+            }
+
+            function showSuccess(msg) {
+                document.getElementById("formArea").style.display = "none";
+                document.getElementById("successMsg").textContent = msg;
+                document.getElementById("successPanel").style.display = "block";
+            }
+
+            function showError(msg) {
+                document.querySelector(".spinner").classList.remove("loading");
+                const el = document.getElementById("result");
+                el.className = "err";
+                el.textContent = msg;
+                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        </script>
+    </body>
+</html>

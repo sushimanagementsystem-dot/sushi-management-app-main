@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍣</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Opening…</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+    <div style="padding: 3rem 1.5rem; text-align: center">
+        <p id="msg">Opening your kiosk…</p>
+    </div>
+
+    <script src="/assets/common.js"></script>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get("token") || "";
+        const msg = document.getElementById("msg");
+
+        if (!token) {
+            window.location.replace("/forbidden?reason=link");
+        } else {
+            apiCall("kiosk_info", { token: token })
+                .then((res) => {
+                    if (!res.ok || !res.kiosk) {
+                        window.location.replace("/forbidden?reason=link");
+                        return;
+                    }
+                    const slug = String(res.kiosk.kiosk_id).toLowerCase();
+                    storeKioskToken(slug, token, res.kiosk.name);
+                    window.location.replace("/" + slug + "/home");
+                })
+                .catch((err) => {
+                    msg.textContent = "Could not verify link: " + err.message;
+                });
+        }
+    </script>
+</body>
+</html>

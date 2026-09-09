@@ -1,0 +1,273 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛠️</text></svg>" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Audit Corrections</title>
+        <link rel="stylesheet" href="/assets/style.css" />
+        <style>
+            .field {
+                width: 100%;
+                margin-bottom: 0.7rem;
+            }
+            label {
+                display: block;
+                font-size: 0.8rem;
+                color: var(--muted);
+                margin: 0 0.1rem 0.25rem;
+            }
+            textarea.field {
+                min-height: 5rem;
+                resize: vertical;
+            }
+            .photo-box {
+                border: 2px dashed var(--line);
+                border-radius: var(--radius);
+                padding: 1.2rem;
+                text-align: center;
+                margin-bottom: 0.7rem;
+                cursor: pointer;
+                color: var(--muted);
+                font-size: 0.9rem;
+            }
+            .photo-box img {
+                max-width: 100%;
+                max-height: 12rem;
+                border-radius: 8px;
+                display: block;
+                margin: 0 auto;
+            }
+            .empty-note {
+                text-align: center;
+                color: var(--muted);
+                padding: 2rem 1rem;
+            }
+            .actions button {
+                width: 100%;
+                margin-top: 0.6rem;
+                font-weight: 700;
+                cursor: pointer;
+            }
+            #submitBtn {
+                background: var(--accent);
+                color: var(--accent-ink);
+                border-color: var(--accent);
+            }
+            .note {
+                font-size: 0.85rem;
+                color: var(--muted);
+                margin: 0.6rem 0.1rem;
+            }
+            #result {
+                margin-top: 1rem;
+                padding: 1rem;
+                border-radius: 10px;
+                display: none;
+                white-space: pre-wrap;
+            }
+            #result.err {
+                display: block;
+                background: #fce8e6;
+            }
+            .spinner {
+                display: none;
+                margin: 1rem auto 0;
+                width: 2.2rem;
+                height: 2.2rem;
+                border: 4px solid var(--line);
+                border-top-color: var(--accent);
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+            }
+            .busy .spinner,
+            .spinner.loading {
+                display: block;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            #successPanel {
+                display: none;
+                text-align: center;
+                padding: 3rem 1rem;
+            }
+            #successPanel .big {
+                font-size: 3rem;
+            }
+            #successPanel .msg {
+                margin: 0.8rem 0 1.6rem;
+                font-size: 1.05rem;
+            }
+            #successPanel a,
+            #successPanel button {
+                display: inline-block;
+                background: var(--ink);
+                color: #fff;
+                text-decoration: none;
+                font-weight: 700;
+                padding: 0.8rem 1.6rem;
+                border-radius: 10px;
+                border: none;
+                cursor: pointer;
+                margin: 0 0.3rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="topbar">
+            <span class="kiosk">🛠️ Audit Corrections</span>
+            <a class="staff" style="color: #fff" data-menu-link>‹ Menu</a>
+        </div>
+        <div class="wrap">
+            <div id="formArea">
+                <div id="noActions" class="empty-note" style="display: none">
+                    No open audit actions for this kiosk right now.
+                </div>
+
+                <div id="fields" style="display: none">
+                    <p class="note">
+                        Fix confirmed, submitting moves it to the owner for
+                        review — it stays open until they close it.
+                    </p>
+
+                    <label for="action">Which action are you fixing?</label>
+                    <select id="action" class="field">
+                        <option value="">Select action…</option>
+                    </select>
+
+                    <label for="text">What did you fix?</label>
+                    <textarea id="text" class="field" placeholder="Explain what was corrected"></textarea>
+
+                    <label>Replacement evidence photo</label>
+                    <div class="photo-box" onclick="document.getElementById('photoInput').click()">
+                        <div id="photoPlaceholder">Tap to take or choose a photo</div>
+                        <img id="photoPreview" style="display: none" />
+                    </div>
+                    <input id="photoInput" type="file" accept="image/*" capture="environment" style="display: none" />
+                </div>
+
+                <div class="actions" style="display: none">
+                    <button id="submitBtn" onclick="submitCorrection()">Submit correction</button>
+                </div>
+                <div class="spinner loading"></div>
+                <div id="result"></div>
+            </div>
+
+            <div id="successPanel">
+                <div class="big">✅</div>
+                <div class="msg" id="successMsg"></div>
+                <button onclick="location.reload()">Submit another</button>
+                <a data-menu-link>Back to menu</a>
+            </div>
+        </div>
+
+        <script src="/assets/common.js"></script>
+        <script>
+            const TOKEN = initPage();
+            const CLIENT_KEY =
+                crypto && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : String(Date.now()) + "-" + Math.random().toString(36).slice(2);
+            let BOOT = null;
+            let photoData = null;
+
+            if (TOKEN) {
+                apiCall("bootstrap_audit_correction", { token: TOKEN })
+                    .then(init)
+                    .catch((e) => showError("Could not load: " + e.message));
+            }
+
+            function init(boot) {
+                if (!boot.ok) return showError(boot.error);
+                BOOT = boot;
+                document.querySelector(".spinner").classList.remove("loading");
+
+                if (!boot.actions.length) {
+                    document.getElementById("noActions").style.display = "block";
+                    return;
+                }
+
+                const sel = document.getElementById("action");
+                boot.actions.forEach((a) => {
+                    const o = document.createElement("option");
+                    o.value = a.id;
+                    const due = a.deadline ? " — due " + a.deadline : "";
+                    o.textContent = a.question + due;
+                    sel.appendChild(o);
+                });
+
+                document.getElementById("photoInput").addEventListener("change", onPhotoChosen);
+
+                document.getElementById("fields").style.display = "";
+                document.querySelector(".actions").style.display = "";
+            }
+
+            function onPhotoChosen(ev) {
+                const file = ev.target.files[0];
+                if (!file) return;
+                readFileForUpload(file).then((data) => {
+                    photoData = data;
+                    document.getElementById("photoPreview").src =
+                        "data:" + data.mimeType + ";base64," + data.base64;
+                    document.getElementById("photoPreview").style.display = "block";
+                    document.getElementById("photoPlaceholder").style.display = "none";
+                });
+            }
+
+            function submitCorrection() {
+                const actionId = document.getElementById("action").value;
+                const text = document.getElementById("text").value.trim();
+                if (!actionId) return showError("Select which action this fixes.");
+                if (!text) return showError("Explain what was fixed.");
+                if (!photoData) return showError("Replacement evidence photo is required.");
+
+                setBusy(true);
+                apiCall("submit", {
+                    token: TOKEN,
+                    formType: "AUDIT_CORRECTION",
+                    payload: {
+                        client_key: CLIENT_KEY,
+                        business_date: BOOT.businessDate,
+                        corrective_action_id: actionId,
+                        correction_note: text,
+                        photo: photoData,
+                    },
+                })
+                    .then((res) => {
+                        setBusy(false);
+                        if (res.ok) {
+                            showSuccess("Correction submitted for owner review.");
+                            kickProcessing();
+                        } else showError(res.error);
+                    })
+                    .catch((e) => {
+                        setBusy(false);
+                        showError("Submit failed: " + e.message);
+                    });
+            }
+
+            function setBusy(b) {
+                document.body.classList.toggle("busy", b);
+                for (const el of document.querySelectorAll("#formArea button, #formArea input, #formArea select, #formArea textarea"))
+                    el.disabled = b;
+            }
+
+            function showSuccess(msg) {
+                document.getElementById("formArea").style.display = "none";
+                document.getElementById("successMsg").textContent = msg;
+                document.getElementById("successPanel").style.display = "block";
+            }
+
+            function showError(msg) {
+                document.querySelector(".spinner").classList.remove("loading");
+                const el = document.getElementById("result");
+                el.className = "err";
+                el.textContent = msg;
+                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        </script>
+    </body>
+</html>

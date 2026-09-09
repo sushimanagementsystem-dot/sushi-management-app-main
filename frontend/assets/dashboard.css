@@ -1,0 +1,1088 @@
+/* dashboard.css — sidebar shell for /dashboard*. Loaded alongside style.css
+   (shared reset + color variables). Desktop is the priority here, unlike
+   the kiosk pages' mobile-first .wrap layout — this degrades to a
+   horizontal top bar below the breakpoint rather than being designed
+   mobile-first. */
+
+/* Fixed to the viewport height, not min-height: the sidebar's own
+   "moving on scroll" bug and the page-level horizontal scroll bug were
+   really the same root cause — nothing bounded the shell's height, so
+   tall/wide content grew the whole page instead of scrolling inside its
+   own box. With a fixed-height shell, only .dash-main scrolls internally
+   (see below); the sidebar and toolbar never move. */
+.dash-shell {
+    display: flex;
+    height: 100vh;
+}
+.dash-sidebar {
+    width: 15rem;
+    flex-shrink: 0;
+    background: var(--ink);
+    color: #fff;
+    padding: 1.2rem 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    overflow-y: auto;
+    transition: width 0.15s ease;
+}
+.dash-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 0.2rem 1rem 0.6rem;
+}
+.dash-sidebar-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.dash-toggle {
+    background: none;
+    border: none;
+    color: #fff;
+    opacity: 0.7;
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0.4rem 0.5rem;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+.dash-toggle:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+}
+.dash-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.7rem 0.6rem;
+    border-radius: 10px;
+    color: #fff;
+    text-decoration: none;
+    font-size: 0.95rem;
+    font-weight: 600;
+    opacity: 0.85;
+}
+.dash-nav-item span:not(.icon) {
+    white-space: nowrap;
+    overflow: hidden;
+}
+.dash-nav-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.dash-nav-active {
+    background: var(--accent);
+    opacity: 1;
+}
+.dash-nav-disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+.dash-nav-disabled:hover {
+    background: none;
+}
+.dash-nav-soon {
+    margin-left: auto;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+}
+/* flex + min-width: 0 is what actually lets wide content (a table with
+   many columns) scroll inside this pane instead of stretching it — and
+   the page along with it. Without min-width: 0, a flex item's default
+   min-width is "auto", which means it refuses to shrink below its
+   content's natural width; that's the actual mechanism behind the
+   horizontal-scroll-on-the-whole-page bug. */
+.dash-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 2rem 2.5rem;
+    overflow: hidden;
+}
+/* Content stays centered in whatever room the sidebar leaves — .dash-main
+   itself fills all available flex space (so it reacts to collapse/expand),
+   this wrapper just keeps the actual content from stretching edge-to-edge
+   on a wide monitor. flex + min-height: 0 lets a tall child (the grid)
+   scroll inside its own box instead of pushing this pane's height (and
+   the sidebar/toolbar along with it) — the vertical counterpart of the
+   min-width: 0 fix above. */
+.dash-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    max-width: 90rem;
+    width: 100%;
+    margin: 0 auto;
+}
+.dash-main h1 {
+    margin: 0 0 0.3rem;
+    font-size: 1.5rem;
+}
+/* Airtable-style table switcher — a row of pill tabs above the heading,
+   built from table_schema. Hidden entirely when there's only one table. */
+.table-tabs {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+.table-tab {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+}
+.table-tab:hover {
+    background: #f2f6ff;
+}
+.table-tab-active {
+    background: var(--ink);
+    color: #fff;
+    border-color: var(--ink);
+}
+/* The actual scroll box for tall/wide content (a data grid) — both axes
+   contained here, not on the page. Give a Tabulator instance height:
+   "100%" and mount it in an element with this class. */
+.dash-grid-area {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+/* Owns the whole toolbar+spinner+grid stack for one DataGrid instance (see
+   tables.html) — toolbar/spinner take their natural height, .dash-grid-area
+   flexes to fill the rest, same relationship .dash-content used to have
+   directly with its (now removed) separate #toolbar/#spinner/#grid
+   siblings. Needed on both the page-level mount and any future
+   modal-embedded grid mount — anywhere a DataGrid gets a container. */
+.dash-grid-mount {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.dash-grid-area .tabulator {
+    height: 100%;
+}
+.dash-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    justify-content: flex-end;
+    margin-bottom: 0.8rem;
+}
+.dash-btn {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 10px;
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.dash-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.dash-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    margin: 3rem auto;
+    animation: dash-spin 0.7s linear infinite;
+}
+@keyframes dash-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Full takeover of the grid area when a background save fails (see
+   saveDirtyRows' optimistic flow in tables.html) — the admin has already
+   been shown the edit as saved, so this table's data can't be trusted
+   again until it's reloaded fresh from the server. */
+.table-save-error {
+    max-width: 30rem;
+    margin: 3rem auto;
+    text-align: center;
+}
+.table-save-error p {
+    color: var(--ink);
+    white-space: pre-line;
+    margin-bottom: 1rem;
+}
+
+/* Airtable-ish grid look: bordered container, light header, subtle row
+   lines + hover, comfortable padding instead of Tabulator's default. */
+.tabulator {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: 0.9rem;
+    background: var(--card);
+}
+/* "fitDataFill" layout (see renderGrid in tables.html) fills any leftover
+   space past the real columns with an invisible filler column — this is
+   what that filler (and the tableholder generally) shows through as, so it
+   reads as this app's own background, not Tabulator's default theme grey. */
+.tabulator-tableholder,
+.tabulator-table {
+    background: var(--card);
+}
+.tabulator .tabulator-header {
+    background: #f7f8fa;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+}
+.tabulator .tabulator-col {
+    border-right: 1px solid var(--line);
+}
+.tabulator .tabulator-col-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+}
+/* Per-column filter icon (see attachColumnFilterIcons in tables.html) —
+   outlined/muted at rest, solid accent when that column has an active
+   filter; the column header itself also gets a tinted background so a
+   filtered column reads as "filtered" at a glance, not just on hover over
+   the icon. */
+.col-filter-icon {
+    display: inline-flex;
+    color: var(--muted);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.col-filter-icon:hover {
+    color: var(--ink);
+}
+.col-filter-icon.is-active {
+    color: var(--accent);
+}
+.tabulator-col.col-header-filtered {
+    background: color-mix(in srgb, var(--accent) 12%, #f7f8fa);
+}
+.col-filter-popup {
+    position: absolute;
+    z-index: 60;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    padding: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 12rem;
+}
+.col-filter-popup select,
+.col-filter-popup input[type="text"],
+.col-filter-popup input[type="number"],
+.col-filter-popup input[type="date"] {
+    width: 100%;
+}
+.col-filter-radios,
+.col-filter-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-height: 12rem;
+    overflow-y: auto;
+}
+.col-filter-radios label,
+.col-filter-checklist label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 400;
+    cursor: pointer;
+}
+.col-filter-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.2rem;
+}
+.col-filter-clear {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+}
+.col-filter-clear:hover {
+    color: var(--ink);
+}
+.col-filter-apply {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+}
+
+/* Enum-option management popup (see attachColumnManageIcons in
+   tables.html) — gear icon, only shown on columns field_schema opts into
+   via manage_options, not automatic for every enum column. */
+.col-manage-icon {
+    display: inline-flex;
+    color: var(--muted);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.col-manage-icon:hover {
+    color: var(--ink);
+}
+.enum-manage-popup {
+    position: absolute;
+    z-index: 60;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    padding: 0.7rem;
+    width: 16rem;
+    max-width: calc(100vw - 1rem);
+}
+.enum-manage-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+.enum-manage-status {
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+.enum-manage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    max-height: 14rem;
+    overflow-y: auto;
+    margin-bottom: 0.6rem;
+}
+.enum-manage-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0;
+}
+/* Inactive = still listed (so it can be reactivated), just visually
+   de-emphasized — same convention as everywhere else "inactive but not
+   deleted" shows up in this app. */
+.enum-manage-row.is-inactive .enum-manage-label {
+    text-decoration: line-through;
+    color: var(--muted);
+}
+.enum-manage-arrow {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.15rem;
+    line-height: 1;
+}
+.enum-manage-arrow:hover:not(:disabled) {
+    color: var(--ink);
+}
+.enum-manage-arrow:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.enum-manage-label {
+    flex: 1;
+    font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.enum-manage-add {
+    display: flex;
+    gap: 0.3rem;
+    border-top: 1px solid var(--line);
+    padding-top: 0.5rem;
+}
+.enum-manage-add input {
+    min-width: 0;
+    flex: 1;
+    font-size: 0.8rem;
+}
+.enum-manage-add .dash-btn {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.8rem;
+}
+.enum-manage-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+.enum-manage-actions .dash-btn {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+}
+.tabulator-row {
+    border-bottom: 1px solid var(--line);
+}
+.tabulator-row.tabulator-row-even {
+    background: #fbfbfc;
+}
+.tabulator-row:hover {
+    background: #f2f6ff;
+}
+.tabulator-cell {
+    padding: 0.55rem 0.75rem;
+    border-right: 1px solid var(--line);
+}
+/* Only carried by columns that are actually editable right now (see
+   buildColumns) — the color itself is the "you can edit this" signal, no
+   separate label needed. */
+.tabulator-cell.editable-cell {
+    background: #fffbe6;
+}
+/* A cell whose value actually differs from what the server last returned
+   this session — stronger signal than plain editable-cell yellow ("you
+   could edit this"), scoped to the exact cells that have. Cleared by a
+   fresh render (Cancel restores from ORIGINAL_ROWS, a successful Save
+   replaces data from the new baseline) — never toggled off any other way,
+   so it can't go stale mid-edit. */
+.tabulator-cell.cell-changed {
+    background: #fde8cc;
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* Sits in an enum_list cell while its real editor (a floating checkbox-list
+   popup, see enumListEditor) is open — just shows the current value so the
+   cell doesn't look blank while editing. */
+.enumlist-editor-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.row-delete-btn {
+    cursor: pointer;
+    opacity: 0.6;
+}
+.row-delete-btn:hover {
+    opacity: 1;
+}
+/* Boolean columns in Data Tables — a real switch, one click to flip, no
+   Tabulator tickCross editor round trip (click to get a checkbox, click
+   the checkbox, blur to see the tick/cross again). */
+.bool-switch {
+    display: inline-block;
+    position: relative;
+    width: 34px;
+    height: 18px;
+    border-radius: 999px;
+    background: #c6cbd2;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.bool-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: left 0.15s ease;
+}
+.bool-switch.is-on {
+    background: var(--accent);
+}
+.bool-switch.is-on::after {
+    left: 18px;
+}
+.bool-switch.is-disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+/* No pagination — see conversation: at this data's scale, a plain
+   scrollable grid (already handled by .dash-grid-area) beats paging. */
+
+/* Simple centered modal for "add new row" — no library, matches this
+   project's zero-build approach everywhere else. */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 24, 30, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+.modal-box {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 1.4rem;
+    width: 26rem;
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+.modal-box h3 {
+    margin: 0 0 1rem;
+}
+.modal-field {
+    margin-bottom: 0.8rem;
+}
+.modal-field label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+}
+.modal-field select,
+.modal-field input {
+    width: 100%;
+}
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    margin-top: 1rem;
+}
+.modal-error {
+    color: #b3261e;
+    font-size: 0.85rem;
+    margin-top: 0.6rem;
+}
+/* Row detail view (see DataGrid#openDetailView in tables.html) — same
+   .modal-box conventions, just wider to fit a parent row's own fields
+   plus embedded child-table sections side by side with the rest of the
+   page still visible around the edges. */
+.detail-modal-box {
+    width: 60rem;
+}
+/* Wraps a row's own fields into as many columns as fit, instead of one
+   long stacked column — each field keeps its .modal-field styling, this
+   just changes how they're laid out as a group. */
+.detail-fields-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 1.5rem;
+}
+.detail-fields-grid .modal-field {
+    flex: 1 1 12rem;
+    min-width: 12rem;
+}
+.detail-parent-header {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
+}
+/* One per embedded child DataGrid instance (see openDetailView). .modal-box
+   has no determinate height of its own (auto, capped by max-height, then
+   scrolls) — the flex:1/min-height:0 chain .dash-grid-mount relies on
+   elsewhere has nothing to resolve against in here, so each mount gets an
+   explicit fixed height instead, giving its own Tabulator instance a real
+   box to fill and its own independent scrollbar. */
+.detail-subtable-section {
+    margin-top: 1.5rem;
+}
+.detail-subtable-section h4 {
+    margin: 0 0 0.6rem;
+}
+.detail-subtable-mount {
+    height: 22rem;
+    display: flex;
+    flex-direction: column;
+}
+.detail-modal-close {
+    margin-top: 1rem;
+}
+/* The clickable title-column cell that opens the detail view (see
+   buildColumns) — only rendered in view mode, styled like a link so it
+   reads as "click me" without a full underline on every row. */
+.row-detail-link {
+    color: var(--accent);
+    cursor: pointer;
+}
+.row-detail-link:hover {
+    text-decoration: underline;
+}
+
+/* Action Inbox — card list + filters (inbox.html). Plain DOM, no Tabulator:
+   the list itself is read-only, all edits happen in the detail modal. */
+.inbox-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 0.8rem;
+}
+.inbox-filter-closed {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+.inbox-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+.inbox-badge {
+    background: var(--line);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+.inbox-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+.inbox-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    border-left: 4px solid var(--line);
+    padding: 0.8rem 1rem;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.inbox-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+}
+.inbox-card.inbox-priority-urgent {
+    border-left-color: #b3261e;
+}
+.inbox-card.inbox-priority-normal {
+    border-left-color: var(--accent);
+}
+.inbox-card.inbox-priority-low {
+    border-left-color: var(--line);
+}
+.inbox-card-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+}
+.inbox-card-title {
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+}
+.inbox-card-meta {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+.inbox-activity-row {
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 0.2rem 0;
+    border-bottom: 1px solid var(--line);
+}
+.inbox-file-preview {
+    margin: 0.5rem 0;
+}
+.inbox-file-preview-label {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.2rem;
+}
+.inbox-file-preview iframe {
+    width: 100%;
+    height: 20rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+.inbox-question-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.8rem;
+    margin-bottom: 0.6rem;
+}
+.inbox-question-card.is-critical {
+    border-left: 4px solid #b3261e;
+}
+.inbox-question-meta {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+}
+.inbox-question-decisions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+/* Reused by any category section with a small editable line list
+   (Stocktake counts today; Invoice lines/Transfer lines later). */
+.inbox-request-table-wrap {
+    max-height: 18rem;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+.inbox-request-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+.inbox-request-table th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--card);
+}
+.inbox-request-table td {
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+}
+.inbox-request-table input,
+.inbox-request-table select {
+    width: 100%;
+    font-size: 0.85rem;
+}
+.inbox-stocktake-add {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.6rem;
+    margin-top: 0.8rem;
+}
+.inbox-stocktake-add input[type="number"] {
+    width: 6rem;
+}
+/* Collapsed: icon-only rail. Applied as soon as the page loads (see
+   dashboard-common.js) — a stored UI preference, not gated on the auth
+   check, so there's no flash of the expanded sidebar first. */
+.dash-shell.dash-collapsed .dash-sidebar {
+    width: 4.4rem;
+}
+.dash-shell.dash-collapsed .dash-sidebar-header {
+    justify-content: center;
+    padding: 0.4rem 0 1rem;
+}
+.dash-shell.dash-collapsed .dash-sidebar-title {
+    display: none;
+}
+.dash-shell.dash-collapsed .dash-nav-item {
+    justify-content: center;
+    padding: 0.7rem;
+}
+.dash-shell.dash-collapsed .dash-nav-item span:not(.icon) {
+    display: none;
+}
+
+/* KPI Dashboard (dashboard.html) — filter bar + tile grid. Shared by
+   Kiosk Comparison / Stock Usage View where the same tile/badge language
+   applies. */
+.kpi-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.kpi-preset-btn {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+}
+.kpi-preset-btn:hover {
+    background: #f2f6ff;
+}
+.kpi-preset-active {
+    background: var(--ink);
+    color: #fff;
+    border-color: var(--ink);
+}
+.kpi-section-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 1.4rem 0 0.5rem;
+}
+.kpi-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: 0.8rem;
+}
+.kpi-tile {
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    padding: 1rem 1.1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.kpi-tile-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+}
+.kpi-tile-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+.kpi-tile-sub {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+}
+.kpi-tile-flag {
+    display: inline-block;
+    margin-top: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+}
+.kpi-flag-warn {
+    background: #fff3cd;
+    color: #7a5b00;
+}
+/* Explicitly-unavailable metrics (the out-of-scope financial KPIs) —
+   dashed/muted so they read as "known gap," not "forgotten tile." */
+.kpi-tile.kpi-tile-unavailable {
+    background: none;
+    border-style: dashed;
+    box-shadow: none;
+}
+.kpi-tile-unavailable .kpi-tile-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--muted);
+}
+.kpi-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+}
+.kpi-badge-fresh {
+    background: #e3f5e6;
+    color: #1c6b2c;
+}
+.kpi-badge-stale {
+    background: #fff3cd;
+    color: #7a5b00;
+}
+.kpi-badge-missing {
+    background: #fce8e6;
+    color: #b3261e;
+}
+/* Lightweight CSS-only sparkline — no charting library loaded for a
+   single trend strip; see the KPI Dashboard plan's "defer Chart.js until
+   a tile actually needs it" decision. */
+.kpi-sparkline {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 2.2rem;
+    margin-top: 0.5rem;
+}
+.kpi-sparkline-bar {
+    flex: 1;
+    background: var(--accent);
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+}
+/* Kiosk Comparison table (kiosk-comparison.html) — rate columns tinted so
+   they read as distinct from raw totals at a glance, per spec §23's
+   misleading-totals rule. */
+.kpi-compare-table-wrap {
+    overflow-x: auto;
+}
+.kpi-compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+.kpi-compare-table th,
+.kpi-compare-table td {
+    padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    white-space: nowrap;
+}
+.kpi-compare-table th {
+    color: var(--muted);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    background: var(--card);
+}
+.kpi-rate-cell {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.kpi-coverage-warn {
+    color: #b3261e;
+    font-size: 0.75rem;
+}
+/* Stock Usage View (stock-usage.html). */
+.kpi-usage-not-available {
+    max-width: 32rem;
+    color: var(--muted);
+}
+.kpi-usage-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+/* Settings page (settings.html) — hand-built sections, not a generic
+   grid; see that file's header comment. */
+.settings-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.2rem 2rem;
+    margin-bottom: 1.4rem;
+}
+.settings-field label {
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+}
+.settings-field-description {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+}
+.settings-field input[type="number"],
+.settings-field input[type="text"],
+.settings-field select {
+    width: 100%;
+}
+.settings-weekdays,
+.settings-product-multi {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.8rem;
+    max-height: 9rem;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+}
+.settings-weekdays label,
+.settings-product-multi label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    font-weight: 400;
+    white-space: nowrap;
+}
+.settings-component-qty {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.6rem 0.7rem;
+}
+.settings-component-qty-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+}
+.settings-component-qty-row input[type="number"] {
+    width: 4rem;
+    flex: none;
+}
+.settings-component-qty-readonly {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+.settings-remove-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    flex: none;
+    padding: 0.2rem 0.4rem;
+}
+.settings-remove-btn:hover:not(:disabled) {
+    color: #b3261e;
+}
+.settings-remove-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+@media (max-width: 720px) {
+    /* Mobile isn't the priority here (see the file header note) — the
+       fixed-height, internally-scrolling shell is a real desktop
+       improvement but fights mobile browsers' own scroll/address-bar
+       behavior, so it's relaxed back to normal document scrolling below
+       the breakpoint instead. */
+    .dash-shell {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+    }
+    .dash-sidebar {
+        width: auto;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: visible;
+        padding: 0.6rem;
+    }
+    .dash-sidebar-title {
+        display: none;
+    }
+    .dash-nav-item {
+        flex-shrink: 0;
+    }
+    .dash-main {
+        padding: 1.2rem;
+        overflow: visible;
+    }
+    .dash-content,
+    .dash-grid-area {
+        min-height: 0;
+    }
+    .settings-field-grid {
+        grid-template-columns: 1fr;
+    }
+}

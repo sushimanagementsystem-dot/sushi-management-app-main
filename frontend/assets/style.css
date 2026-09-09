@@ -1,0 +1,157 @@
+:root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --ink: #1c2430;
+    --muted: #6b7482;
+    --accent: #e11d48;
+    --accent-ink: #ffffff;
+    --line: #e3e6ea;
+    --radius: 14px;
+}
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+}
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--ink);
+    color: #fff;
+    padding: 0.9rem 1rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.topbar .kiosk {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+.topbar .staff {
+    font-size: 0.8rem;
+    opacity: 0.75;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 45%;
+}
+.wrap {
+    max-width: 30rem;
+    margin: 0 auto;
+    padding: 1rem 1rem 3rem;
+}
+.group-label {
+    margin: 1.4rem 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.group-note {
+    margin: -0.3rem 0.2rem 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+.btn-card {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-bottom: 0.6rem;
+    text-decoration: none;
+    color: var(--ink);
+    font-size: 1rem;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+}
+.btn-card:active {
+    transform: scale(0.985);
+    background: #fafbfc;
+}
+.btn-card .icon {
+    font-size: 1.35rem;
+    line-height: 1;
+}
+.btn-card .chev {
+    margin-left: auto;
+    color: var(--muted);
+    font-weight: 400;
+}
+
+/* Shared form-control look — every input/select/button across the app
+   renders identically instead of each page styling its own. */
+input,
+select,
+button {
+    font: inherit;
+    font-size: 1rem;
+    padding: 0.7rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+}
+input:disabled,
+select:disabled,
+button:disabled {
+    opacity: 0.55;
+}
+/* Native select rendering varies wildly across OEM keyboards/skins —
+   flatten it and draw one consistent chevron everywhere. */
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 2.2rem;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b7482' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.8rem center;
+}
+
+/* Searchable picker (long lists — native <select> has no search on any
+   platform). Structure: <div class="searchpick"><input><div class="suggest"></div></div> */
+.searchpick {
+    position: relative;
+}
+.searchpick input {
+    width: 100%;
+}
+.searchpick .suggest {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(16, 24, 40, 0.12);
+    max-height: 40vh;
+    overflow-y: auto;
+    z-index: 30;
+    display: none;
+}
+.searchpick .suggest div {
+    padding: 0.7rem 0.8rem;
+    border-bottom: 1px solid var(--line);
+}
+.searchpick .suggest div:last-child {
+    border-bottom: none;
+}
+.searchpick .suggest div:active {
+    background: #f2f3f5;
+}

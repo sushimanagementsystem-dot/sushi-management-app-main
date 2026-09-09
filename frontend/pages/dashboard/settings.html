@@ -1,0 +1,497 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚙️</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard — Settings</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+    <style>
+        /* Each SAMPLING_SUSHI line's search-pick lives in a fixed-width
+           inline wrapper so rows stay compact, matching the qty+item shape
+           of the row (not the full-width block .searchpick defaults to
+           elsewhere). */
+        .settings-component-qty-row .searchpick {
+            flex: 1;
+            min-width: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="dash-shell">
+        <nav class="dash-sidebar" id="dashSidebar"></nav>
+
+        <!-- Hidden until initDashboard() confirms access. -->
+        <main class="dash-main" id="dashMain" style="display: none">
+            <div class="dash-content">
+                <h1>Settings</h1>
+                <div class="dash-toolbar" id="settingsToolbar">
+                    <button class="dash-btn" id="settingsEditBtn">Edit</button>
+                    <button class="dash-btn" id="settingsSaveBtn" style="display: none">Save</button>
+                    <button
+                        class="dash-btn"
+                        id="settingsCancelBtn"
+                        style="display: none; background: var(--line); color: var(--ink)"
+                    >
+                        Cancel
+                    </button>
+                </div>
+                <div class="dash-spinner" id="settingsSpinner"></div>
+                <div id="settingsError" style="display: none; color: #b3261e"></div>
+
+                <div id="settingsSections" style="display: none; flex: 1; min-height: 0; overflow-y: auto"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/assets/common.js"></script>
+    <script src="/assets/dashboard-common.js"></script>
+    <script src="/assets/search-pick.js"></script>
+    <script>
+        // Hand-built, not schema-driven like Data Tables — several of these
+        // settings need a real picker (component/product references), not a
+        // generic grid text cell, and the section grouping/order below is
+        // the same logical grouping the settings already had in the source
+        // workbook, not derived from anything.
+        const SETTINGS_SECTIONS = [
+            {
+                title: "Rice & Batching",
+                keys: [
+                    "RICE_BATCH_DRY_G", "RICE_BATCH_SEASONED_YIELD_G", "RICE_BATCH_COOKED_PLAIN_G",
+                    "RICE_BATCH_VINEGAR_G", "RICE_NO_COOK_THRESHOLD_G", "RICE_PER_FULL_ROLL_G",
+                    "FULL_ROLL_PIECES", "RICE_PER_MAKI_G", "MAKI_PIECES", "RICE_PER_NIGIRI_G",
+                    "PLAIN_RICE_BATCH_DRY_G", "PLAIN_RICE_BATCH_YIELD_G", "RICE_PER_BOWL_G",
+                    "PLAIN_RICE_MIN_PORTIONS", "PLAIN_RICE_REMAINDER_MIN_G", "LOW_VOLUME_COMBINED_TARGET",
+                ],
+            },
+            {
+                title: "Component Batching",
+                keys: ["PRAWN_KATSU_ROLLS_PER_BAG", "PRAWN_KATSU_COMPONENT_ID"],
+            },
+            {
+                title: "Secondary Item Allocation",
+                keys: ["SECONDARY_HISTORY_LOOKBACK_DAYS", "SANDO_STEP_PRODUCT_IDS", "SANDO_UNITS_PER_PREP"],
+            },
+            {
+                title: "Food Waste Categories",
+                keys: ["FOOD_WASTE_FOOD_CATEGORIES", "FOOD_WASTE_PACKAGING_CATEGORIES"],
+            },
+            {
+                title: "Sampling",
+                keys: ["SAMPLING_DAYS", "SAMPLING_SUSHI", "SAMPLING_KARAAGE_PER_FLAVOUR"],
+            },
+            {
+                title: "Defrost & Waste Attribution",
+                keys: ["DEFROST_MEDIAN_WEEKS", "WASTE_ATTRIBUTION_DAYS_DEFAULT", "WASTE_ATTRIBUTION_DAYS_KCRB"],
+            },
+            {
+                title: "Damage Review Thresholds",
+                keys: ["DAMAGE_REVIEW_UNITS_PER_100", "DAMAGE_REVIEW_PRODUCT_WEEK_UNITS", "DAMAGE_REVIEW_SUBMITTER_WEEK"],
+            },
+            {
+                title: "Stocktake",
+                keys: ["STOCKTAKE_STALE_DAYS", "STOCKTAKE_VARIANCE_PCT", "STOCKTAKE_VARIANCE_MIN_UNITS"],
+            },
+            {
+                title: "Monthly Audit",
+                keys: ["AUDIT_PASS_PCT", "AUDIT_ATTENTION_PCT", "AUDIT_CORRECTION_DAYS", "AUDIT_CRITICAL_CORRECTION_DAYS"],
+            },
+            {
+                title: "Help / Issue Deadlines",
+                keys: ["REQUEST_DEADLINE_KIOSK_ISSUE_DAYS", "REQUEST_DEADLINE_HELP_DAYS", "REQUEST_DEADLINE_FEEDBACK_DAYS"],
+            },
+            {
+                title: "Purchasing & Products",
+                keys: ["CASTLEBAY_SALMON_ORDER_BOXES", "KARAAGE_BALANCING_PRODUCT", "RICE_BOWL_SUBSTITUTES"],
+            },
+        ];
+
+        // Everything not listed here renders as a plain number input.
+        const SETTINGS_TYPES = {
+            SAMPLING_DAYS: "weekdays",
+            SAMPLING_SUSHI: "component_qty_list",
+            KARAAGE_BALANCING_PRODUCT: "product_picker",
+            RICE_BOWL_SUBSTITUTES: "product_multi_picker",
+            PRAWN_KATSU_COMPONENT_ID: "component_picker",
+            SANDO_STEP_PRODUCT_IDS: "product_multi_picker",
+            FOOD_WASTE_FOOD_CATEGORIES: "stock_category_multi_picker",
+            FOOD_WASTE_PACKAGING_CATEGORIES: "stock_category_multi_picker",
+        };
+
+        const WEEKDAY_ORDER = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+
+        let SETTINGS_DATA = { settings: {}, components: [], products: [], stockCategories: [] };
+        let SETTINGS_EDIT_MODE = false;
+        // key -> current normalized value (string), seeded by every control
+        // on build (not just on change) so Save always sends a complete,
+        // consistent payload — see each build*Control_ function.
+        let SETTINGS_PENDING = {};
+
+        initDashboard("settings").then((ok) => {
+            if (!ok) return;
+            document.getElementById("settingsEditBtn").addEventListener("click", enterSettingsEditMode_);
+            document.getElementById("settingsCancelBtn").addEventListener("click", cancelSettingsEdit_);
+            document.getElementById("settingsSaveBtn").addEventListener("click", saveSettingsClick_);
+            loadSettings_();
+        });
+
+        // --- Load ----------------------------------------------------------------
+
+        function loadSettings_() {
+            const spinner = document.getElementById("settingsSpinner");
+            const sections = document.getElementById("settingsSections");
+            const errorEl = document.getElementById("settingsError");
+            spinner.style.display = "";
+            sections.style.display = "none";
+            errorEl.style.display = "none";
+
+            return apiCall("bootstrap_settings_page", {})
+                .then((res) => {
+                    spinner.style.display = "none";
+                    if (!res.ok) {
+                        errorEl.style.display = "";
+                        errorEl.textContent = res.error || "Failed to load.";
+                        return;
+                    }
+                    sections.style.display = "";
+                    SETTINGS_DATA.settings = {};
+                    (res.settings || []).forEach((s) => (SETTINGS_DATA.settings[s.key] = s));
+                    SETTINGS_DATA.components = res.components || [];
+                    SETTINGS_DATA.products = res.products || [];
+                    SETTINGS_DATA.stockCategories = res.stockCategories || [];
+                    SETTINGS_EDIT_MODE = false;
+                    renderSettingsPage_();
+                })
+                .catch(() => {
+                    spinner.style.display = "none";
+                    errorEl.style.display = "";
+                    errorEl.textContent = "Failed to load.";
+                });
+        }
+
+        // --- Edit / Save / Cancel -------------------------------------------------
+
+        function enterSettingsEditMode_() {
+            SETTINGS_EDIT_MODE = true;
+            renderSettingsPage_();
+        }
+
+        function cancelSettingsEdit_() {
+            SETTINGS_EDIT_MODE = false;
+            renderSettingsPage_();
+        }
+
+        function saveSettingsClick_() {
+            const btn = document.getElementById("settingsSaveBtn");
+            const errorEl = document.getElementById("settingsError");
+            btn.disabled = true;
+            errorEl.style.display = "none";
+            apiCall("save_settings", { changes: SETTINGS_PENDING })
+                .then((res) => {
+                    btn.disabled = false;
+                    if (!res.ok) {
+                        errorEl.style.display = "";
+                        errorEl.textContent = res.error || "Save failed.";
+                        return;
+                    }
+                    loadSettings_();
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    errorEl.style.display = "";
+                    errorEl.textContent = "Save failed.";
+                });
+        }
+
+        function updateSettingsToolbar_() {
+            document.getElementById("settingsEditBtn").style.display = SETTINGS_EDIT_MODE ? "none" : "";
+            document.getElementById("settingsSaveBtn").style.display = SETTINGS_EDIT_MODE ? "" : "none";
+            document.getElementById("settingsCancelBtn").style.display = SETTINGS_EDIT_MODE ? "" : "none";
+        }
+
+        // --- Render ----------------------------------------------------------------
+
+        function renderSettingsPage_() {
+            const wrap = document.getElementById("settingsSections");
+            wrap.innerHTML = "";
+            SETTINGS_PENDING = {};
+
+            SETTINGS_SECTIONS.forEach((section) => {
+                const knownKeys = section.keys.filter((k) => SETTINGS_DATA.settings[k]);
+                if (!knownKeys.length) return;
+
+                const label = document.createElement("div");
+                label.className = "kpi-section-label";
+                label.textContent = section.title;
+                wrap.appendChild(label);
+
+                const grid = document.createElement("div");
+                grid.className = "settings-field-grid";
+                knownKeys.forEach((key) => grid.appendChild(buildSettingField_(key, SETTINGS_DATA.settings[key])));
+                wrap.appendChild(grid);
+            });
+
+            updateSettingsToolbar_();
+        }
+
+        function buildSettingField_(key, setting) {
+            const field = document.createElement("div");
+            field.className = "settings-field";
+
+            // label (setting.label — the new owner-facing name column) is
+            // the prominent text; description is secondary/dim. Falls back
+            // to the raw key only for a row where label hasn't been filled
+            // in yet, so nothing renders blank.
+            const label = document.createElement("label");
+            label.textContent = setting.label || key;
+            field.appendChild(label);
+
+            if (setting.description) {
+                const desc = document.createElement("div");
+                desc.className = "settings-field-description";
+                desc.textContent = setting.description;
+                field.appendChild(desc);
+            }
+
+            const type = SETTINGS_TYPES[key] || "number";
+            let control;
+            if (type === "weekdays") control = buildWeekdaysControl_(key, setting.value);
+            else if (type === "component_qty_list") control = buildComponentQtyControl_(key, setting.value);
+            else if (type === "product_picker") control = buildProductPickerControl_(key, setting.value);
+            else if (type === "product_multi_picker") control = buildProductMultiControl_(key, setting.value);
+            else if (type === "component_picker") control = buildComponentPickerControl_(key, setting.value);
+            else if (type === "stock_category_multi_picker") control = buildStockCategoryMultiControl_(key, setting.value);
+            else control = buildNumberControl_(key, setting.value);
+
+            field.appendChild(control);
+            return field;
+        }
+
+        function buildNumberControl_(key, value) {
+            const input = document.createElement("input");
+            input.type = "number";
+            input.step = "any";
+            input.value = value;
+            input.disabled = !SETTINGS_EDIT_MODE;
+            input.addEventListener("input", () => (SETTINGS_PENDING[key] = input.value));
+            SETTINGS_PENDING[key] = String(value);
+            return input;
+        }
+
+        function buildWeekdaysControl_(key, value) {
+            const state = new Set(String(value || "").split(",").map((s) => s.trim()).filter(Boolean));
+            const wrap = document.createElement("div");
+            wrap.className = "settings-weekdays";
+            function emit() {
+                SETTINGS_PENDING[key] = WEEKDAY_ORDER.filter((d) => state.has(d)).join(",");
+            }
+            WEEKDAY_ORDER.forEach((day) => {
+                const label = document.createElement("label");
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.checked = state.has(day);
+                cb.disabled = !SETTINGS_EDIT_MODE;
+                cb.addEventListener("change", () => {
+                    if (cb.checked) state.add(day);
+                    else state.delete(day);
+                    emit();
+                });
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(" " + day.slice(0, 3)));
+                wrap.appendChild(label);
+            });
+            emit();
+            return wrap;
+        }
+
+        function buildProductPickerControl_(key, value) {
+            const sel = document.createElement("select");
+            sel.disabled = !SETTINGS_EDIT_MODE;
+            SETTINGS_DATA.products.forEach((p) => {
+                const opt = document.createElement("option");
+                opt.value = p.id;
+                opt.textContent = p.name + " (" + p.id + ")";
+                sel.appendChild(opt);
+            });
+            sel.value = value;
+            sel.addEventListener("change", () => (SETTINGS_PENDING[key] = sel.value));
+            SETTINGS_PENDING[key] = sel.value;
+            return sel;
+        }
+
+        function buildComponentPickerControl_(key, value) {
+            const sel = document.createElement("select");
+            sel.disabled = !SETTINGS_EDIT_MODE;
+            SETTINGS_DATA.components.forEach((c) => {
+                const opt = document.createElement("option");
+                opt.value = c.id;
+                opt.textContent = c.name + " (" + c.id + ")";
+                sel.appendChild(opt);
+            });
+            sel.value = value;
+            sel.addEventListener("change", () => (SETTINGS_PENDING[key] = sel.value));
+            SETTINGS_PENDING[key] = sel.value;
+            return sel;
+        }
+
+        function buildProductMultiControl_(key, value) {
+            const selectedIds = new Set(String(value || "").split(",").map((s) => s.trim()).filter(Boolean));
+            const wrap = document.createElement("div");
+            wrap.className = "settings-product-multi";
+            function emit() {
+                SETTINGS_PENDING[key] = Array.from(selectedIds).join(",");
+            }
+            SETTINGS_DATA.products.forEach((p) => {
+                const label = document.createElement("label");
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.checked = selectedIds.has(p.id);
+                cb.disabled = !SETTINGS_EDIT_MODE;
+                cb.addEventListener("change", () => {
+                    if (cb.checked) selectedIds.add(p.id);
+                    else selectedIds.delete(p.id);
+                    emit();
+                });
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(" " + p.name));
+                wrap.appendChild(label);
+            });
+            emit();
+            return wrap;
+        }
+
+        function buildStockCategoryMultiControl_(key, value) {
+            const selectedIds = new Set(String(value || "").split(",").map((s) => s.trim()).filter(Boolean));
+            const wrap = document.createElement("div");
+            wrap.className = "settings-product-multi";
+            function emit() {
+                SETTINGS_PENDING[key] = Array.from(selectedIds).join(",");
+            }
+            SETTINGS_DATA.stockCategories.forEach((c) => {
+                const label = document.createElement("label");
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.checked = selectedIds.has(c.id);
+                cb.disabled = !SETTINGS_EDIT_MODE;
+                cb.addEventListener("change", () => {
+                    if (cb.checked) selectedIds.add(c.id);
+                    else selectedIds.delete(c.id);
+                    emit();
+                });
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(" " + c.name));
+                wrap.appendChild(label);
+            });
+            emit();
+            return wrap;
+        }
+
+        // SAMPLING_SUSHI storage: JSON [{componentId, qty}, ...] — no
+        // legacy-text fallback. If the stored value isn't a valid JSON
+        // array (e.g. it's still the old free-text format from before this
+        // page existed), the line list just starts empty rather than
+        // attempting to reinterpret it — no name-matching, no silent-drop
+        // risk, nothing to get subtly wrong. Re-enter the lines once via
+        // the picker below and Save persists real JSON from then on.
+        function parseSamplingValue_(value) {
+            try {
+                const parsed = JSON.parse(value);
+                if (Array.isArray(parsed)) return parsed;
+            } catch (e) {
+                /* not JSON — start fresh */
+            }
+            return [];
+        }
+
+        function componentName_(componentId) {
+            const c = SETTINGS_DATA.components.find((c) => c.id === componentId);
+            return c ? c.name : "";
+        }
+
+        function buildComponentQtyControl_(key, value) {
+            const items = parseSamplingValue_(value);
+            const wrap = document.createElement("div");
+            wrap.className = "settings-component-qty";
+
+            function emit() {
+                SETTINGS_PENDING[key] = JSON.stringify(
+                    items
+                        .filter((it) => it.componentId)
+                        .map((it) => ({ componentId: it.componentId, qty: Number(it.qty) || 0 })),
+                );
+            }
+
+            function renderRows() {
+                wrap.innerHTML = "";
+                items.forEach((item, idx) => {
+                    const row = document.createElement("div");
+                    row.className = "settings-component-qty-row";
+
+                    const qtyInput = document.createElement("input");
+                    qtyInput.type = "number";
+                    qtyInput.min = "0";
+                    qtyInput.value = item.qty;
+                    qtyInput.disabled = !SETTINGS_EDIT_MODE;
+                    qtyInput.addEventListener("input", () => {
+                        item.qty = qtyInput.value;
+                        emit();
+                    });
+
+                    const pickWrap = document.createElement("div");
+                    if (SETTINGS_EDIT_MODE) {
+                        const picker = makeSearchPick(pickWrap, {
+                            placeholder: "Search components…",
+                            getItems: (q) =>
+                                SETTINGS_DATA.components
+                                    .filter((c) => c.name.toLowerCase().includes(q))
+                                    .map((c) => ({ id: c.id, label: c.name })),
+                            onSelect: (picked) => {
+                                item.componentId = picked.id;
+                                emit();
+                            },
+                        });
+                        if (item.componentId) picker.setLabel(componentName_(item.componentId));
+                    } else {
+                        pickWrap.className = "settings-component-qty-readonly";
+                        pickWrap.textContent = componentName_(item.componentId) || "(none chosen)";
+                    }
+
+                    const removeBtn = document.createElement("button");
+                    removeBtn.type = "button";
+                    removeBtn.className = "settings-remove-btn";
+                    removeBtn.textContent = "✕";
+                    removeBtn.disabled = !SETTINGS_EDIT_MODE;
+                    removeBtn.addEventListener("click", () => {
+                        items.splice(idx, 1);
+                        emit();
+                        renderRows();
+                    });
+
+                    row.appendChild(qtyInput);
+                    row.appendChild(document.createTextNode(" x "));
+                    row.appendChild(pickWrap);
+                    row.appendChild(removeBtn);
+                    wrap.appendChild(row);
+                });
+
+                const addBtn = document.createElement("button");
+                addBtn.type = "button";
+                addBtn.className = "kpi-preset-btn";
+                addBtn.textContent = "+ Add line";
+                addBtn.disabled = !SETTINGS_EDIT_MODE;
+                addBtn.addEventListener("click", () => {
+                    items.push({ componentId: "", qty: 1 });
+                    emit();
+                    renderRows();
+                });
+                wrap.appendChild(addBtn);
+            }
+
+            renderRows();
+            emit();
+            return wrap;
+        }
+    </script>
+</body>
+</html>

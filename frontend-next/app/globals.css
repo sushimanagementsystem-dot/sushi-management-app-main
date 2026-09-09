@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Global color tokens live in tailwind.config.js (theme.extend.colors) —
+ * bg / panel / card / ink / muted / accent / teal / line / success / warn /
+ * danger. No custom CSS classes here on purpose — shared visual patterns
+ * (topbar, card buttons, search picker, form banners, spinner, …) are React
+ * components under components/ using Tailwind utility classNames
+ * directly, not CSS classes. Only Tailwind's own recommended pattern for
+ * global element defaults (@layer base on bare html tags) lives here,
+ * since that's config, not hand-written CSS rules.
+ */
+
+@media print {
+    /* Every dashboard page's own content wrapper uses this exact
+       overflow-y-auto class as its viewport-height scroll region —
+       correct on screen, but it clips a printout to one screen's worth of
+       content. One rule here instead of overriding it in every page file
+       individually. */
+    .overflow-y-auto {
+        overflow: visible !important;
+        height: auto !important;
+    }
+    .no-print {
+        display: none !important;
+    }
+}
+
+@layer base {
+    * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+        /* Every scrollable region site-wide stays scrollable — this only
+           hides the browser-drawn scrollbar chrome, not overflow/scroll
+           behavior itself (that's each element's own overflow-y-auto /
+           overflow-x-auto, set independently). One global rule instead of
+           repeating the old [-ms-overflow-style:none] [scrollbar-width:none]
+           [&::-webkit-scrollbar]:hidden trio on every scroll container. */
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    *::-webkit-scrollbar {
+        display: none;
+    }
+    html,
+    body {
+        @apply m-0 p-0 bg-bg text-ink font-sans text-base;
+        /* Inter's own metrics benefit from these — crisper at small sizes,
+           the difference between "webpage" and "designed product" text. */
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+
+    input,
+    select,
+    button {
+        @apply rounded-lg font-sans text-base text-ink;
+        transition:
+            border-color 0.15s ease,
+            box-shadow 0.15s ease,
+            background-color 0.15s ease,
+            opacity 0.15s ease,
+            transform 0.1s ease;
+    }
+    /* input/select get their own (slightly heavier) rule, separate from
+       button — a text field needs to visibly read as "this is where you
+       type," a button doesn't, and most buttons in this app already carry
+       their own solid-color/borderless className anyway. A plain border
+       the same weight as every card's own border let fields blend into
+       whatever card they sat on; the tinted fill plus a heavier border
+       gives every field real visual presence on its own — the "highlight
+       so it's obvious this is fillable" the kiosk forms were missing. */
+    input,
+    select {
+        @apply border-2 border-line bg-panel/70 p-[0.7rem];
+    }
+    input:focus,
+    select:focus {
+        @apply bg-white;
+    }
+    button {
+        @apply border border-line bg-white p-[0.7rem];
+    }
+    input:disabled,
+    select:disabled,
+    button:disabled {
+        @apply opacity-55;
+    }
+    /* A visible, deliberate focus ring (not the browser default outline) —
+       every polished product UI has one; its absence is one of the
+       fastest "unfinished" tells. */
+    input:focus-visible,
+    select:focus-visible,
+    button:focus-visible,
+    a:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(14, 92, 69, 0.22);
+        border-color: theme("colors.accent.DEFAULT");
+    }
+    select {
+        @apply appearance-none pr-[2.2rem];
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236c6b62' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+        background-repeat: no-repeat;
+        background-position: right 0.8rem center;
+    }
+
+    /* Every primary (accent-colored) button in the app — the 11 kiosk
+       forms' Submit buttons included — gets the same tactile elevation +
+       press feedback from this one rule, rather than repeating it in each
+       form file. Lower-layer @layer base so any component that sets its
+       own hover/shadow utility (e.g. the dashboard's DASH_BTN constants)
+       still wins over this default. */
+    button.bg-accent {
+        @apply shadow-elevate-1;
+    }
+    button.bg-accent:hover:not(:disabled) {
+        @apply shadow-elevate-2;
+        background-color: color-mix(in srgb, theme("colors.accent.DEFAULT") 90%, black);
+    }
+    button.bg-accent:active:not(:disabled) {
+        transform: scale(0.97);
+    }
+}
+
+@layer utilities {
+    /* Opt-in exception to the global scrollbar-hide rule above, for a
+       region where the scrollbar itself is useful signal (e.g. "there's
+       more below") rather than visual noise — a thin, theme-colored bar
+       instead of either the OS default or nothing. Class selector beats
+       the `*` in @layer base on specificity alone, so this doesn't need
+       !important. */
+    .scrollbar-custom {
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in srgb, theme("colors.accent.DEFAULT") 45%, transparent) transparent;
+    }
+    .scrollbar-custom::-webkit-scrollbar {
+        display: block;
+        width: 6px;
+    }
+    .scrollbar-custom::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .scrollbar-custom::-webkit-scrollbar-thumb {
+        background-color: color-mix(in srgb, theme("colors.accent.DEFAULT") 45%, transparent);
+        border-radius: 9999px;
+    }
+    .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+        background-color: theme("colors.accent.DEFAULT");
+    }
+    /* The little up/down click-to-scroll arrow buttons WebKit draws at
+       each end of the track by default — this app's scrollbar is a thin
+       drag-only affordance, not a classic OS scrollbar with stepper
+       buttons. Plain ::-webkit-scrollbar-button alone doesn't reliably
+       suppress them in Chromium — needs the :single-button/:start/:end
+       states covered too, with !important since Chromium's UA stylesheet
+       otherwise wins the tie on this pseudo-element. */
+    .scrollbar-custom::-webkit-scrollbar-button,
+    .scrollbar-custom::-webkit-scrollbar-button:single-button,
+    .scrollbar-custom::-webkit-scrollbar-button:vertical:start,
+    .scrollbar-custom::-webkit-scrollbar-button:vertical:end,
+    .scrollbar-custom::-webkit-scrollbar-button:horizontal:start,
+    .scrollbar-custom::-webkit-scrollbar-button:horizontal:end,
+    .scrollbar-custom::-webkit-scrollbar-button:start,
+    .scrollbar-custom::-webkit-scrollbar-button:end,
+    .scrollbar-custom::-webkit-scrollbar-button:increment,
+    .scrollbar-custom::-webkit-scrollbar-button:decrement,
+    .scrollbar-custom::-webkit-scrollbar-button:vertical:increment,
+    .scrollbar-custom::-webkit-scrollbar-button:vertical:decrement {
+        display: none !important;
+        height: 0 !important;
+        width: 0 !important;
+        /* Chromium's UA stylesheet paints the arrow glyph itself as part
+           of this pseudo-element's default appearance — display:none
+           alone left a ghost arrow visible in testing (every documented
+           :start/:end/:increment/:decrement combination included here;
+           in one test Chromium build the bottom arrow specifically still
+           survived all of them — a rendering-engine quirk, not something
+           more CSS selectors fix). Resetting -webkit-appearance is what
+           clears it in browsers where it does respond. */
+        -webkit-appearance: none !important;
+        background: transparent !important;
+    }
+}

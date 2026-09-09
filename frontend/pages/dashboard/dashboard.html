@@ -1,0 +1,443 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍣</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard — Overview</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+</head>
+<body>
+    <div class="dash-shell">
+        <nav class="dash-sidebar" id="dashSidebar"></nav>
+
+        <!-- Hidden until initDashboard() confirms access. -->
+        <main class="dash-main" id="dashMain" style="display: none">
+            <div class="dash-content">
+                <h1>KPI Dashboard</h1>
+                <div class="kpi-filters" id="kpiFilters"></div>
+                <div class="dash-spinner" id="kpiSpinner"></div>
+                <div id="kpiError" style="display: none; color: #b3261e"></div>
+
+                <div id="kpiContent" style="display: none; flex: 1; min-height: 0; overflow-y: auto">
+                    <div class="kpi-section-label">Waste, Damage &amp; Staff Food</div>
+                    <div class="kpi-tile-grid" id="kpiCoreTiles"></div>
+
+                    <div class="kpi-section-label">Stocktake Status</div>
+                    <div class="kpi-tile-grid" id="kpiStocktakeTiles"></div>
+
+                    <div class="kpi-section-label">Delivery / Invoice Review Queue</div>
+                    <div class="kpi-tile-grid" id="kpiDeliveryTiles"></div>
+
+                    <div class="kpi-section-label">Owner Actions</div>
+                    <div class="kpi-tile-grid" id="kpiActionTiles"></div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/assets/common.js"></script>
+    <script src="/assets/dashboard-common.js"></script>
+    <script>
+        const KPI_PRESETS = [
+            { key: "today", label: "Today" },
+            { key: "last7", label: "Last 7 days" },
+            { key: "last30", label: "Last 30 days" },
+            { key: "thisMonth", label: "This month" },
+        ];
+
+        let KPI_FILTERS = { kioskId: "", startDate: "", endDate: "" };
+
+        initDashboard("overview").then((ok) => {
+            if (!ok) return;
+            buildKpiFilters_();
+            applyKpiPreset_("last7");
+        });
+
+        // --- Date helpers (frontend-local — no shared date util exists in
+        // common.js today; mirrors Util.js's yyyy-MM-dd string convention) --
+
+        function pad2_(n) {
+            return n < 10 ? "0" + n : String(n);
+        }
+        function todayStr_() {
+            const d = new Date();
+            return d.getFullYear() + "-" + pad2_(d.getMonth() + 1) + "-" + pad2_(d.getDate());
+        }
+        function addDaysStr_(dateStr, n) {
+            const [y, m, d] = dateStr.split("-").map(Number);
+            const dt = new Date(y, m - 1, d + n);
+            return dt.getFullYear() + "-" + pad2_(dt.getMonth() + 1) + "-" + pad2_(dt.getDate());
+        }
+
+        // --- Filters ---------------------------------------------------------
+
+        function buildKpiFilters_() {
+            const el = document.getElementById("kpiFilters");
+            el.innerHTML = "";
+
+            const kioskSel = document.createElement("select");
+            kioskSel.innerHTML = '<option value="">All kiosks</option>';
+            kioskSel.addEventListener("change", () => {
+                KPI_FILTERS.kioskId = kioskSel.value;
+                loadKpiDashboard_();
+            });
+            el.appendChild(kioskSel);
+            el._kioskSel = kioskSel;
+
+            KPI_PRESETS.forEach((p) => {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "kpi-preset-btn";
+                btn.textContent = p.label;
+                btn.dataset.preset = p.key;
+                btn.addEventListener("click", () => applyKpiPreset_(p.key));
+                el.appendChild(btn);
+            });
+
+            const startInput = document.createElement("input");
+            startInput.type = "date";
+            startInput.addEventListener("change", () => {
+                KPI_FILTERS.startDate = startInput.value;
+                clearKpiPresetHighlight_();
+                loadKpiDashboard_();
+            });
+            const toLabel = document.createTextNode(" to ");
+            const endInput = document.createElement("input");
+            endInput.type = "date";
+            endInput.addEventListener("change", () => {
+                KPI_FILTERS.endDate = endInput.value;
+                clearKpiPresetHighlight_();
+                loadKpiDashboard_();
+            });
+            el.appendChild(startInput);
+            el.appendChild(toLabel);
+            el.appendChild(endInput);
+            el._startInput = startInput;
+            el._endInput = endInput;
+        }
+
+        function applyKpiPreset_(presetKey) {
+            const end = todayStr_();
+            let start;
+            if (presetKey === "today") start = end;
+            else if (presetKey === "last30") start = addDaysStr_(end, -29);
+            else if (presetKey === "thisMonth") start = end.slice(0, 8) + "01";
+            else start = addDaysStr_(end, -6); // last7, and the default
+
+            KPI_FILTERS.startDate = start;
+            KPI_FILTERS.endDate = end;
+
+            const el = document.getElementById("kpiFilters");
+            if (el._startInput) el._startInput.value = start;
+            if (el._endInput) el._endInput.value = end;
+            el.querySelectorAll(".kpi-preset-btn").forEach((b) => {
+                b.classList.toggle("kpi-preset-active", b.dataset.preset === presetKey);
+            });
+
+            loadKpiDashboard_();
+        }
+
+        function clearKpiPresetHighlight_() {
+            document.getElementById("kpiFilters")
+                .querySelectorAll(".kpi-preset-btn")
+                .forEach((b) => b.classList.remove("kpi-preset-active"));
+        }
+
+        function syncKpiKioskOptions_(kiosks) {
+            const sel = document.getElementById("kpiFilters")._kioskSel;
+            if (!sel || sel.options.length > 1) return;
+            kiosks.forEach((k) => {
+                const opt = document.createElement("option");
+                opt.value = k.id;
+                opt.textContent = k.name;
+                sel.appendChild(opt);
+            });
+        }
+
+        // --- Load + render -----------------------------------------------------
+
+        function loadKpiDashboard_() {
+            const spinner = document.getElementById("kpiSpinner");
+            const content = document.getElementById("kpiContent");
+            const errorEl = document.getElementById("kpiError");
+            spinner.style.display = "";
+            content.style.display = "none";
+            errorEl.style.display = "none";
+
+            return apiCall("bootstrap_kpi_dashboard", {
+                kioskId: KPI_FILTERS.kioskId,
+                startDate: KPI_FILTERS.startDate,
+                endDate: KPI_FILTERS.endDate,
+            })
+                .then((res) => {
+                    spinner.style.display = "none";
+                    if (!res.ok) {
+                        errorEl.style.display = "";
+                        errorEl.textContent = res.error || "Failed to load.";
+                        return;
+                    }
+                    content.style.display = "";
+                    syncKpiKioskOptions_(res.kiosks || []);
+                    renderKpiDashboard_(res);
+                })
+                .catch(() => {
+                    spinner.style.display = "none";
+                    errorEl.style.display = "";
+                    errorEl.textContent = "Failed to load.";
+                });
+        }
+
+        function kioskIdsFor_(res) {
+            return KPI_FILTERS.kioskId ? [KPI_FILTERS.kioskId] : res.kiosks.map((k) => k.id);
+        }
+
+        function renderKpiDashboard_(res) {
+            const kioskIds = kioskIdsFor_(res);
+            renderCoreTiles_(res, kioskIds);
+            renderStocktakeTiles_(res, kioskIds);
+            renderDeliveryTiles_(res, kioskIds);
+            renderActionTiles_(res);
+        }
+
+        // --- Shared formatting / aggregation helpers ----------------------------
+
+        function moneyStr_(n) {
+            return "€" + (Math.round((n || 0) * 100) / 100).toFixed(2);
+        }
+        function qtyStr_(n) {
+            const r = Math.round((n || 0) * 100) / 100;
+            return Number.isInteger(r) ? String(r) : r.toFixed(2);
+        }
+
+        function emptyStatTotals_() {
+            return { qty: 0, cost: 0, count: 0, uncostedCount: 0 };
+        }
+
+        function sumStat_(statsByKiosk, kioskIds) {
+            const total = emptyStatTotals_();
+            kioskIds.forEach((k) => {
+                const s = statsByKiosk[k];
+                if (!s) return;
+                total.qty += s.qty;
+                total.cost += s.cost;
+                total.count += s.count;
+                total.uncostedCount += s.uncostedCount;
+            });
+            return total;
+        }
+
+        function pluckMovement_(movementStats, kioskIds, type) {
+            const out = {};
+            kioskIds.forEach((k) => (out[k] = (movementStats[k] || {})[type] || emptyStatTotals_()));
+            return out;
+        }
+
+        // Combined rate across the selected kiosks = sum(numerator) /
+        // sum(planned_qty) — never an average of per-kiosk rates, which
+        // would misweight low-volume kiosks (spec §23.3's controlled-period
+        // reasoning applied to aggregation, not just filtering).
+        function combinedDamageWasteRates_(res, kioskIds) {
+            let plannedTotal = 0, damageQty = 0, wasteQty = 0;
+            kioskIds.forEach((k) => {
+                const r = res.damageWasteRates[k];
+                if (!r) return;
+                plannedTotal += r.plannedQty;
+                damageQty += r.damage.qty;
+                wasteQty += r.waste.qty;
+            });
+            return {
+                plannedQty: plannedTotal,
+                damageRatePer100: plannedTotal > 0 ? Math.round((damageQty / plannedTotal) * 10000) / 100 : null,
+                wasteRatePct: plannedTotal > 0 ? Math.round((wasteQty / plannedTotal) * 10000) / 100 : null,
+            };
+        }
+
+        function mergeByDate_(staffFoodByKiosk, kioskIds) {
+            const merged = {};
+            kioskIds.forEach((k) => {
+                const byDate = (staffFoodByKiosk[k] || {}).byDate || {};
+                Object.keys(byDate).forEach((d) => (merged[d] = (merged[d] || 0) + byDate[d]));
+            });
+            return merged;
+        }
+
+        function kpiTile_(label, value, subLines) {
+            const tile = document.createElement("div");
+            tile.className = "kpi-tile";
+            const lab = document.createElement("div");
+            lab.className = "kpi-tile-label";
+            lab.textContent = label;
+            tile.appendChild(lab);
+            const val = document.createElement("div");
+            val.className = "kpi-tile-value";
+            val.textContent = value;
+            tile.appendChild(val);
+            (subLines || []).filter(Boolean).forEach((line) => {
+                const sub = document.createElement("div");
+                sub.className = "kpi-tile-sub";
+                sub.textContent = line;
+                tile.appendChild(sub);
+            });
+            return tile;
+        }
+
+        function sparkline_(byDate, startDate, endDate) {
+            const dates = [];
+            let d = startDate;
+            while (d <= endDate) {
+                dates.push(d);
+                d = addDaysStr_(d, 1);
+            }
+            const values = dates.map((dt) => byDate[dt] || 0);
+            const max = Math.max(1, ...values);
+            const wrap = document.createElement("div");
+            wrap.className = "kpi-sparkline";
+            values.forEach((v, i) => {
+                const bar = document.createElement("div");
+                bar.className = "kpi-sparkline-bar";
+                bar.style.height = Math.max(2, Math.round((v / max) * 100)) + "%";
+                bar.title = dates[i] + ": " + moneyStr_(v);
+                wrap.appendChild(bar);
+            });
+            return wrap;
+        }
+
+        // --- Tile sections -------------------------------------------------------
+
+        function renderCoreTiles_(res, kioskIds) {
+            const wrap = document.getElementById("kpiCoreTiles");
+            wrap.innerHTML = "";
+
+            const waste = sumStat_(pluckMovement_(res.movementStats, kioskIds, "EXPIRED_WASTE"), kioskIds);
+            const damage = sumStat_(pluckMovement_(res.movementStats, kioskIds, "DAMAGE"), kioskIds);
+            const staffFoodTotals = {};
+            kioskIds.forEach((k) => (staffFoodTotals[k] = (res.staffFood[k] || {}).total || emptyStatTotals_()));
+            const staffFood = sumStat_(staffFoodTotals, kioskIds);
+            const rates = combinedDamageWasteRates_(res, kioskIds);
+
+            wrap.appendChild(kpiTile_("Expired / Waste (Finished Product)", moneyStr_(waste.cost), [
+                qtyStr_(waste.qty) + " units logged",
+                rates.wasteRatePct === null
+                    ? "Rate not available (no planned production for this period)"
+                    : rates.wasteRatePct + "% of planned production",
+                waste.uncostedCount > 0 ? waste.uncostedCount + " item(s) uncosted" : "",
+            ]));
+
+            wrap.appendChild(kpiTile_("Damage", moneyStr_(damage.cost), [
+                qtyStr_(damage.qty) + " units logged",
+                rates.damageRatePer100 === null
+                    ? "Rate not available (no planned production for this period)"
+                    : rates.damageRatePer100 + " per 100 planned units",
+                damage.uncostedCount > 0 ? damage.uncostedCount + " item(s) uncosted" : "",
+            ]));
+
+            const staffTile = kpiTile_("Staff Food", moneyStr_(staffFood.cost), [
+                qtyStr_(staffFood.qty) + " units logged",
+                staffFood.uncostedCount > 0 ? staffFood.uncostedCount + " item(s) uncosted" : "",
+            ]);
+            staffTile.appendChild(sparkline_(mergeByDate_(res.staffFood, kioskIds), res.startDate, res.endDate));
+            wrap.appendChild(staffTile);
+        }
+
+        function renderStocktakeTiles_(res, kioskIds) {
+            const wrap = document.getElementById("kpiStocktakeTiles");
+            wrap.innerHTML = "";
+            const nameById = {};
+            res.kiosks.forEach((k) => (nameById[k.id] = k.name));
+
+            kioskIds.forEach((kioskId) => {
+                const s = res.stocktakeStatus[kioskId];
+                if (!s) return;
+
+                const tile = document.createElement("div");
+                tile.className = "kpi-tile";
+                const lab = document.createElement("div");
+                lab.className = "kpi-tile-label";
+                lab.textContent = nameById[kioskId] || kioskId;
+                tile.appendChild(lab);
+
+                const val = document.createElement("div");
+                val.className = "kpi-tile-value";
+                val.style.fontSize = "1.1rem";
+                const badge = document.createElement("span");
+                badge.className = "kpi-badge kpi-badge-" + s.status.toLowerCase();
+                badge.textContent = s.status;
+                val.appendChild(badge);
+                tile.appendChild(val);
+
+                const sub = document.createElement("div");
+                sub.className = "kpi-tile-sub";
+                sub.textContent = s.lastCompleteDate
+                    ? "Last complete: " + s.lastCompleteDate + " (" + s.ageDays + " day" + (s.ageDays === 1 ? "" : "s") + " ago)"
+                    : "No complete stocktake on record";
+                tile.appendChild(sub);
+
+                if (s.hasRecentIncomplete) {
+                    const flag = document.createElement("div");
+                    flag.className = "kpi-tile-flag kpi-flag-warn";
+                    flag.textContent = "Incomplete stocktake since";
+                    tile.appendChild(flag);
+                }
+                wrap.appendChild(tile);
+            });
+        }
+
+        function renderDeliveryTiles_(res, kioskIds) {
+            const wrap = document.getElementById("kpiDeliveryTiles");
+            wrap.innerHTML = "";
+            const totals = { submitted: 0, inReview: 0, reviewed: 0, aiPending: 0, aiFailed: 0, unmappedLines: 0, approvedValue: 0 };
+            kioskIds.forEach((k) => {
+                const d = res.deliveryInvoice[k];
+                if (!d) return;
+                Object.keys(totals).forEach((key) => (totals[key] += d[key] || 0));
+            });
+
+            wrap.appendChild(kpiTile_("Deliveries Submitted", String(totals.submitted), [
+                totals.inReview + " in review",
+                totals.reviewed + " reviewed",
+            ]));
+            wrap.appendChild(kpiTile_("AI Extraction", String(totals.aiPending) + " pending", [
+                totals.aiFailed + " failed — needs manual entry",
+            ]));
+            wrap.appendChild(kpiTile_("Unmapped Invoice Lines", String(totals.unmappedLines), [
+                totals.unmappedLines > 0 ? "Needs a stock item picked before confirming" : "All lines mapped",
+            ]));
+            wrap.appendChild(kpiTile_("Approved Invoice Value", moneyStr_(totals.approvedValue), [
+                "For the selected period",
+            ]));
+        }
+
+        function renderActionTiles_(res) {
+            const wrap = document.getElementById("kpiActionTiles");
+            wrap.innerHTML = "";
+            const counts = res.ownerActionCounts || { byStatus: {}, byCategory: {} };
+            const openStatuses = ["OPEN", "IN_PROGRESS", "WAITING_FOR_OWNER"];
+            const openTotal = openStatuses.reduce((sum, s) => sum + (counts.byStatus[s] || 0), 0);
+
+            wrap.appendChild(kpiTile_("Open Owner Actions", String(openTotal), [
+                "OPEN: " + (counts.byStatus.OPEN || 0),
+                "IN PROGRESS: " + (counts.byStatus.IN_PROGRESS || 0),
+                "WAITING FOR OWNER: " + (counts.byStatus.WAITING_FOR_OWNER || 0),
+            ]));
+
+            const catTile = document.createElement("div");
+            catTile.className = "kpi-tile";
+            const catLab = document.createElement("div");
+            catLab.className = "kpi-tile-label";
+            catLab.textContent = "All Owner Actions by Category (all-time)";
+            catTile.appendChild(catLab);
+            Object.keys(counts.byCategory || {}).sort().forEach((cat) => {
+                const line = document.createElement("div");
+                line.className = "kpi-tile-sub";
+                line.textContent = cat.replace(/_/g, " ") + ": " + counts.byCategory[cat];
+                catTile.appendChild(line);
+            });
+            wrap.appendChild(catTile);
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+/**
+ * Tabulator chrome theme overrides — the one deliberate exception to this
+ * project's "no CSS files, Tailwind only" rule. Tabulator is a vendored,
+ * DOM-owning grid library: it generates its own header/row/cell elements
+ * under its own fixed class names (.tabulator, .tabulator-header,
+ * .tabulator-row, .tabulator-cell, ...), which we don't render ourselves
+ * and can't hand a Tailwind className to for their base chrome — theming a
+ * foreign widget's own generated DOM is exactly what a scoped CSS override
+ * is for (the same reason its own tabulator.min.css is loaded as CSS, not
+ * reimplemented in Tailwind). Every element WE create directly (popups,
+ * modals, toolbar buttons, the boolean switch, filter icons, etc.) uses
+ * pure Tailwind utility classNames instead — see DataTablesController.js.
+ * Colors are hardcoded to match tailwind.config.js's token values (bg
+ * #faf9f6, panel #f2f0e8, card #ffffff, ink #20221f, muted #6c6b62, accent
+ * #0e5c45, line #e7e3d8) so this stays visually consistent with the rest
+ * of the app without a build step that could read the Tailwind config
+ * from plain CSS.
+ *
+ * Design direction: the stock Tabulator look is a dense spreadsheet — a
+ * hard vertical rule after every single column, a flat grey header, and a
+ * one-shade row-hover. That reads as "generic grid widget." This version
+ * drops the per-column vertical rules in favor of whitespace + horizontal
+ * row rules (the modern data-table convention — Notion/Linear/Airtable all
+ * do this), gives the header real typographic weight (uppercase, tracked,
+ * smaller), and makes row/column interaction states (hover, sort-active,
+ * selected, filtered) each get their own distinct, understated treatment
+ * instead of one flat highlight color. Restrained radius/shadow — this is
+ * a data surface, not a marketing card.
+ */
+
+.tabulator {
+    border: 1px solid #e7e3d8;
+    border-radius: 12px;
+    overflow: hidden;
+    font-size: 0.875rem;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(32, 34, 31, 0.05);
+}
+.tabulator-tableholder,
+.tabulator-table {
+    background: #ffffff;
+}
+
+/* --- Header --------------------------------------------------------- */
+.tabulator .tabulator-header {
+    background: #f8f7f2;
+    border-bottom: 1px solid #e7e3d8;
+    color: #20221f;
+    min-height: 2.6rem;
+}
+.tabulator .tabulator-col {
+    border-right: none;
+}
+.tabulator .tabulator-col-title {
+    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #6c6b62;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+}
+.tabulator .tabulator-col.tabulator-sortable:hover {
+    background: #efece1;
+}
+.tabulator .tabulator-col-sorter {
+    color: #a6a294;
+}
+.tabulator .tabulator-col-sorter .tabulator-arrow {
+    transition: border-color 0.15s ease;
+}
+.tabulator .tabulator-col.tabulator-col-sorter-element[aria-sort="ascending"] .tabulator-col-sorter,
+.tabulator .tabulator-col.tabulator-col-sorter-element[aria-sort="descending"] .tabulator-col-sorter,
+.tabulator .tabulator-col[aria-sort="ascending"] .tabulator-col-sorter,
+.tabulator .tabulator-col[aria-sort="descending"] .tabulator-col-sorter {
+    color: #0e5c45;
+}
+.tabulator-col.col-header-filtered {
+    background: color-mix(in srgb, #0e5c45 8%, #f8f7f2);
+    box-shadow: inset 0 -2px 0 0 #0e5c45;
+}
+
+/* --- Rows / cells ----------------------------------------------------
+   No per-column vertical rules — a soft horizontal rule between rows
+   plus generous cell padding reads as "designed table," not "spreadsheet
+   grid." Alternating-row shading is dropped in favor of a single crisp
+   hover state, which scans better on a screen with 5-8 columns. */
+.tabulator-row {
+    border-bottom: 1px solid #f0eee6;
+    transition: background-color 0.12s ease;
+}
+.tabulator-row.tabulator-row-even {
+    background: #ffffff;
+}
+.tabulator-row:hover {
+    background: #f8f7f2;
+}
+.tabulator-row.tabulator-selectable:hover {
+    cursor: pointer;
+}
+.tabulator-row.tabulator-selected {
+    background: color-mix(in srgb, #0e5c45 6%, #ffffff);
+    box-shadow: inset 3px 0 0 0 #0e5c45;
+}
+.tabulator-row.tabulator-selected:hover {
+    background: color-mix(in srgb, #0e5c45 9%, #ffffff);
+}
+.tabulator-cell {
+    padding: 0.65rem 0.9rem;
+    border-right: none;
+}
+/* Only carried by columns that are actually editable right now (see
+   buildColumns) — the color itself is the "you can edit this" signal, no
+   separate label needed. Warm amber, not the brand emerald — "editable" is
+   a distinct signal from "selected"/"active," and amber reads as a
+   neutral affordance rather than competing with the brand color. */
+.tabulator-cell.editable-cell {
+    background: color-mix(in srgb, #9c5b0a 7%, transparent);
+}
+.tabulator-row:hover .tabulator-cell.editable-cell {
+    background: color-mix(in srgb, #9c5b0a 12%, transparent);
+}
+/* A cell whose value actually differs from what the server last returned
+   this session — stronger signal than plain editable-cell amber ("you
+   could edit this"), scoped to the exact cells that have. */
+.tabulator-cell.cell-changed {
+    background: #fbead0;
+    box-shadow: inset 0 0 0 1.5px #0e5c45;
+    border-radius: 4px;
+}
+.tabulator-cell.tabulator-editing {
+    box-shadow: inset 0 0 0 2px #0e5c45;
+    border-radius: 4px;
+}
+
+/* --- Title-column links (the row's "open detail" link, when the table
+   has a detail view) get a real link treatment + hover feedback instead
+   of just inheriting the row hover. --- */
+.tabulator-cell a {
+    font-weight: 600;
+    color: #0e5c45;
+    text-decoration: none;
+    transition: text-decoration-color 0.15s ease;
+}
+.tabulator-cell a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 2px;
+}
+
+/* --- Footer / pagination --------------------------------------------- */
+.tabulator-footer {
+    background: #f8f7f2;
+    border-top: 1px solid #e7e3d8;
+    color: #6c6b62;
+    padding: 0.55rem 0.75rem;
+}
+.tabulator-footer .tabulator-page {
+    border-radius: 7px;
+    border: 1px solid #e7e3d8;
+    background: #ffffff;
+    color: #20221f;
+    font-weight: 600;
+    transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease;
+}
+.tabulator-footer .tabulator-page:not(:disabled):hover {
+    background: #efece1;
+    border-color: #ddd7c8;
+}
+.tabulator-footer .tabulator-page.active {
+    background: #0e5c45;
+    border-color: #0e5c45;
+    color: #ffffff;
+}
+.tabulator-footer .tabulator-page:disabled {
+    opacity: 0.45;
+}
+
+/* --- Empty state ------------------------------------------------------ */
+.tabulator-placeholder {
+    color: #6c6b62;
+}
+
+/* --- Selectable checkbox column ---------------------------------------
+   Tabulator's built-in select-row cell renders a native checkbox — nudge
+   it to the same accent color as the rest of the app's toggles/switches
+   instead of the browser's default blue. */
+.tabulator-cell input[type="checkbox"] {
+    accent-color: #0e5c45;
+    width: 1rem;
+    height: 1rem;
+}

@@ -1,0 +1,831 @@
+// Prisma schema for the sushi kiosk management system.
+//
+// Ported 1:1 from the working Google Sheets database (see
+// Database-test.xlsx) — every table/column here mirrors a sheet
+// tab/header exactly, including field names (snake_case, not Prisma's
+// usual camelCase convention) so the NestJS API layer can return rows
+// straight from Prisma without a translation layer, matching the shape
+// the existing frontend already expects (see frontend-next's DAL usage,
+// which maps sheet rows to plain objects by header name).
+//
+// Enum-like columns (role, movement_type, status, etc.) are kept as
+// plain String, not Prisma enums — most of them are backed by the
+// owner-editable `enum_option` table at runtime (see field_schema's
+// `enum_source` column), so a compile-time enum would be wrong for the
+// exact ones the owner can add options to. The few truly fixed enums
+// (form_type, processing_status, etc.) are documented in comments next
+// to the field instead, to keep this a faithful first-pass port.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Connection URL lives in prisma.config.ts (CLI) and the driver adapter
+// passed to `new PrismaClient({ adapter })` at runtime (see
+// src/import/import.service.ts) — Prisma 7 no longer reads `url` here.
+datasource db {
+  provider = "postgresql"
+}
+
+// =====================================================================
+// Reference / config tables — generic Data Tables CRUD engine manages
+// these directly (see table_schema / field_schema below).
+// =====================================================================
+
+model Brand {
+  brand_id String @id
+  name     String
+
+  kiosks    Kiosk[]
+  campaigns Campaign[]
+  products  Product[]
+
+  @@map("brand")
+}
+
+model Kiosk {
+  kiosk_id          String  @id
+  name              String
+  brand_id          String
+  token             String  @unique
+  production_email  String?
+  active            Boolean @default(true)
+
+  brand Brand @relation(fields: [brand_id], references: [brand_id])
+
+  stock_item_pars       StockItemPar[]
+  production_pars       ProductionPar[]
+  defrost_pars          DefrostPar[]
+  stock_movements       StockMovement[]
+  product_movements     ProductMovement[]
+  transfers_out         StockTransfer[]      @relation("TransferSource")
+  transfers_in          StockTransfer[]      @relation("TransferDestination")
+  fridge_counts         FridgeCount[]
+  production_plans      ProductionPlan[]
+  staff_food            StaffFood[]
+  delivery_headers      DeliveryHeader[]
+  requests              Request[]
+  stocktake_headers     StocktakeHeader[]
+  audit_responses       AuditResponse[]
+  corrective_actions    CorrectiveAction[]
+  audit_corrections     AuditCorrection[]
+  submissions           Submission[]
+  processing_error_logs ProcessingErrorLog[]
+  owner_actions         OwnerAction[]
+
+  @@map("kiosk")
+}
+
+model User {
+  user_id String  @id
+  name    String
+  email   String  @unique
+  role    String // DEVELOPER | ADMIN | STAFF (see backend/core/Config.js ROLES)
+  active  Boolean @default(true)
+
+  stock_transfers   StockTransfer[]
+  staff_food        StaffFood[]
+  requests          Request[]
+  submissions       Submission[]
+  audit_corrections AuditCorrection[]
+
+  @@map("user")
+}
+
+model Supplier {
+  supplier_id          String  @id
+  name                 String
+  contact_email        String?
+  order_output_method  String // ONLINE_ORDER_LIST | MANUAL | GMAIL_DRAFT (enum_source: order_output_method)
+  active               Boolean @default(true)
+
+  supplier_item_maps SupplierItemMap[]
+  delivery_headers   DeliveryHeader[]
+  purchasing_batches PurchasingBatch[]
+
+  @@map("supplier")
+}
+
+model Campaign {
+  campaign_id String    @id
+  name        String
+  start_date  DateTime?
+  end_date    DateTime?
+  brand_id    String?
+  active      Boolean   @default(true)
+
+  brand    Brand?    @relation(fields: [brand_id], references: [brand_id])
+  products Product[]
+
+  @@map("campaign")
+}
+
+model StockItem {
+  stock_item_id       String   @id
+  name                String
+  stock_category_id   String // enum_source: stock_category
+  count_unit          String
+  current_unit_cost   Decimal? @db.Decimal(12, 4)
+  cost_per_100g       Decimal? @db.Decimal(12, 4)
+  food_waste_eligible Boolean  @default(true)
+  active              Boolean  @default(true)
+
+  stock_item_pars       StockItemPar[]
+  defrost_items         DefrostItem[]
+  supplier_item_maps    SupplierItemMap[]
+  stock_movements       StockMovement[]
+  stock_transfers       StockTransfer[]
+  invoice_lines         InvoiceLine[]
+  stocktake_lines       StocktakeLine[]
+  purchasing_batch_lines PurchasingBatchLine[]
+
+  @@map("stock_item")
+}
+
+model StockItemPar {
+  stock_item_id String
+  kiosk_id      String
+  target_par    Decimal? @db.Decimal(12, 3)
+  minimum_stock Decimal? @db.Decimal(12, 3)
+  safety_stock  Decimal? @db.Decimal(12, 3)
+
+  stock_item StockItem @relation(fields: [stock_item_id], references: [stock_item_id])
+  kiosk      Kiosk     @relation(fields: [kiosk_id], references: [kiosk_id])
+
+  @@id([stock_item_id, kiosk_id])
+  @@map("stock_item_par")
+}
+
+model Product {
+  product_id           String   @id
+  name                 String
+  product_category_id  String // enum_source: product_category
+  production_role      String? // enum_source: production_role (PRIMARY | SECONDARY)
+  brand_id             String?
+  campaign_id          String?
+  shelf_life_days      Int?
+  current_unit_cost    Decimal? @db.Decimal(12, 4)
+  plan_group           String?
+  staff_food_eligible  Boolean  @default(false)
+  active               Boolean  @default(true)
+
+  brand    Brand?    @relation(fields: [brand_id], references: [brand_id])
+  campaign Campaign? @relation(fields: [campaign_id], references: [campaign_id])
+
+  recipe_components  RecipeComponent[]
+  production_pars    ProductionPar[]
+  product_movements  ProductMovement[]
+  fridge_counts      FridgeCount[]
+  production_plans   ProductionPlan[]
+  staff_food         StaffFood[]
+
+  @@map("product")
+}
+
+model RecipeComponent {
+  recipe_component_id String @id @default(uuid())
+  product_id           String
+  component_id          String
+  qty                    Int
+  unit                   String // enum_source: recipe_component_unit
+
+  product   Product   @relation(fields: [product_id], references: [product_id])
+  component Component @relation(fields: [component_id], references: [component_id])
+
+  @@map("recipe_component")
+}
+
+model AuditSection {
+  audit_section_id String @id
+  name             String
+  sort_order       Int
+
+  audit_questions AuditQuestion[]
+
+  @@map("audit_section")
+}
+
+model AuditQuestion {
+  audit_question_id  String   @id
+  audit_section_id   String
+  question_text      String
+  pass_answer        String
+  na_allowed         Boolean  @default(false)
+  evidence_required  Boolean  @default(false)
+  critical           Boolean  @default(false)
+  weight             Decimal  @db.Decimal(6, 2)
+  active             Boolean  @default(true)
+
+  audit_section AuditSection @relation(fields: [audit_section_id], references: [audit_section_id])
+
+  audit_answers       AuditAnswer[]
+  corrective_actions  CorrectiveAction[]
+
+  @@map("audit_question")
+}
+
+// Composite key (enum_type, value) — owner-editable dropdown options
+// shared across every enum_source-tagged column in field_schema.
+model EnumOption {
+  enum_type  String
+  value      String
+  label      String
+  sort_order Int?
+  active     Boolean @default(true)
+
+  @@id([enum_type, value])
+  @@map("enum_option")
+}
+
+model ProductionPar {
+  kiosk_id   String
+  product_id String
+  MONDAY     Int @default(0)
+  TUESDAY    Int @default(0)
+  WEDNESDAY  Int @default(0)
+  THURSDAY   Int @default(0)
+  FRIDAY     Int @default(0)
+  SATURDAY   Int @default(0)
+  SUNDAY     Int @default(0)
+
+  kiosk   Kiosk   @relation(fields: [kiosk_id], references: [kiosk_id])
+  product Product @relation(fields: [product_id], references: [product_id])
+
+  @@id([kiosk_id, product_id])
+  @@map("production_par")
+}
+
+model Component {
+  component_id        String   @id
+  name                String
+  component_type      String? // enum_source: component_type
+  recipe_unit         String?
+  prep_unit           String?
+  units_per_prep_unit Decimal? @db.Decimal(10, 3)
+  active              Boolean  @default(true)
+  note                String?
+
+  recipe_components RecipeComponent[]
+
+  @@map("component")
+}
+
+model DefrostItem {
+  defrost_item_id String   @id
+  name            String
+  stock_item_id   String?
+  planning_mode   String? // enum_source: planning_mode
+  defrost_unit    String?
+  min_increment   Decimal? @db.Decimal(10, 3)
+  yield_a         Decimal? @db.Decimal(10, 3)
+  yield_b         Decimal? @db.Decimal(10, 3)
+  active          Boolean  @default(true)
+
+  stock_item StockItem? @relation(fields: [stock_item_id], references: [stock_item_id])
+
+  defrost_pars DefrostPar[]
+
+  @@map("defrost_item")
+}
+
+model DefrostPar {
+  kiosk_id        String
+  defrost_item_id String
+  MONDAY          Decimal? @db.Decimal(10, 3)
+  TUESDAY         Decimal? @db.Decimal(10, 3)
+  WEDNESDAY       Decimal? @db.Decimal(10, 3)
+  THURSDAY        Decimal? @db.Decimal(10, 3)
+  FRIDAY          Decimal? @db.Decimal(10, 3)
+  SATURDAY        Decimal? @db.Decimal(10, 3)
+  SUNDAY          Decimal? @db.Decimal(10, 3)
+
+  kiosk        Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  defrost_item DefrostItem @relation(fields: [defrost_item_id], references: [defrost_item_id])
+
+  @@id([kiosk_id, defrost_item_id])
+  @@map("defrost_par")
+}
+
+model SupplierItemMap {
+  supplier_item_map_id  String   @id @default(uuid())
+  supplier_id           String
+  supplier_code         String?
+  supplier_description  String?
+  stock_item_id         String
+  selling_unit          String? // enum_source: selling_unit
+  case_unit             String? // enum_source: case_unit
+  case_multiple         Int?
+  order_multiple        Decimal? @db.Decimal(10, 3)
+  current_price         Decimal? @db.Decimal(12, 4)
+  active                Boolean  @default(true)
+
+  supplier   Supplier  @relation(fields: [supplier_id], references: [supplier_id])
+  stock_item StockItem @relation(fields: [stock_item_id], references: [stock_item_id])
+
+  @@map("supplier_item_map")
+}
+
+// =====================================================================
+// Metadata tables driving the generic Data Tables CRUD grid (owner
+// dashboard). Kept as real tables (not hardcoded) so the port can offer
+// the exact same config-driven grid behaviour as the original.
+// =====================================================================
+
+model TableSchema {
+  table_name       String  @id
+  label            String
+  description      String?
+  type             String? // parent | child
+  hard_delete      Boolean?
+  has_detail_view  Boolean?
+
+  @@map("table_schema")
+}
+
+model FieldSchema {
+  table_name             String
+  column_name            String
+  label                  String
+  type                   String // text | integer | decimal | money | boolean | date | enum | reference | sub_table
+  sub_table              String?
+  ref_table              String?
+  ref_label_field        String?
+  sub_table_join_column  String?
+  is_title_column        Boolean?
+  enum_source            String?
+  manage_options         Boolean?
+  min                    Decimal? @db.Decimal(12, 4)
+  max                    Decimal? @db.Decimal(12, 4)
+  primary_key            Boolean?
+  required               Boolean?
+  searchable             Boolean?
+  hidden                 Boolean?
+  editable_on_update     Boolean?
+  editable_on_create     Boolean?
+
+  @@id([table_name, column_name])
+  @@map("field_schema")
+}
+
+// =====================================================================
+// Settings (key/value, owner-editable via the Settings dashboard page).
+// Value kept as text — same as the original sheet — since individual
+// settings vary in shape (plain numbers, comma-separated weekday lists,
+// JSON arrays for SAMPLING_SUSHI). Parsed per-key by the app layer,
+// exactly like the current Apps Script Settings.js does.
+// =====================================================================
+
+model Setting {
+  setting_key String  @id
+  value       String
+  description String?
+  label       String?
+
+  @@map("setting")
+}
+
+// =====================================================================
+// Async submission pipeline — every kiosk form POST lands here first
+// (see backend/api/Pipeline.js), then gets fanned out into the
+// operational tables below by a periodic sweep.
+// =====================================================================
+
+model Submission {
+  submission_id       String   @id @default(uuid())
+  kiosk_id             String
+  form_type            String // FORM_TYPES constant in backend/core/Config.js
+  user_id              String?
+  submitted_by_email   String?
+  submitted_at         DateTime @default(now())
+  business_date        DateTime?
+  raw_payload          Json
+  processing_key       String?
+  processing_status    String   @default("PENDING") // PENDING | PROCESSED | RETRY_REQUIRED | ERROR
+
+  kiosk Kiosk @relation(fields: [kiosk_id], references: [kiosk_id])
+  user  User? @relation(fields: [user_id], references: [user_id])
+
+  stock_movements       StockMovement[]
+  product_movements     ProductMovement[]
+  stock_transfers       StockTransfer[]
+  fridge_counts         FridgeCount[]
+  production_plans      ProductionPlan[]
+  staff_food            StaffFood[]
+  delivery_headers      DeliveryHeader[]
+  requests              Request[]
+  stocktake_headers     StocktakeHeader[]
+  audit_responses       AuditResponse[]
+  audit_corrections     AuditCorrection[]
+  processing_error_logs ProcessingErrorLog[]
+  owner_actions_sourced OwnerAction[]
+
+  @@index([processing_status])
+  @@map("submission")
+}
+
+model ProcessingErrorLog {
+  error_id                       String    @id @default(uuid())
+  error_at                       DateTime  @default(now())
+  kiosk_id                       String?
+  form_type                      String?
+  submission_id                  String?
+  processing_key                 String?
+  stage                          String?
+  error_message                  String
+  records_written_before_error   Boolean   @default(false)
+  recommended_action             String?
+  retry_status                   String    @default("PENDING") // PENDING | RESOLVED
+  resolved_at                    DateTime?
+
+  kiosk      Kiosk?      @relation(fields: [kiosk_id], references: [kiosk_id])
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+
+  @@map("processing_error_log")
+}
+
+// =====================================================================
+// Operational / transactional tables — one row per real business event.
+// =====================================================================
+
+model StockMovement {
+  stock_movement_id String   @id @default(uuid())
+  submission_id      String?
+  kiosk_id            String
+  stock_item_id       String
+  movement_type       String // EXPIRED_WASTE | DAMAGE | TRANSFER_IN | TRANSFER_OUT | DELIVERY_IN | STOCKTAKE_ADJUSTMENT ...
+  direction           String // IN | OUT
+  movement_date       DateTime
+  qty                 Decimal  @db.Decimal(12, 3)
+  unit_cost           Decimal? @db.Decimal(12, 4)
+  cost                Decimal? @db.Decimal(12, 2)
+  transfer_id         String?
+  reference_id        String?
+  created_at          DateTime @default(now())
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  stock_item StockItem   @relation(fields: [stock_item_id], references: [stock_item_id])
+  transfer   StockTransfer? @relation(fields: [transfer_id], references: [transfer_id])
+
+  @@index([kiosk_id, movement_date])
+  @@map("stock_movement")
+}
+
+model ProductMovement {
+  product_movement_id          String    @id @default(uuid())
+  submission_id                 String?
+  kiosk_id                      String
+  product_id                    String
+  movement_type                 String // EXPIRED_WASTE | DAMAGE | STAFF_FOOD ...
+  direction                     String // IN | OUT
+  movement_date                 DateTime
+  qty                            Decimal   @db.Decimal(12, 3)
+  unit_cost                      Decimal?  @db.Decimal(12, 4)
+  cost                            Decimal?  @db.Decimal(12, 2)
+  attributed_production_date     DateTime?
+  damage_cause                    String?
+  photo_reference                  String?
+  status                            String    @default("UNCOSTED") // UNCOSTED | COSTED
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  product    Product     @relation(fields: [product_id], references: [product_id])
+
+  @@index([kiosk_id, movement_date])
+  @@map("product_movement")
+}
+
+model StockTransfer {
+  transfer_id             String   @id @default(uuid())
+  submission_id            String?
+  source_kiosk_id           String?
+  destination_kiosk_id       String?
+  stock_item_id                String
+  qty                            Decimal @db.Decimal(12, 3)
+  count_unit                       String?
+  reason                            String? // enum_source: transfer_reason
+  note                                String?
+  user_id                              String?
+  status                                 String  @default("PENDING") // PENDING | APPLIED | DECLINED
+
+  submission        Submission? @relation(fields: [submission_id], references: [submission_id])
+  source_kiosk      Kiosk?      @relation("TransferSource", fields: [source_kiosk_id], references: [kiosk_id])
+  destination_kiosk Kiosk?      @relation("TransferDestination", fields: [destination_kiosk_id], references: [kiosk_id])
+  stock_item        StockItem   @relation(fields: [stock_item_id], references: [stock_item_id])
+  user               User?       @relation(fields: [user_id], references: [user_id])
+
+  stock_movements StockMovement[]
+
+  @@map("stock_transfer")
+}
+
+model FridgeCount {
+  fridge_count_id String   @id @default(uuid())
+  submission_id    String?
+  kiosk_id          String
+  business_date       DateTime
+  product_id            String
+  counted_qty             Decimal @db.Decimal(12, 3)
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  product    Product     @relation(fields: [product_id], references: [product_id])
+
+  @@index([kiosk_id, business_date])
+  @@map("fridge_count")
+}
+
+model ProductionPlan {
+  production_plan_id String   @id @default(uuid())
+  kiosk_id             String
+  business_date          DateTime
+  product_id                String
+  planned_qty                 Decimal  @db.Decimal(12, 3)
+  submission_id                 String?
+  generated_at                    DateTime @default(now())
+
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  product    Product     @relation(fields: [product_id], references: [product_id])
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+
+  @@index([kiosk_id, business_date])
+  @@map("production_plan")
+}
+
+model StaffFood {
+  staff_food_id String   @id @default(uuid())
+  submission_id  String?
+  kiosk_id        String
+  food_date         DateTime
+  user_id             String?
+  product_id            String
+  qty                     Decimal @db.Decimal(10, 2) @default(1)
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  user       User?       @relation(fields: [user_id], references: [user_id])
+  product    Product     @relation(fields: [product_id], references: [product_id])
+
+  @@map("staff_food")
+}
+
+model DeliveryHeader {
+  delivery_header_id     String   @id @default(uuid())
+  submission_id            String?
+  kiosk_id                    String
+  delivery_date                  DateTime
+  supplier_id                       String
+  document_type                        String // INVOICE | CREDIT_NOTE | DELIVERY_DOCKET
+  delivery_route                          String? // REGULAR_EXACT | ...
+  as_expected                                Boolean?
+  staff_invoice_number                          String?
+  delivery_note                                    String?
+  status                                              String  @default("IN_REVIEW") // IN_REVIEW | REVIEWED
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  supplier   Supplier    @relation(fields: [supplier_id], references: [supplier_id])
+
+  delivery_files DeliveryFile[]
+  invoice_lines  InvoiceLine[]
+
+  @@map("delivery_header")
+}
+
+model DeliveryFile {
+  delivery_file_id  String  @id @default(uuid())
+  delivery_header_id String
+  drive_file_id       String?
+  file_name              String?
+  file_url                  String?
+  page_sequence                Int?
+  ai_status                       String? // PENDING | SUCCESS | FAILED
+  ai_error                           String?
+
+  delivery_header DeliveryHeader @relation(fields: [delivery_header_id], references: [delivery_header_id])
+
+  @@map("delivery_file")
+}
+
+model InvoiceLine {
+  invoice_line_id     String   @id @default(uuid())
+  delivery_header_id    String
+  stock_item_id            String?
+  supplier_item_code          String?
+  description_raw                String?
+  qty                                Decimal  @db.Decimal(12, 3)
+  unit_cost                            Decimal? @db.Decimal(12, 4)
+  line_total                              Decimal? @db.Decimal(12, 2)
+  source                                    String   @default("AI_EXTRACTED") // AI_EXTRACTED | MANUAL
+  status                                      String   @default("DRAFT") // DRAFT | APPROVED | DECLINED
+  approved_at                                    DateTime?
+  approved_by                                      String?
+
+  delivery_header DeliveryHeader @relation(fields: [delivery_header_id], references: [delivery_header_id])
+  stock_item      StockItem?     @relation(fields: [stock_item_id], references: [stock_item_id])
+
+  @@map("invoice_line")
+}
+
+model Request {
+  request_id         String    @id @default(uuid())
+  submission_id        String?
+  kiosk_id                String
+  user_id                    String?
+  request_type                  String? // KIOSK_ISSUE | HELP_NEEDED | FEEDBACK | URGENT
+  category                         String?
+  title                                String
+  details                                String?
+  photo_reference                          String?
+  initial_priority                            String? // LOW | NORMAL | URGENT
+  owner_priority                                 String?
+  assigned_to                                       String?
+  owner_status                                         String  @default("OPEN")
+  due_date                                                DateTime?
+  owner_note                                                 String?
+  resolution_note                                               String?
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+  user       User?       @relation(fields: [user_id], references: [user_id])
+
+  @@map("request")
+}
+
+model StocktakeHeader {
+  stocktake_header_id      String   @id @default(uuid())
+  submission_id               String?
+  kiosk_id                       String
+  stocktake_date                    DateTime
+  expected_item_count                  Int?
+  received_item_count                     Int?
+  completion_status                          String? // COMPLETE | INCOMPLETE
+  reconciliation_status                         String? // PENDING | RECONCILED
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+
+  stocktake_lines StocktakeLine[]
+
+  @@map("stocktake_header")
+}
+
+model StocktakeLine {
+  stocktake_line_id  String  @id @default(uuid())
+  stocktake_header_id  String
+  stock_item_id            String
+  counted_qty                 Decimal @db.Decimal(12, 3)
+  count_unit                     String?
+
+  stocktake_header StocktakeHeader @relation(fields: [stocktake_header_id], references: [stocktake_header_id])
+  stock_item       StockItem       @relation(fields: [stock_item_id], references: [stock_item_id])
+
+  @@map("stocktake_line")
+}
+
+model PurchasingBatch {
+  purchasing_batch_id  String   @id @default(uuid())
+  owner_action_id         String?
+  supplier_id                String
+  order_output_method            String?
+  generated_at                       DateTime @default(now())
+
+  owner_action OwnerAction? @relation(fields: [owner_action_id], references: [owner_action_id])
+  supplier     Supplier     @relation(fields: [supplier_id], references: [supplier_id])
+
+  purchasing_batch_lines PurchasingBatchLine[]
+
+  @@map("purchasing_batch")
+}
+
+model PurchasingBatchLine {
+  purchasing_batch_line_id  String   @id @default(uuid())
+  purchasing_batch_id          String
+  stock_item_id                    String
+  total_shortfall                     Decimal? @db.Decimal(12, 3)
+  pack_size                              Decimal? @db.Decimal(12, 3)
+  order_multiple                            Decimal? @db.Decimal(12, 3)
+  recommended_packs                            Int?
+  recommended_qty                                 Decimal? @db.Decimal(12, 3)
+  flags                                              String?
+
+  purchasing_batch PurchasingBatch @relation(fields: [purchasing_batch_id], references: [purchasing_batch_id])
+  stock_item       StockItem       @relation(fields: [stock_item_id], references: [stock_item_id])
+
+  @@map("purchasing_batch_line")
+}
+
+model AuditResponse {
+  audit_response_id String   @id @default(uuid())
+  submission_id       String?
+  kiosk_id                String
+  audit_date                 DateTime
+  review_status                 String  @default("PENDING_REVIEW") // PENDING_REVIEW | REVIEWED
+  final_score                      Decimal? @db.Decimal(6, 2)
+  final_rating                        String?
+
+  submission Submission? @relation(fields: [submission_id], references: [submission_id])
+  kiosk      Kiosk       @relation(fields: [kiosk_id], references: [kiosk_id])
+
+  audit_answers      AuditAnswer[]
+  corrective_actions CorrectiveAction[]
+
+  @@map("audit_response")
+}
+
+model AuditAnswer {
+  audit_answer_id          String  @id @default(uuid())
+  audit_response_id           String
+  audit_question_id               String
+  staff_answer                       String // YES | NO | NA
+  evidence_photo_reference              String?
+  owner_decision                           String?
+  owner_note                                  String?
+
+  audit_response AuditResponse @relation(fields: [audit_response_id], references: [audit_response_id])
+  audit_question AuditQuestion @relation(fields: [audit_question_id], references: [audit_question_id])
+
+  @@map("audit_answer")
+}
+
+model CorrectiveAction {
+  corrective_action_id  String    @id @default(uuid())
+  audit_response_id        String
+  audit_question_id           String
+  kiosk_id                       String
+  status                            String    @default("OPEN") // OPEN | RESOLVED
+  deadline                            DateTime?
+  created_at                             DateTime  @default(now())
+  closed_at                                 DateTime?
+
+  audit_response AuditResponse @relation(fields: [audit_response_id], references: [audit_response_id])
+  audit_question AuditQuestion @relation(fields: [audit_question_id], references: [audit_question_id])
+  kiosk          Kiosk         @relation(fields: [kiosk_id], references: [kiosk_id])
+
+  audit_corrections AuditCorrection[]
+
+  @@map("corrective_action")
+}
+
+model AuditCorrection {
+  audit_correction_id           String  @id @default(uuid())
+  submission_id                    String?
+  corrective_action_id                String
+  kiosk_id                               String
+  staff_member_id                           String?
+  correction_cycle                             Int      @default(1)
+  correction_note                                 String?
+  replacement_photo_reference                        String?
+  validation_status                                     String  @default("PENDING") // PENDING | ACCEPTED | REJECTED
+
+  submission        Submission?      @relation(fields: [submission_id], references: [submission_id])
+  corrective_action CorrectiveAction @relation(fields: [corrective_action_id], references: [corrective_action_id])
+  kiosk             Kiosk            @relation(fields: [kiosk_id], references: [kiosk_id])
+  staff_member      User?            @relation(fields: [staff_member_id], references: [user_id])
+
+  @@map("audit_correction")
+}
+
+// =====================================================================
+// Owner Action Inbox — every review-needing item (invoice, transfer,
+// audit, request, stocktake variance...) surfaces here.
+// =====================================================================
+
+model OwnerAction {
+  owner_action_id      String    @id @default(uuid())
+  source_submission_id    String?
+  kiosk_id                   String?
+  category                      String // INVOICE_REVIEW | TRANSFER_APPROVAL | TRANSFER_APPLY | STOCKTAKE_REVIEW | DAMAGE_REVIEW | HELP_ISSUE | AUDIT_REVIEW | AUDIT_CORRECTION_REVIEW | OTHER
+  title                            String
+  status                              String  @default("OPEN") // OPEN | IN_PROGRESS | WAITING_FOR_OWNER | RESOLVED | CLOSED | NOT_PROCEEDING
+  priority                               String  @default("NORMAL") // LOW | NORMAL | URGENT
+  assigned_to                              String?
+  due_date                                    DateTime?
+  owner_note                                     String?
+  created_at                                        DateTime  @default(now())
+  resolved_at                                          DateTime?
+
+  source_submission Submission? @relation(fields: [source_submission_id], references: [submission_id])
+  kiosk             Kiosk?      @relation(fields: [kiosk_id], references: [kiosk_id])
+
+  activity_logs      ActivityLog[]
+  purchasing_batches PurchasingBatch[]
+
+  @@index([status])
+  @@map("owner_action")
+}
+
+model ActivityLog {
+  activity_log_id  String   @id @default(uuid())
+  owner_action_id     String
+  changed_at             DateTime @default(now())
+  changed_by                String?
+  field_changed                String?
+  old_value                       String?
+  new_value                          String?
+  note                                   String?
+
+  owner_action OwnerAction @relation(fields: [owner_action_id], references: [owner_action_id])
+
+  @@map("activity_log")
+}

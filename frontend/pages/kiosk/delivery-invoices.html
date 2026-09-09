@@ -1,0 +1,395 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <link
+            rel="icon"
+            href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📄</text></svg>"
+        />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Delivery Invoices</title>
+        <link rel="stylesheet" href="/assets/style.css" />
+        <style>
+            .field {
+                width: 100%;
+                margin-bottom: 0.7rem;
+            }
+            label {
+                display: block;
+                font-size: 0.8rem;
+                color: var(--muted);
+                margin: 0 0.1rem 0.25rem;
+            }
+            .checkline {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin-bottom: 0.9rem;
+                font-size: 0.95rem;
+            }
+            .checkline input {
+                width: 1.2rem;
+                height: 1.2rem;
+            }
+            .photo-box {
+                border: 2px dashed var(--line);
+                border-radius: var(--radius);
+                padding: 1.2rem;
+                text-align: center;
+                margin-bottom: 0.7rem;
+                cursor: pointer;
+                color: var(--muted);
+                font-size: 0.9rem;
+            }
+            .thumbs {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                margin-bottom: 0.7rem;
+            }
+            .thumb {
+                position: relative;
+                width: 5rem;
+                height: 5rem;
+            }
+            .thumb img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                border-radius: 8px;
+                border: 1px solid var(--line);
+            }
+            .thumb .page {
+                position: absolute;
+                bottom: 2px;
+                left: 2px;
+                background: rgba(0, 0, 0, 0.6);
+                color: #fff;
+                font-size: 0.65rem;
+                padding: 1px 5px;
+                border-radius: 6px;
+            }
+            .thumb .rm {
+                position: absolute;
+                top: -6px;
+                right: -6px;
+                width: 1.4rem;
+                height: 1.4rem;
+                border-radius: 50%;
+                background: var(--ink);
+                color: #fff;
+                border: none;
+                font-size: 0.8rem;
+                line-height: 1;
+                cursor: pointer;
+            }
+            .actions button {
+                width: 100%;
+                margin-top: 0.6rem;
+                font-weight: 700;
+                cursor: pointer;
+            }
+            #submitBtn {
+                background: var(--accent);
+                color: var(--accent-ink);
+                border-color: var(--accent);
+            }
+            .note {
+                font-size: 0.85rem;
+                color: var(--muted);
+                margin: 0.6rem 0.1rem;
+            }
+            #result {
+                margin-top: 1rem;
+                padding: 1rem;
+                border-radius: 10px;
+                display: none;
+                white-space: pre-wrap;
+            }
+            #result.err {
+                display: block;
+                background: #fce8e6;
+            }
+            .spinner {
+                display: none;
+                margin: 1rem auto 0;
+                width: 2.2rem;
+                height: 2.2rem;
+                border: 4px solid var(--line);
+                border-top-color: var(--accent);
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+            }
+            .busy .spinner,
+            .spinner.loading {
+                display: block;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            #successPanel {
+                display: none;
+                text-align: center;
+                padding: 3rem 1rem;
+            }
+            #successPanel .big {
+                font-size: 3rem;
+            }
+            #successPanel .msg {
+                margin: 0.8rem 0 1.6rem;
+                font-size: 1.05rem;
+            }
+            #successPanel a,
+            #successPanel button {
+                display: inline-block;
+                background: var(--ink);
+                color: #fff;
+                text-decoration: none;
+                font-weight: 700;
+                padding: 0.8rem 1.6rem;
+                border-radius: 10px;
+                border: none;
+                cursor: pointer;
+                margin: 0 0.3rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="topbar">
+            <span class="kiosk">📄 Delivery Invoices</span>
+            <a class="staff" style="color: #fff" data-menu-link>‹ Menu</a>
+        </div>
+        <div class="wrap">
+            <div id="formArea">
+                <p class="note">
+                    One response per supplier document — if it's several pages
+                    (e.g. a multi-page invoice), add all the pages here
+                    together.
+                </p>
+
+                <div id="fields" style="display: none">
+                    <label for="supplier">Supplier</label>
+                    <select id="supplier" class="field">
+                        <option value="">Select supplier…</option>
+                    </select>
+
+                    <label for="docType">Document type</label>
+                    <select id="docType" class="field">
+                        <option value="">Select type…</option>
+                    </select>
+
+                    <div class="checkline">
+                        <input id="asExpected" type="checkbox" />
+                        <label for="asExpected" style="margin: 0"
+                            >Delivery matched what was ordered</label
+                        >
+                    </div>
+
+                    <label for="invNum">Invoice number (optional)</label>
+                    <input
+                        id="invNum"
+                        class="field"
+                        type="text"
+                        placeholder="As printed on the document"
+                    />
+
+                    <label for="note">Note (optional)</label>
+                    <input
+                        id="note"
+                        class="field"
+                        type="text"
+                        placeholder="Anything else to add"
+                    />
+
+                    <label>Pages / photos</label>
+                    <div class="thumbs" id="thumbs"></div>
+                    <div
+                        class="photo-box"
+                        onclick="document.getElementById('photoInput').click()"
+                    >
+                        Tap to add a page photo
+                    </div>
+                    <input
+                        id="photoInput"
+                        type="file"
+                        accept="image/*,application/pdf"
+                        capture="environment"
+                        style="display: none"
+                    />
+                </div>
+
+                <div class="actions" style="display: none">
+                    <button id="submitBtn" onclick="submitDelivery()">
+                        Submit
+                    </button>
+                </div>
+                <div class="spinner loading"></div>
+                <div id="result"></div>
+            </div>
+
+            <div id="successPanel">
+                <div class="big">✅</div>
+                <div class="msg" id="successMsg"></div>
+                <button onclick="location.reload()">Log another</button>
+                <a data-menu-link>Back to menu</a>
+            </div>
+        </div>
+
+        <script src="/assets/common.js"></script>
+        <script>
+            const TOKEN = initPage();
+            const CLIENT_KEY =
+                crypto && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : String(Date.now()) +
+                      "-" +
+                      Math.random().toString(36).slice(2);
+            let BOOT = null;
+            let files = []; // { base64, mimeType, name, previewUrl }
+
+            if (TOKEN) {
+                apiCall("bootstrap_delivery_invoice", { token: TOKEN })
+                    .then(init)
+                    .catch((e) => showError("Could not load: " + e.message));
+            }
+
+            function init(boot) {
+                if (!boot.ok) return showError(boot.error);
+                BOOT = boot;
+
+                const supplier = document.getElementById("supplier");
+                boot.suppliers
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .forEach((s) => {
+                        const o = document.createElement("option");
+                        o.value = s.id;
+                        o.textContent = s.name;
+                        supplier.appendChild(o);
+                    });
+
+                const docType = document.getElementById("docType");
+                boot.documentTypes.forEach((t) => {
+                    const o = document.createElement("option");
+                    o.value = t.value;
+                    o.textContent = t.label;
+                    docType.appendChild(o);
+                });
+
+                document
+                    .getElementById("photoInput")
+                    .addEventListener("change", onFileChosen);
+
+                document.getElementById("fields").style.display = "";
+                document.querySelector(".actions").style.display = "";
+                document.querySelector(".spinner").classList.remove("loading");
+            }
+
+            function onFileChosen(ev) {
+                const file = ev.target.files[0];
+                if (!file) return;
+                readFileForUpload(file).then((data) => {
+                    files.push(
+                        Object.assign({}, data, {
+                            previewUrl:
+                                "data:" + data.mimeType + ";base64," + data.base64,
+                        }),
+                    );
+                    renderThumbs();
+                });
+                ev.target.value = ""; // allow choosing the same file again
+            }
+
+            function renderThumbs() {
+                const holder = document.getElementById("thumbs");
+                holder.innerHTML = "";
+                files.forEach((f, i) => {
+                    const div = document.createElement("div");
+                    div.className = "thumb";
+                    const isImage = (f.mimeType || "").startsWith("image/");
+                    div.innerHTML =
+                        (isImage
+                            ? '<img src="' + f.previewUrl + '">'
+                            : '<img src="" style="background:#eee">') +
+                        '<span class="page">' +
+                        (i + 1) +
+                        "</span>" +
+                        '<button class="rm">✕</button>';
+                    div.querySelector(".rm").onclick = () => {
+                        files.splice(i, 1);
+                        renderThumbs();
+                    };
+                    holder.appendChild(div);
+                });
+            }
+
+            function submitDelivery() {
+                const supplier = document.getElementById("supplier").value;
+                const docType = document.getElementById("docType").value;
+                if (!supplier) return showError("Select the supplier.");
+                if (!docType) return showError("Select the document type.");
+                if (!files.length)
+                    return showError("Add at least one page/photo.");
+
+                setBusy(true);
+                apiCall("submit", {
+                    token: TOKEN,
+                    formType: "DELIVERY_INVOICE",
+                    payload: {
+                        client_key: CLIENT_KEY,
+                        business_date: BOOT.businessDate,
+                        supplier_id: supplier,
+                        document_type: docType,
+                        as_expected:
+                            document.getElementById("asExpected").checked,
+                        staff_invoice_number:
+                            document.getElementById("invNum").value,
+                        delivery_note: document.getElementById("note").value,
+                        files: files.map((f) => ({
+                            base64: f.base64,
+                            mimeType: f.mimeType,
+                            name: f.name,
+                        })),
+                    },
+                })
+                    .then((res) => {
+                        setBusy(false);
+                        if (res.ok) {
+                            showSuccess(
+                                "Delivery document submitted for review.",
+                            );
+                            kickProcessing();
+                        } else showError(res.error);
+                    })
+                    .catch((e) => {
+                        setBusy(false);
+                        showError("Submit failed: " + e.message);
+                    });
+            }
+
+            function setBusy(b) {
+                document.body.classList.toggle("busy", b);
+                for (const el of document.querySelectorAll(
+                    "#formArea button, #formArea input, #formArea select",
+                ))
+                    el.disabled = b;
+            }
+
+            function showSuccess(msg) {
+                document.getElementById("formArea").style.display = "none";
+                document.getElementById("successMsg").textContent = msg;
+                document.getElementById("successPanel").style.display = "block";
+            }
+
+            function showError(msg) {
+                document.querySelector(".spinner").classList.remove("loading");
+                const el = document.getElementById("result");
+                el.className = "err";
+                el.textContent = msg;
+                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        </script>
+    </body>
+</html>

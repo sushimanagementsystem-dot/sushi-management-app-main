@@ -1,0 +1,359 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗑️</text></svg>" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Morning Waste</title>
+        <link rel="stylesheet" href="/assets/style.css" />
+        <script src="/assets/search-pick.js"></script>
+        <style>
+            .line {
+                display: flex;
+                gap: 0.4rem;
+                margin-bottom: 0.6rem;
+                position: relative;
+            }
+            .line select.cat {
+                width: 6.5rem;
+                flex: none;
+            }
+            .line .searchpick {
+                flex: 1;
+                min-width: 0;
+            }
+            .line input[type="number"] {
+                width: 4.2rem;
+                flex: none;
+            }
+            .line .rm {
+                border: none;
+                background: none;
+                color: var(--muted);
+                font-size: 1.2rem;
+                padding: 0 0.2rem;
+            }
+            .actions button {
+                width: 100%;
+                margin-top: 0.6rem;
+                font-weight: 700;
+                cursor: pointer;
+            }
+            #submitBtn {
+                background: var(--accent);
+                color: var(--accent-ink);
+                border-color: var(--accent);
+            }
+            #noWasteBtn {
+                background: var(--ink);
+                color: #fff;
+                border-color: var(--ink);
+            }
+            .note {
+                font-size: 0.85rem;
+                color: var(--muted);
+                margin: 0.6rem 0.1rem;
+            }
+            #result {
+                margin-top: 1rem;
+                padding: 1rem;
+                border-radius: 10px;
+                display: none;
+                white-space: pre-wrap;
+            }
+            #result.err {
+                display: block;
+                background: #fce8e6;
+            }
+            .banner {
+                background: #fff8e1;
+                border: 1px solid #f0e2ad;
+                border-radius: 10px;
+                padding: 0.8rem;
+                font-size: 0.9rem;
+                margin-bottom: 0.8rem;
+                display: none;
+            }
+            .spinner {
+                display: none;
+                margin: 1rem auto 0;
+                width: 2.2rem;
+                height: 2.2rem;
+                border: 4px solid var(--line);
+                border-top-color: var(--accent);
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+            }
+            .busy .spinner,
+            .spinner.loading {
+                display: block;
+            }
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+            #successPanel {
+                display: none;
+                text-align: center;
+                padding: 3rem 1rem;
+            }
+            #successPanel .big {
+                font-size: 3rem;
+            }
+            #successPanel .msg {
+                margin: 0.8rem 0 1.6rem;
+                font-size: 1.05rem;
+            }
+            #successPanel a {
+                display: inline-block;
+                background: var(--ink);
+                color: #fff;
+                text-decoration: none;
+                font-weight: 700;
+                padding: 0.8rem 1.6rem;
+                border-radius: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="topbar">
+            <span class="kiosk">🗑️ Morning Waste</span>
+            <a class="staff" style="color: #fff" data-menu-link>‹ Menu</a>
+        </div>
+        <div class="wrap">
+            <div id="formArea">
+                <div class="banner" id="resubmitBanner">
+                    Today already has a submission. Your earlier lines are
+                    loaded below — edit and resubmit; this
+                    <b>replaces</b> today's record.
+                </div>
+                <p class="note">
+                    Log only out of date products here. Make sure to include
+                    the correct product and quantity.
+                </p>
+
+                <div id="lines"></div>
+
+                <div class="actions" style="display: none">
+                    <button id="addLine" onclick="addLine()">
+                        + Add product
+                    </button>
+                    <button id="submitBtn" onclick="submitWaste(false)">
+                        Submit waste
+                    </button>
+                    <button id="noWasteBtn" onclick="submitWaste(true)">
+                        No waste today
+                    </button>
+                </div>
+                <div class="spinner loading"></div>
+                <div id="result"></div>
+            </div>
+
+            <div id="successPanel">
+                <div class="big">✅</div>
+                <div class="msg" id="successMsg"></div>
+                <a data-menu-link>Back to menu</a>
+            </div>
+        </div>
+
+        <script src="/assets/common.js"></script>
+        <script>
+            const TOKEN = initPage();
+            let BOOT = null;
+            let byName = {};
+            let categories = [];
+
+            if (TOKEN) {
+                apiCall("bootstrap_morning_waste", { token: TOKEN })
+                    .then(init)
+                    .catch((e) => showError("Could not load: " + e.message));
+            }
+
+            function init(boot) {
+                if (!boot.ok) return showError(boot.error);
+                BOOT = boot;
+                boot.products.forEach((p) => (byName[p.name] = p.id));
+                categories = [
+                    ...new Set(boot.products.map((p) => p.cat)),
+                ].sort();
+
+                if (boot.alreadySubmitted && !boot.wasNoWaste) {
+                    document.getElementById("resubmitBanner").style.display =
+                        "block";
+                    boot.existingLines.forEach((ln) =>
+                        addLine(idToName(ln.product_id), ln.qty),
+                    );
+                }
+                if (!document.querySelector(".line")) addLine();
+
+                document.querySelector(".actions").style.display = "";
+                document.querySelector(".spinner").classList.remove("loading");
+            }
+
+            function idToName(id) {
+                const p = BOOT.products.find((p) => p.id === id);
+                return p ? p.name : id;
+            }
+
+            function addLine(name, qty) {
+                const div = document.createElement("div");
+                div.className = "line";
+
+                const sel = document.createElement("select");
+                sel.className = "cat";
+                sel.innerHTML = '<option value="">All</option>';
+                categories.forEach(
+                    (c) =>
+                        (sel.innerHTML +=
+                            '<option value="' + c + '">' + c + "</option>"),
+                );
+
+                const wrap = document.createElement("div");
+                const qtyInp = document.createElement("input");
+                qtyInp.type = "number";
+                qtyInp.min = "1";
+                qtyInp.step = "1";
+                qtyInp.placeholder = "Qty";
+                qtyInp.value = qty || "";
+
+                const rm = document.createElement("button");
+                rm.className = "rm";
+                rm.textContent = "✕";
+                rm.onclick = () => {
+                    div.remove();
+                    updateNoWasteVisibility();
+                };
+
+                const picker = makeSearchPick(wrap, {
+                    placeholder: "Search product…",
+                    getItems: (q) => {
+                        const taken = new Set(
+                            [
+                                ...document.querySelectorAll(
+                                    ".line .searchpick input",
+                                ),
+                            ]
+                                .filter((i) => i !== picker.input)
+                                .map((i) => i.value.trim())
+                                .filter((v) => byName[v]),
+                        );
+                        return BOOT.products
+                            .filter(
+                                (p) =>
+                                    !taken.has(p.name) &&
+                                    (!sel.value || p.cat === sel.value) &&
+                                    (!q || p.name.toLowerCase().includes(q)),
+                            )
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((p) => ({ id: p.id, label: p.name }));
+                    },
+                    onSelect: () => qtyInp.focus(),
+                });
+                picker.setLabel(name);
+                sel.onchange = () => {
+                    picker.setLabel("");
+                    if (document.activeElement === picker.input)
+                        picker.refresh();
+                };
+
+                div.append(sel, wrap, qtyInp, rm);
+                document.getElementById("lines").appendChild(div);
+                updateNoWasteVisibility();
+            }
+
+            function updateNoWasteVisibility() {
+                const hasContent = [
+                    ...document.querySelectorAll(".line input"),
+                ].some((inp) => inp.value.trim() !== "");
+                document.getElementById("noWasteBtn").style.display = hasContent
+                    ? "none"
+                    : "";
+            }
+            document
+                .getElementById("lines")
+                .addEventListener("input", updateNoWasteVisibility);
+
+            function submitWaste(noWaste) {
+                const lines = [];
+                if (!noWaste) {
+                    for (const div of document.querySelectorAll(".line")) {
+                        const inputs = div.querySelectorAll("input");
+                        const name = inputs[0].value.trim();
+                        if (!name && !inputs[1].value) continue;
+                        const id = byName[name];
+                        if (!id)
+                            return showError(
+                                'Unknown product: "' +
+                                    name +
+                                    '". Pick from the list.',
+                            );
+                        const qty = Number(inputs[1].value);
+                        if (!Number.isInteger(qty) || qty < 1)
+                            return showError(
+                                name +
+                                    ": quantity must be a whole number, at least 1.",
+                            );
+                        lines.push({ product_id: id, qty: qty });
+                    }
+                    if (!lines.length)
+                        return showError(
+                            "Add at least one product, or use No waste today.",
+                        );
+                } else if (
+                    !confirm("Confirm: no expired products were removed today?")
+                ) {
+                    return;
+                }
+
+                setBusy(true);
+                apiCall("submit", {
+                    token: TOKEN,
+                    formType: "MORNING_WASTE",
+                    payload: {
+                        business_date: BOOT.businessDate,
+                        no_waste: noWaste,
+                        lines: lines,
+                    },
+                })
+                    .then((res) => {
+                        setBusy(false);
+                        if (res.ok) {
+                            showSuccess(
+                                noWaste
+                                    ? "No-waste recorded for today."
+                                    : "Waste recorded.",
+                            );
+                            kickProcessing();
+                        } else showError(res.error);
+                    })
+                    .catch((e) => {
+                        setBusy(false);
+                        showError("Submit failed: " + e.message);
+                    });
+            }
+
+            function setBusy(b) {
+                document.body.classList.toggle("busy", b);
+                for (const el of document.querySelectorAll(
+                    "#formArea button, #formArea input, #formArea select",
+                ))
+                    el.disabled = b;
+            }
+
+            function showSuccess(msg) {
+                document.getElementById("formArea").style.display = "none";
+                document.getElementById("successMsg").textContent = msg;
+                document.getElementById("successPanel").style.display = "block";
+            }
+
+            function showError(msg) {
+                document.querySelector(".spinner").classList.remove("loading");
+                const el = document.getElementById("result");
+                el.className = "err";
+                el.textContent = msg;
+                el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        </script>
+    </body>
+</html>

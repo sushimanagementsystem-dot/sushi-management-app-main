@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍣</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in — Staff Forms</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <div class="wrap" style="text-align: center; padding-top: 3rem">
+        <div style="font-size: 3rem">🍣</div>
+        <h2 style="margin: 0.6rem 0 0.4rem">Sign in</h2>
+        <p style="color: var(--muted); font-size: 0.95rem; margin-bottom: 1.2rem">
+            Sign in with your registered Google account to open your kiosk's forms.
+        </p>
+        <div
+            id="g_id_onload"
+            data-client_id="267995313560-0mllsvc5d4iqpc75sajnffl9vujc4v9t.apps.googleusercontent.com"
+            data-callback="handleCredentialResponse"
+        ></div>
+        <div class="g_id_signin" data-type="standard" style="display: inline-block"></div>
+        <p id="err" style="color: #b3261e; margin-top: 1rem"></p>
+    </div>
+
+    <script src="/assets/common.js"></script>
+    <script>
+        // Already signed in on this device (e.g. this page was opened
+        // directly, or revisited) — skip the button entirely.
+        if (getStoredSessionToken()) {
+            redirectAfterSignIn();
+        }
+
+        /**
+         * GSI's data-callback — fires once the user completes sign-in.
+         * Exchanges the (short-lived) Google credential for our own
+         * longer-lived session token; apiCall stores it automatically.
+         */
+        function handleCredentialResponse(response) {
+            apiCall("login", { idToken: response.credential }).then((res) => {
+                if (!res.ok) {
+                    document.getElementById("err").textContent = res.error;
+                    return;
+                }
+                redirectAfterSignIn();
+            });
+        }
+    </script>
+</body>
+</html>

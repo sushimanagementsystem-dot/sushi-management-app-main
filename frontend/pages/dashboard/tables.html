@@ -1,0 +1,2665 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍣</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard — Data Tables</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css"
+    />
+    <script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+</head>
+<body>
+    <div class="dash-shell">
+        <nav class="dash-sidebar" id="dashSidebar"></nav>
+
+        <!-- Hidden until initDashboard() confirms access. -->
+        <main class="dash-main" id="dashMain" style="display: none">
+            <div class="dash-content">
+                <div class="table-tabs" id="tableTabs" style="display: none"></div>
+                <h1 id="pageTitle"></h1>
+                <p id="pageDesc" style="color: var(--muted)"></p>
+                <!-- Covers the page's very first load only — before
+                     bootstrap_tables_page resolves, pageGridMount is still
+                     empty (no DataGrid instance exists yet to show its own
+                     spinner). Hidden once that first response arrives; every
+                     later load (tab switch, reload) is covered by the
+                     DataGrid instance's own spinnerEl instead, per its
+                     _buildScaffold. Kept as a sibling of pageGridMount, not
+                     inside it — that div's own comment below says it's
+                     "owned entirely" by the DataGrid instance, which appends
+                     rather than clears on construction. -->
+                <div class="dash-spinner" id="pageLoadSpinner"></div>
+                <!-- Owned entirely by the page-level DataGrid instance (see
+                     the inline script) — it builds its own toolbar/spinner/
+                     grid sub-elements into this one mount, exactly the same
+                     way a future modal-embedded child grid gets its own
+                     mount div. -->
+                <div class="dash-grid-mount" id="pageGridMount"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/assets/common.js"></script>
+    <script src="/assets/dashboard-common.js"></script>
+    <script src="/assets/search-pick.js"></script>
+    <script>
+        // Which tables exist and their tab labels — see table_schema in
+        // database_schema.md. Fetched once. Switching tabs always refetches
+        // row data fresh, but schema/references/enums are cached (below)
+        // once loaded, so revisiting a table already seen this session is
+        // just one API call instead of several.
+        let TABLES_LIST = [];
+        let ACTIVE_TABLE = "";
+        // The single page-level grid instance — destroyed and replaced
+        // whenever the active tab changes (see activateTable). A detail
+        // modal instantiates its own DataGrid instances the same way,
+        // independent of this one.
+        let PAGE_GRID = null;
+        // { hasUnsavedChanges(), forceClose() } for whichever detail modal
+        // is currently open, or null. Set/cleared by DataGrid#openDetailView.
+        // Lets the page-level unsaved-changes guard (tab switching,
+        // beforeunload) see into an open modal's parent-fields editor and
+        // child grids without those being DataGrid/page-level state
+        // themselves.
+        let ACTIVE_DETAIL_MODAL = null;
+
+        // Cached for the whole session (cleared only by a real page
+        // reload) — schema/reference/enum data rarely changes mid-session,
+        // and re-fetching it on every tab switch was the expensive part
+        // (a chain of several GAS round trips). Row data is NOT cached
+        // here — always fetched fresh, since it's the part most likely to
+        // actually change, and it's cheap on its own (one call). Shared by
+        // every DataGrid instance on the page, not per-instance state.
+        let SCHEMA_CACHE = {}; // table_name -> fields[]
+        let REF_CACHES = {}; // ref_table -> { id: fullRow }
+        let ENUM_CACHES = {}; // enum_source -> [{value, label}]
+        // table_name -> that table's own table_schema row (label,
+        // description, hard_delete, has_detail_view, type). Every
+        // bootstrap_data_table response is self-describing (includes the
+        // table's own meta) so this works identically for the page-level
+        // grid and any future child grid embedded in a detail modal —
+        // neither needs a separate table_schema lookup.
+        let TABLE_META_CACHE = {};
+        // child table name -> Promise<bootstrap_data_table response>.
+        // Populated once per session per child table, right after the
+        // page-level grid's own schema reveals a type=sub_table row (see
+        // prefetchSubTableChildren_) — same eager-prefetch-and-cache shape
+        // as ENUM_OPTION_ALL_ROWS/loadEnumOptionRows_ below, so a detail
+        // view's child sections render instantly from cache instead of
+        // waiting on a fetch when the admin actually clicks a title link.
+        let CHILD_TABLE_CACHE = {};
+        // Every enum_option row (all types, active and inactive) — fetched
+        // once per session, not on every popup open. null = not fetched yet.
+        // Refreshed only after a successful Save in the manage popup below.
+        let ENUM_OPTION_ALL_ROWS = null;
+        // enum_type||value -> { isNew, data } — edits made in any enum-manage
+        // popup, across any table/column, on any grid instance. Global, not
+        // per-instance: flushed together with the *next* whole-table Save,
+        // whichever grid that happens on, never sent independently by the
+        // popup itself. Cleared alongside a grid's own dirty state wherever
+        // "any unsaved changes?" is checked.
+        let ENUM_OPTION_DIRTY = {};
+        // Every currently-live DataGrid instance (the page-level grid, plus
+        // — later — any child grids embedded in an open detail modal). Lets
+        // applyEnumManagePopup below rebuild columns on every instance
+        // actually displaying the changed enum_source, and lets the
+        // sidebar-toggle listener redraw every instance, not just one
+        // hardcoded grid.
+        const LIVE_GRID_INSTANCES = new Set();
+
+        setUnsavedGuard(() => hasUnsavedChanges());
+
+        window.addEventListener("dash-sidebar-toggled", () => {
+            LIVE_GRID_INSTANCES.forEach((inst) => {
+                if (inst.tabulator) inst.tabulator.redraw(true);
+            });
+        });
+
+        // /dashboard/tables/<table_name> — third path segment is the slug
+        // (see vercel.json's dedicated rewrite for this one route). Not
+        // present on a bare /dashboard/tables visit; that's fine, initial
+        // load below falls back to the first configured table and then
+        // fills the slug in via replaceState.
+        function tableSlugFromUrl() {
+            return window.location.pathname.split("/").filter(Boolean)[2] || "";
+        }
+
+        // /dashboard/tables/<table>/detail/<rowId> — one level of deep
+        // link into a row's detail modal (see DataGrid#openDetailView).
+        // Segments 3/4; "" if this URL isn't a detail deep link at all.
+        function detailRowIdFromUrl() {
+            const segments = window.location.pathname.split("/").filter(Boolean);
+            return segments[3] === "detail" ? segments[4] || "" : "";
+        }
+
+        initDashboard("tables").then((ok) => {
+            if (!ok) return;
+            // Page's very first load: tab list + the active table's full
+            // bootstrap in one call (was two sequential ones — see
+            // bootstrap_tables_page on the backend). renderFromData is
+            // called directly with the data already in hand — no second
+            // fetch the way switching tabs later needs (see load()).
+            apiCall("bootstrap_tables_page", { preferredTable: tableSlugFromUrl() }).then((res) => {
+                document.getElementById("pageLoadSpinner").style.display = "none";
+                if (!res.ok || !res.tables || !res.tables.length) {
+                    document.getElementById("pageGridMount").textContent =
+                        res.error || "No tables configured yet.";
+                    return;
+                }
+                TABLES_LIST = res.tables;
+                ACTIVE_TABLE = res.activeTable;
+                const meta = TABLES_LIST.find((t) => t.table_name === ACTIVE_TABLE) || {};
+                // Preserve a detail deep link's row-id suffix if the page
+                // was loaded directly on one — this only needs to fill in
+                // the table slug (e.g. a bare /dashboard/tables visit
+                // defaulting to the first table), not strip it.
+                const initialDetailId = detailRowIdFromUrl();
+                history.replaceState(
+                    null,
+                    "",
+                    "/dashboard/tables/" + ACTIVE_TABLE + (initialDetailId ? "/detail/" + initialDetailId : ""),
+                );
+                document.title = "Dashboard — " + (meta.label || ACTIVE_TABLE);
+                document.getElementById("pageTitle").textContent = meta.label || ACTIVE_TABLE;
+                document.getElementById("pageDesc").textContent = meta.description || "";
+
+                buildTableTabs();
+                PAGE_GRID = new DataGrid({
+                    container: document.getElementById("pageGridMount"),
+                    tableName: ACTIVE_TABLE,
+                    onRendered: (grid) => prefetchSubTableChildren_(grid.schema),
+                });
+                PAGE_GRID.renderFromData(cacheBootstrapResponse(res, ACTIVE_TABLE));
+
+                if (initialDetailId) {
+                    // Row data is fully loaded already (bootstrap_data_table
+                    // always fetches a whole table, no pagination) — just
+                    // waiting on the Tabulator instance itself to finish
+                    // building before a RowComponent lookup can work.
+                    PAGE_GRID.tableReady.then(() => {
+                        const rowComp = PAGE_GRID.findRowComponent(initialDetailId);
+                        if (rowComp) PAGE_GRID.openDetailView(rowComp, { pushUrl: false });
+                    });
+                }
+            }).catch(() => {
+                document.getElementById("pageLoadSpinner").style.display = "none";
+                document.getElementById("pageGridMount").textContent = "Failed to load.";
+            });
+        });
+
+        function hasUnsavedChanges() {
+            return (
+                (PAGE_GRID && PAGE_GRID.hasUnsavedChanges()) ||
+                (ACTIVE_DETAIL_MODAL && ACTIVE_DETAIL_MODAL.hasUnsavedChanges()) ||
+                Object.keys(ENUM_OPTION_DIRTY).length > 0
+            );
+        }
+
+        // Browser back/forward after switching tabs — same unsaved-changes
+        // guard as a click, since it's the same underlying action.
+        window.addEventListener("popstate", () => {
+            const slug = tableSlugFromUrl();
+
+            // Browser Back pressed while a detail modal was open, landing
+            // back on this same table's plain URL — close the modal, not
+            // a table switch. (A modal never spans a table switch: the
+            // table-switch path below always force-closes it first, so
+            // this table-changed-too case can't happen while
+            // ACTIVE_DETAIL_MODAL is still set.)
+            if (ACTIVE_DETAIL_MODAL && slug === ACTIVE_TABLE && !detailRowIdFromUrl()) {
+                if (ACTIVE_DETAIL_MODAL.hasUnsavedChanges()) {
+                    const modalUrl = ACTIVE_DETAIL_MODAL.url;
+                    confirmModal("Discard unsaved changes and close?").then((yes) => {
+                        if (yes) {
+                            ACTIVE_DETAIL_MODAL.forceClose();
+                        } else {
+                            // Same "put the URL back" trick as a declined
+                            // table switch below — the browser already
+                            // popped it, this re-pushes it forward.
+                            history.pushState(null, "", modalUrl);
+                        }
+                    });
+                } else {
+                    ACTIVE_DETAIL_MODAL.forceClose();
+                }
+                return;
+            }
+
+            if (!slug || slug === ACTIVE_TABLE || !TABLES_LIST.some((t) => t.table_name === slug)) {
+                return;
+            }
+            if (hasUnsavedChanges()) {
+                confirmModal("Discard unsaved changes and switch tables?").then((yes) => {
+                    if (yes) {
+                        activateTable(slug, false);
+                    } else {
+                        // The browser already changed the URL for us —
+                        // put it back since the switch didn't happen.
+                        history.pushState(null, "", "/dashboard/tables/" + ACTIVE_TABLE);
+                    }
+                });
+            } else {
+                activateTable(slug, false);
+            }
+        });
+
+        // --- Table tabs (page-level orchestration, not part of DataGrid) -------
+
+        function buildTableTabs() {
+            const tabs = document.getElementById("tableTabs");
+            tabs.style.display = TABLES_LIST.length > 1 ? "" : "none";
+            tabs.innerHTML = "";
+            TABLES_LIST.forEach((t) => {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className =
+                    "table-tab" + (t.table_name === ACTIVE_TABLE ? " table-tab-active" : "");
+                btn.textContent = t.label || t.table_name;
+                btn.addEventListener("click", () => switchTable(t.table_name));
+                tabs.appendChild(btn);
+            });
+        }
+
+        function activateTable(tableName, pushUrl) {
+            ACTIVE_TABLE = tableName;
+            ENUM_OPTION_DIRTY = {};
+            // No confirm here — hasUnsavedChanges() (checked by whichever
+            // caller decided to switch tables at all) already covers an
+            // open modal's dirty state, so if we got this far the admin
+            // already agreed to discard it.
+            if (ACTIVE_DETAIL_MODAL) ACTIVE_DETAIL_MODAL.forceClose();
+            if (pushUrl) history.pushState(null, "", "/dashboard/tables/" + tableName);
+            buildTableTabs();
+
+            const meta = TABLES_LIST.find((t) => t.table_name === tableName) || {};
+            document.title = "Dashboard — " + (meta.label || tableName);
+            document.getElementById("pageTitle").textContent = meta.label || tableName;
+            document.getElementById("pageDesc").textContent = meta.description || "";
+
+            if (PAGE_GRID) PAGE_GRID.destroy();
+            PAGE_GRID = new DataGrid({
+                container: document.getElementById("pageGridMount"),
+                tableName: tableName,
+                onRendered: (grid) => prefetchSubTableChildren_(grid.schema),
+            });
+            PAGE_GRID.load();
+        }
+
+        function switchTable(tableName) {
+            if (tableName === ACTIVE_TABLE) return;
+            const proceed = () => activateTable(tableName, true);
+            if (hasUnsavedChanges()) {
+                confirmModal("Discard unsaved changes and switch tables?").then(
+                    (yes) => yes && proceed(),
+                );
+            } else {
+                proceed();
+            }
+        }
+
+        /** Populates SCHEMA_CACHE/REF_CACHES/ENUM_CACHES from a response
+         * shaped like bootstrapDataTable's (fields/references/enums) —
+         * shared by a table's own first load and the page's very first
+         * load (bootstrap_tables_page returns the same shape). tableName
+         * is passed explicitly (not read from ACTIVE_TABLE) so this is
+         * safe to run for any table, any grid instance, at any time — it
+         * just pre-warms that table's cache for next time. */
+        function cacheBootstrapResponse(res, tableName) {
+            if (!res.ok) return res;
+            SCHEMA_CACHE[tableName] = res.fields;
+            TABLE_META_CACHE[tableName] = res.meta || {};
+            Object.keys(res.references || {}).forEach((t) => {
+                // Convention across this schema: every table's primary key
+                // is "<table_name>_id".
+                const idField = t + "_id";
+                const byId = {};
+                (res.references[t] || []).forEach((r) => {
+                    byId[r[idField]] = r;
+                });
+                REF_CACHES[t] = byId;
+            });
+            Object.keys(res.enums || {}).forEach((e) => {
+                ENUM_CACHES[e] = res.enums[e] || [];
+            });
+            return res;
+        }
+
+        /**
+         * Kicks off a background fetch for every type=sub_table child
+         * declared on a table's schema, deduped via CHILD_TABLE_CACHE —
+         * called once, only for the page-level grid (see DataGrid's
+         * onRendered hook), never from inside a child instance itself,
+         * so embedding never triggers its own further prefetches. Not
+         * gated on edit mode — the detail-view link this feeds lives in
+         * view mode.
+         */
+        function prefetchSubTableChildren_(fields) {
+            fields.filter((f) => f.type === "sub_table").forEach((f) => {
+                const childTable = f.sub_table;
+                if (CHILD_TABLE_CACHE[childTable]) return;
+                CHILD_TABLE_CACHE[childTable] = apiCall("bootstrap_data_table", { table: childTable }).then(
+                    (res) => {
+                        if (!res.ok) {
+                            delete CHILD_TABLE_CACHE[childTable];
+                            return null;
+                        }
+                        cacheBootstrapResponse(res, childTable);
+                        return res;
+                    },
+                );
+            });
+        }
+
+        /** Per-type matching logic for one active column filter — see each
+         * form builder in openColumnFilterPopup for the shape of `state`.
+         * Stateless (only reads the shared REF_CACHES) — not a DataGrid
+         * method, callable by any instance. */
+        function columnFilterMatches(f, rawValue, state) {
+            if (f.type === "integer" || f.type === "decimal" || f.type === "money") {
+                const num = rawValue === "" || rawValue === null || rawValue === undefined ? null : Number(rawValue);
+                if (num === null || isNaN(num)) return false;
+                if (state.op === "between") return num >= Number(state.value) && num <= Number(state.value2);
+                if (state.op === "gt") return num > Number(state.value);
+                if (state.op === "lt") return num < Number(state.value);
+                return num === Number(state.value); // "eq"
+            }
+            if (f.type === "date") {
+                const val = String(rawValue || "");
+                if (!val) return false;
+                if (state.op === "between") return val >= state.value && val <= state.value2;
+                if (state.op === "before") return val < state.value;
+                if (state.op === "after") return val > state.value;
+                return val === state.value; // "on"
+            }
+            if (f.type === "boolean") {
+                return rawValue === (state.value === "true");
+            }
+            if (f.type === "enum") {
+                return state.values.includes(rawValue);
+            }
+            if (f.type === "enum_list") {
+                const rowValues = String(rawValue || "").split(",").map((v) => v.trim());
+                return state.values.some((v) => rowValues.includes(v));
+            }
+            // A reference column with few enough distinct rows gets the
+            // same checkbox-multi-select treatment as enum (see
+            // openColumnFilterPopup/buildReferenceFilterForm) — matched
+            // against the raw id directly, same as enum, not the resolved
+            // label used by the text-filter path below.
+            if (f.type === "reference" && state.values) {
+                return state.values.includes(String(rawValue));
+            }
+            // text / reference (large table, still text-filtered) / default
+            // — resolve to the same label the grid and free-text search
+            // already display, not the raw value.
+            let label = rawValue;
+            if (f.type === "reference") {
+                const cache = REF_CACHES[f.ref_table] || {};
+                const row = cache[rawValue];
+                label = row ? row[f.ref_label_field] : rawValue;
+            }
+            const hay = String(label ?? "").toLowerCase();
+            const needle = String(state.value ?? "").toLowerCase();
+            if (state.op === "equals") return hay === needle;
+            if (state.op === "starts") return hay.startsWith(needle);
+            if (state.op === "ends") return hay.endsWith(needle);
+            return hay.includes(needle); // "contains"
+        }
+
+        const COLUMN_FILTER_ICON_SVG =
+            '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M1.5 2h13l-5 6.2v5.3l-3 1.5V8.2z"/></svg>';
+        const COLUMN_MANAGE_ICON_SVG =
+            '<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="2.6"/><path d="M8 1.3v2M8 12.7v2M1.3 8h2M12.7 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4"/></svg>';
+
+        /**
+         * Shared plumbing for both the column-filter popup and the
+         * enum-option-manage popup below: position near anchorEl, close on
+         * outside click or Escape. Returns a close() function the caller
+         * can also invoke directly (e.g. after a successful action) — that
+         * one always closes immediately, bypassing canCloseFn, since it's
+         * meant for "the action already completed" moments (Apply/Clear/
+         * Save), not for the user backing out.
+         *
+         * canCloseFn (optional): checked only for outside-click/Escape: if
+         * it returns false, confirms before discarding instead of closing
+         * immediately — same unsaved-changes guard the main grid uses.
+         *
+         * onClose (optional): fires whenever the popup actually closes, no
+         * matter which path (a button, outside click, or Escape) — lets a
+         * caller that must always resolve one way or another (e.g. a
+         * Tabulator cell editor, which needs success()/cancel() called
+         * exactly once no matter how the user dismisses it) hook every
+         * closing path instead of only the ones with an explicit handler.
+         */
+        function makeFloatingPopup(popup, anchorEl, canCloseFn, onClose) {
+            document.body.appendChild(popup);
+            const rect = anchorEl.getBoundingClientRect();
+            const popupRect = popup.getBoundingClientRect();
+            const maxLeft = window.scrollX + document.documentElement.clientWidth - popupRect.width - 8;
+            popup.style.left = Math.max(8, Math.min(rect.left + window.scrollX, maxLeft)) + "px";
+            popup.style.top = rect.bottom + window.scrollY + 4 + "px";
+
+            function close() {
+                popup.remove();
+                document.removeEventListener("mousedown", onOutside, true);
+                document.removeEventListener("keydown", onKey, true);
+                if (onClose) onClose();
+            }
+            function attemptClose() {
+                if (canCloseFn && !canCloseFn()) {
+                    confirmModal("Discard unsaved changes?").then((yes) => yes && close());
+                    return;
+                }
+                close();
+            }
+            function onOutside(e) {
+                if (!popup.contains(e.target) && e.target !== anchorEl) attemptClose();
+            }
+            function onKey(e) {
+                if (e.key === "Escape") attemptClose();
+            }
+            // Deferred so the same click that opened this popup doesn't
+            // immediately close it via the outside-click listener.
+            setTimeout(() => {
+                document.addEventListener("mousedown", onOutside, true);
+                document.addEventListener("keydown", onKey, true);
+            }, 0);
+            return close;
+        }
+
+        function buildTextFilterForm(popup, state) {
+            const opSelect = document.createElement("select");
+            [
+                ["contains", "Contains"],
+                ["equals", "Equals"],
+                ["starts", "Starts with"],
+                ["ends", "Ends with"],
+            ].forEach(([v, label]) => {
+                const o = document.createElement("option");
+                o.value = v;
+                o.textContent = label;
+                opSelect.appendChild(o);
+            });
+            opSelect.value = (state && state.op) || "contains";
+            const input = document.createElement("input");
+            input.type = "text";
+            input.placeholder = "Value…";
+            input.value = (state && state.value) || "";
+            popup.append(opSelect, input);
+            setTimeout(() => input.focus(), 0);
+            return () => (input.value ? { op: opSelect.value, value: input.value } : null);
+        }
+
+        function buildNumberFilterForm(popup, state) {
+            const opSelect = document.createElement("select");
+            [
+                ["eq", "Equals"],
+                ["gt", "Greater than"],
+                ["lt", "Less than"],
+                ["between", "Between"],
+            ].forEach(([v, label]) => {
+                const o = document.createElement("option");
+                o.value = v;
+                o.textContent = label;
+                opSelect.appendChild(o);
+            });
+            opSelect.value = (state && state.op) || "eq";
+            const input1 = document.createElement("input");
+            input1.type = "number";
+            input1.placeholder = "Value…";
+            input1.value = state && state.value !== undefined ? state.value : "";
+            const input2 = document.createElement("input");
+            input2.type = "number";
+            input2.placeholder = "and…";
+            input2.value = state && state.value2 !== undefined ? state.value2 : "";
+            input2.style.display = opSelect.value === "between" ? "" : "none";
+            opSelect.addEventListener("change", () => {
+                input2.style.display = opSelect.value === "between" ? "" : "none";
+            });
+            popup.append(opSelect, input1, input2);
+            setTimeout(() => input1.focus(), 0);
+            return () => {
+                if (input1.value === "") return null;
+                if (opSelect.value === "between" && input2.value === "") return null;
+                return { op: opSelect.value, value: input1.value, value2: input2.value };
+            };
+        }
+
+        function buildDateFilterForm(popup, state) {
+            const opSelect = document.createElement("select");
+            [
+                ["on", "On"],
+                ["before", "Before"],
+                ["after", "After"],
+                ["between", "Between"],
+            ].forEach(([v, label]) => {
+                const o = document.createElement("option");
+                o.value = v;
+                o.textContent = label;
+                opSelect.appendChild(o);
+            });
+            opSelect.value = (state && state.op) || "on";
+            const input1 = document.createElement("input");
+            input1.type = "date";
+            input1.value = (state && state.value) || "";
+            const input2 = document.createElement("input");
+            input2.type = "date";
+            input2.value = (state && state.value2) || "";
+            input2.style.display = opSelect.value === "between" ? "" : "none";
+            opSelect.addEventListener("change", () => {
+                input2.style.display = opSelect.value === "between" ? "" : "none";
+            });
+            popup.append(opSelect, input1, input2);
+            return () => {
+                if (!input1.value) return null;
+                if (opSelect.value === "between" && !input2.value) return null;
+                return { op: opSelect.value, value: input1.value, value2: input2.value };
+            };
+        }
+
+        function buildBooleanFilterForm(popup, state) {
+            const wrap = document.createElement("div");
+            wrap.className = "col-filter-radios";
+            const current = state ? state.value : "any";
+            [
+                ["any", "Any"],
+                ["true", "True"],
+                ["false", "False"],
+            ].forEach(([v, label]) => {
+                const lab = document.createElement("label");
+                const radio = document.createElement("input");
+                radio.type = "radio";
+                radio.name = "col-filter-bool";
+                radio.value = v;
+                radio.checked = current === v;
+                lab.append(radio, document.createTextNode(" " + label));
+                wrap.appendChild(lab);
+            });
+            popup.appendChild(wrap);
+            return () => {
+                const checked = wrap.querySelector("input:checked");
+                const v = checked ? checked.value : "any";
+                return v === "any" ? null : { value: v };
+            };
+        }
+
+        function buildEnumFilterForm(popup, f, state) {
+            const options = ENUM_CACHES[f.enum_source] || [];
+            const checkedValues = new Set((state && state.values) || []);
+            const wrap = document.createElement("div");
+            wrap.className = "col-filter-checklist";
+            options.forEach((o) => {
+                const lab = document.createElement("label");
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.value = o.value;
+                cb.checked = checkedValues.has(o.value);
+                lab.append(cb, document.createTextNode(" " + o.label));
+                wrap.appendChild(lab);
+            });
+            popup.appendChild(wrap);
+            return () => {
+                const values = Array.from(wrap.querySelectorAll("input:checked")).map((cb) => cb.value);
+                return values.length ? { values: values } : null;
+            };
+        }
+
+        // A reference column only gets the checkbox-multi-select filter
+        // (see openColumnFilterPopup) when its referenced table has at
+        // most this many rows — small lookup tables like kiosk (4 rows)
+        // browse fine as a checklist, large ones like product/stock_item
+        // (70+) stay on the plain text filter, same as before this existed.
+        const REFERENCE_CHECKLIST_MAX_OPTIONS = 20;
+
+        function referenceOptionCount_(f) {
+            return Object.keys(REF_CACHES[f.ref_table] || {}).length;
+        }
+
+        function buildReferenceFilterForm(popup, f, state) {
+            const cache = REF_CACHES[f.ref_table] || {};
+            const options = Object.keys(cache)
+                .map((id) => ({ value: id, label: cache[id][f.ref_label_field] || id }))
+                .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+            const checkedValues = new Set((state && state.values) || []);
+            const wrap = document.createElement("div");
+            wrap.className = "col-filter-checklist";
+            options.forEach((o) => {
+                const lab = document.createElement("label");
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.value = o.value;
+                cb.checked = checkedValues.has(o.value);
+                lab.append(cb, document.createTextNode(" " + o.label));
+                wrap.appendChild(lab);
+            });
+            popup.appendChild(wrap);
+            return () => {
+                const values = Array.from(wrap.querySelectorAll("input:checked")).map((cb) => cb.value);
+                return values.length ? { values: values } : null;
+            };
+        }
+
+        // --- Enum-option manage popup (global — not tied to any one grid
+        // instance's column, any grid can host the gear icon that opens
+        // this) ---------------------------------------------------------
+
+        /** Fetches every enum_option row (every type, active and inactive)
+         * once per session — not on every popup open — and caches it in
+         * ENUM_OPTION_ALL_ROWS. Updated optimistically by
+         * applyEnumManagePopup after that (never re-fetched from the
+         * server within a session), same "session-lifetime cache" pattern
+         * as SCHEMA_CACHE/REF_CACHES/ENUM_CACHES. */
+        function loadEnumOptionRows_() {
+            if (ENUM_OPTION_ALL_ROWS) return Promise.resolve(ENUM_OPTION_ALL_ROWS);
+            return apiCall("list_table_rows", { table: "enum_option" }).then((res) => {
+                if (res.ok) ENUM_OPTION_ALL_ROWS = res.rows;
+                return res.ok ? ENUM_OPTION_ALL_ROWS : null;
+            });
+        }
+
+        function enumOptionKey_(r) {
+            return r.enum_type + "||" + r.value;
+        }
+
+        /**
+         * Optimistic, same model as the main grid: opens instantly from
+         * cache (prefetched by DataGrid#attachColumnManageIcons, so usually
+         * already resolved by the time this runs), every toggle/reorder/add
+         * edits a local working copy with an immediate re-render — nothing
+         * reaches the server here at all, not even on the popup's own Apply
+         * (see applyEnumManagePopup — it queues into the shared
+         * ENUM_OPTION_DIRTY, actually sent only by the next whole-table
+         * Save). Closing without applying (Cancel, outside click, Escape)
+         * is a plain, unconditional discard of this popup's local copy —
+         * no confirmation of any kind, on any close path, on purpose:
+         * nothing's committed anywhere yet at that point, there's nothing
+         * at risk to warn about.
+         */
+        function openEnumManagePopup(f, anchorEl) {
+            document.querySelectorAll(".col-filter-popup, .enum-manage-popup").forEach((el) => el.remove());
+            const popup = document.createElement("div");
+            popup.className = "enum-manage-popup";
+            popup.innerHTML = '<p class="enum-manage-status">Loading…</p>';
+            const dirty = {};
+            const close = makeFloatingPopup(popup, anchorEl);
+            loadEnumOptionRows_().then((allRows) => {
+                if (!allRows) {
+                    popup.innerHTML = '<p class="enum-manage-status">Could not load options.</p>';
+                    return;
+                }
+                const filtered = allRows
+                    .filter((r) => r.enum_type === f.enum_source)
+                    .sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+                // Two separate deep copies — workingRows gets mutated by
+                // toggle/reorder/add, originalRows never does, so reverting
+                // a value back to it can actually be detected (same reason
+                // DataGrid keeps originalRows separate from what Tabulator
+                // mutates).
+                const originalRows = JSON.parse(JSON.stringify(filtered));
+                const workingRows = JSON.parse(JSON.stringify(filtered));
+                renderEnumManagePopup(popup, f, close, workingRows, dirty, originalRows);
+            });
+        }
+
+        function renderEnumManagePopup(popup, f, close, workingRows, dirty, originalRows) {
+            popup.innerHTML = "";
+            const title = document.createElement("div");
+            title.className = "enum-manage-title";
+            title.textContent = "Manage: " + (f.label || f.column_name);
+            popup.appendChild(title);
+
+            const rerender = () =>
+                renderEnumManagePopup(popup, f, close, workingRows, dirty, originalRows);
+
+            const list = document.createElement("div");
+            list.className = "enum-manage-list";
+            workingRows.forEach((opt, i) => {
+                list.appendChild(
+                    buildEnumOptionRow(opt, i, workingRows, dirty, originalRows, rerender),
+                );
+            });
+            popup.appendChild(list);
+            popup.appendChild(buildEnumAddForm(f, workingRows, dirty, rerender));
+
+            const actions = document.createElement("div");
+            actions.className = "enum-manage-actions";
+            const dirtyCount = Object.keys(dirty).length;
+            const cancelBtn = document.createElement("button");
+            cancelBtn.type = "button";
+            cancelBtn.className = "col-filter-clear";
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.title = "Close without applying";
+            // Deliberately no confirm — nothing here is committed to
+            // ENUM_OPTION_DIRTY/the shared caches until Apply, so there's
+            // genuinely nothing at risk to warn about.
+            cancelBtn.addEventListener("click", close);
+            const applyBtn = document.createElement("button");
+            applyBtn.type = "button";
+            applyBtn.className = "dash-btn";
+            applyBtn.disabled = dirtyCount === 0;
+            applyBtn.textContent = dirtyCount ? "Apply (" + dirtyCount + ")" : "Apply";
+            applyBtn.title = dirtyCount
+                ? "Queue " + dirtyCount + " change(s) — not sent to the server until you Save the table"
+                : "No changes to apply";
+            applyBtn.addEventListener("click", () => applyEnumManagePopup(f, close, workingRows, dirty));
+            actions.append(cancelBtn, applyBtn);
+            popup.appendChild(actions);
+        }
+
+        function findOriginalEnumOption_(originalRows, key) {
+            return originalRows.find((r) => enumOptionKey_(r) === key);
+        }
+
+        function enumOptionRowsEqual_(a, b) {
+            const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+            for (const k of keys) {
+                if (String(a[k] ?? "") !== String(b[k] ?? "")) return false;
+            }
+            return true;
+        }
+
+        // Same revert-detection DataGrid#markRowDirty does — every
+        // toggle/reorder marked dirty unconditionally before, so reverting
+        // a value back to what it started as never cleared the counter.
+        function markEnumOptionDirty_(dirty, row, originalRows) {
+            const key = enumOptionKey_(row);
+            const wasNew = !!(dirty[key] && dirty[key].isNew);
+            if (!wasNew) {
+                const original = findOriginalEnumOption_(originalRows, key);
+                if (original && enumOptionRowsEqual_(row, original)) {
+                    delete dirty[key];
+                    return;
+                }
+            }
+            dirty[key] = { isNew: wasNew, data: row };
+        }
+
+        function buildEnumOptionRow(opt, index, workingRows, dirty, originalRows, rerender) {
+            const row = document.createElement("div");
+            row.className = "enum-manage-row" + (opt.active !== true ? " is-inactive" : "");
+
+            const reorder = (toIndex) => {
+                const other = workingRows[toIndex];
+                const tmp = opt.sort_order;
+                opt.sort_order = other.sort_order;
+                other.sort_order = tmp;
+                workingRows.sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+                markEnumOptionDirty_(dirty, opt, originalRows);
+                markEnumOptionDirty_(dirty, other, originalRows);
+                rerender();
+            };
+            const upBtn = document.createElement("button");
+            upBtn.type = "button";
+            upBtn.className = "enum-manage-arrow";
+            upBtn.textContent = "▲";
+            upBtn.disabled = index === 0;
+            upBtn.addEventListener("click", () => reorder(index - 1));
+            const downBtn = document.createElement("button");
+            downBtn.type = "button";
+            downBtn.className = "enum-manage-arrow";
+            downBtn.textContent = "▼";
+            downBtn.disabled = index === workingRows.length - 1;
+            downBtn.addEventListener("click", () => reorder(index + 1));
+
+            const label = document.createElement("span");
+            label.className = "enum-manage-label";
+            label.textContent = opt.label + " (" + opt.value + ")";
+
+            const toggle = document.createElement("span");
+            toggle.className = "bool-switch" + (opt.active === true ? " is-on" : "");
+            toggle.title = opt.active === true ? "Deactivate" : "Activate";
+            toggle.addEventListener("click", () => {
+                opt.active = opt.active !== true;
+                markEnumOptionDirty_(dirty, opt, originalRows);
+                rerender();
+            });
+
+            row.append(upBtn, downBtn, label, toggle);
+            return row;
+        }
+
+        function buildEnumAddForm(f, workingRows, dirty, rerender) {
+            const form = document.createElement("div");
+            form.className = "enum-manage-add";
+            const valueInput = document.createElement("input");
+            valueInput.type = "text";
+            valueInput.placeholder = "Value";
+            const labelInput = document.createElement("input");
+            labelInput.type = "text";
+            labelInput.placeholder = "Label";
+            const addBtn = document.createElement("button");
+            addBtn.type = "button";
+            addBtn.className = "dash-btn";
+            addBtn.textContent = "Add";
+            addBtn.title = "Add a new option (not saved until you click Save)";
+            addBtn.addEventListener("click", () => {
+                if (!valueInput.value.trim() || !labelInput.value.trim()) return;
+                const maxOrder = workingRows.reduce((m, o) => Math.max(m, Number(o.sort_order) || 0), 0);
+                const newRow = {
+                    // No synthetic id — enum_type+value is the real
+                    // primary key now (see database_schema.md), and both
+                    // are already here.
+                    enum_type: f.enum_source,
+                    value: valueInput.value.trim(),
+                    label: labelInput.value.trim(),
+                    sort_order: maxOrder + 1,
+                    active: true,
+                };
+                workingRows.push(newRow);
+                dirty[enumOptionKey_(newRow)] = { isNew: true, data: newRow };
+                rerender();
+            });
+            form.append(valueInput, labelInput, addBtn);
+            return form;
+        }
+
+        /**
+         * Purely local — never touches the backend. Merges this popup
+         * session's dirty entries into the shared ENUM_OPTION_DIRTY queue
+         * (actually sent only by the next whole-table Save, from whichever
+         * grid instance that ends up being clicked on), and merges
+         * workingRows into ENUM_OPTION_ALL_ROWS + rebuilds ENUM_CACHES.
+         * Every live grid instance currently displaying this enum_source's
+         * column gets its columns rebuilt right away so cell
+         * formatters/editors reflect the change immediately — same
+         * optimistic principle as every other edit in this file, just not
+         * persisted yet.
+         */
+        function applyEnumManagePopup(f, close, workingRows, dirty) {
+            Object.assign(ENUM_OPTION_DIRTY, dirty);
+            ENUM_OPTION_ALL_ROWS = (ENUM_OPTION_ALL_ROWS || [])
+                .filter((r) => r.enum_type !== f.enum_source)
+                .concat(workingRows);
+            ENUM_CACHES[f.enum_source] = workingRows
+                .filter((o) => o.active === true)
+                .slice()
+                .sort((a, b) => Number(a.sort_order) - Number(b.sort_order))
+                .map((o) => ({ value: o.value, label: o.label }));
+            LIVE_GRID_INSTANCES.forEach((inst) => {
+                if (inst.schema.some((sf) => sf.enum_source === f.enum_source)) {
+                    inst.rebuildColumns();
+                }
+            });
+            close();
+        }
+
+        // --- Grid-wide shared helpers (stateless — no DataGrid instance
+        // coupling, callable by any instance) -----------------------------
+
+        /** Comma-separated stored values -> comma-separated labels for
+         * display — an enum_list column's cell is always a plain string,
+         * never an array, on the way in or out. */
+        function enumListLabel(raw, options) {
+            const values = String(raw || "")
+                .split(",")
+                .map((v) => v.trim())
+                .filter(Boolean);
+            if (!values.length) return "";
+            return values
+                .map((v) => {
+                    const opt = options.find((o) => o.value === v);
+                    return opt ? opt.label : v;
+                })
+                .join(", ");
+        }
+
+        /** Plain-text display value for one field — the single source of
+         * truth for "how does this value read to a human," shared by
+         * buildColumns' cell formatters and the detail-view's read-only
+         * field display (see DataGrid#openDetailView), so the two never
+         * drift apart. Not used for the boolean column's interactive
+         * switch (that's a control, not a text value) — callers wanting a
+         * plain Yes/No string for a boolean still get one here. */
+        function formatCellValue(f, value) {
+            if (f.type === "reference") {
+                const cache = REF_CACHES[f.ref_table] || {};
+                const row = cache[value];
+                return row ? row[f.ref_label_field] : value;
+            }
+            if (f.type === "enum") {
+                const options = ENUM_CACHES[f.enum_source] || [];
+                const opt = options.find((o) => o.value === value);
+                return opt ? opt.label : value;
+            }
+            if (f.type === "enum_list") {
+                return enumListLabel(value, ENUM_CACHES[f.enum_source] || []);
+            }
+            if (f.type === "money") {
+                return value === "" || value === null || value === undefined ? "" : "€" + Number(value).toFixed(2);
+            }
+            if (f.type === "boolean") {
+                return value === true ? "Yes" : "No";
+            }
+            return value === null || value === undefined ? "" : String(value);
+        }
+
+        /**
+         * Builds a bare input control (no label — every caller renders its
+         * own, layouts differ) for one field's current value, calling
+         * onChange with the new value on every change. Shared by the
+         * detail-view parent-fields editor and the Add-row modal, so every
+         * type's editing UI — including the reference picker, previously
+         * missing from Add-row's non-key value fields entirely — only
+         * exists in one place.
+         */
+        function buildFieldInput(f, currentValue, onChange) {
+            if (f.type === "reference") {
+                const wrap = document.createElement("div");
+                const cache = REF_CACHES[f.ref_table] || {};
+                const picker = makeSearchPick(wrap, {
+                    placeholder: "Search " + (f.label || f.column_name).toLowerCase() + "…",
+                    getItems: (q) =>
+                        Object.keys(cache)
+                            .map((id) => ({ id: id, label: cache[id][f.ref_label_field] }))
+                            .filter((it) => !q || it.label.toLowerCase().includes(q))
+                            .sort((a, b) => a.label.localeCompare(b.label)),
+                    onSelect: (item) => onChange(item.id),
+                });
+                if (currentValue && cache[currentValue]) picker.setLabel(cache[currentValue][f.ref_label_field]);
+                return wrap;
+            }
+            if (f.type === "enum") {
+                const options = ENUM_CACHES[f.enum_source] || [];
+                const select = document.createElement("select");
+                select.innerHTML =
+                    '<option value="">Select…</option>' +
+                    options
+                        .map(
+                            (o) =>
+                                '<option value="' +
+                                o.value +
+                                '"' +
+                                (o.value === currentValue ? " selected" : "") +
+                                ">" +
+                                o.label +
+                                "</option>",
+                        )
+                        .join("");
+                select.addEventListener("change", () => onChange(select.value || undefined));
+                return select;
+            }
+            if (f.type === "enum_list") {
+                const options = ENUM_CACHES[f.enum_source] || [];
+                const current = String(currentValue || "")
+                    .split(",")
+                    .map((v) => v.trim())
+                    .filter(Boolean);
+                const select = document.createElement("select");
+                select.multiple = true;
+                select.style.minHeight = "6rem";
+                options.forEach((o) => {
+                    const opt = document.createElement("option");
+                    opt.value = o.value;
+                    opt.textContent = o.label;
+                    opt.selected = current.includes(o.value);
+                    select.appendChild(opt);
+                });
+                select.addEventListener("change", () => {
+                    onChange(Array.from(select.selectedOptions).map((o) => o.value).join(","));
+                });
+                return select;
+            }
+            if (f.type === "boolean") {
+                const input = document.createElement("input");
+                input.type = "checkbox";
+                input.style.width = "auto";
+                input.checked = currentValue === true;
+                input.addEventListener("change", () => onChange(input.checked));
+                return input;
+            }
+            const inputType =
+                f.type === "integer" || f.type === "decimal" || f.type === "money"
+                    ? "number"
+                    : f.type === "date"
+                      ? "date"
+                      : "text";
+            const input = document.createElement("input");
+            input.type = inputType;
+            input.value = currentValue ?? "";
+            input.addEventListener("input", () => onChange(input.value));
+            return input;
+        }
+
+        // Loose (string-coerced) comparison — the same value arriving as
+        // different JS types (e.g. a freshly-toggled boolean vs. whatever
+        // shape the sheet round-tripped it as) must still count as
+        // unchanged, not a false "still dirty".
+        function rowsEqual(a, b) {
+            const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+            for (const k of keys) {
+                if (String(a[k] ?? "") !== String(b[k] ?? "")) return false;
+            }
+            return true;
+        }
+
+        /**
+         * Renders as a floating checkbox-list popup (same pattern as the
+         * column-filter/enum-manage popups), not an inline <select
+         * multiple> — Tabulator doesn't grow a row's height to fit a
+         * custom editor, and .tabulator's own overflow:hidden (for the
+         * rounded-corner look) clips anything taller than the row, which
+         * made a real multi-select look like a single-line text box. The
+         * returned element is just a placeholder Tabulator inserts into
+         * the cell; the actual UI lives in document.body via
+         * makeFloatingPopup, same as everything else that needs to escape
+         * that clipping.
+         */
+        function enumListEditor(cell, onRendered, success, cancel, editorParams) {
+            const options = editorParams.options || [];
+            const current = String(cell.getValue() || "")
+                .split(",")
+                .map((v) => v.trim())
+                .filter(Boolean);
+
+            const placeholder = document.createElement("div");
+            placeholder.className = "enumlist-editor-placeholder";
+            placeholder.textContent = enumListLabel(cell.getValue(), options) || "—";
+
+            const popup = document.createElement("div");
+            popup.className = "col-filter-popup";
+            const list = document.createElement("div");
+            list.className = "col-filter-checklist";
+            options.forEach((o) => {
+                const lab = document.createElement("label");
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.value = o.value;
+                cb.checked = current.includes(o.value);
+                lab.append(cb, document.createTextNode(" " + o.label));
+                list.appendChild(lab);
+            });
+            popup.appendChild(list);
+
+            const actions = document.createElement("div");
+            actions.className = "col-filter-actions";
+            const cancelBtn = document.createElement("button");
+            cancelBtn.type = "button";
+            cancelBtn.className = "col-filter-clear";
+            cancelBtn.textContent = "Cancel";
+            const doneBtn = document.createElement("button");
+            doneBtn.type = "button";
+            doneBtn.className = "dash-btn col-filter-apply";
+            doneBtn.textContent = "Done";
+            actions.append(cancelBtn, doneBtn);
+            popup.appendChild(actions);
+
+            onRendered(() => {
+                let resolved = false;
+                // canCloseFn omitted (always OK to close immediately) —
+                // onClose is what matters here: whichever path closes this
+                // (Cancel, Done, outside click, Escape) must resolve the
+                // editor exactly once, so it can't get stuck "editing".
+                const close = makeFloatingPopup(popup, placeholder, null, () => {
+                    if (!resolved) {
+                        resolved = true;
+                        cancel();
+                    }
+                });
+                cancelBtn.addEventListener("click", close);
+                doneBtn.addEventListener("click", () => {
+                    resolved = true;
+                    success(Array.from(list.querySelectorAll("input:checked")).map((cb) => cb.value).join(","));
+                    close();
+                });
+            });
+
+            return placeholder;
+        }
+
+        function fieldValidator(f) {
+            return (cell, value) => {
+                if (f.required === true && (value === "" || value === null || value === undefined)) {
+                    return false;
+                }
+                if (
+                    (f.type === "integer" || f.type === "decimal" || f.type === "money") &&
+                    value !== "" &&
+                    value !== null &&
+                    value !== undefined
+                ) {
+                    const num = Number(value);
+                    if (isNaN(num)) return false;
+                    if (f.type === "integer" && !Number.isInteger(num)) return false;
+                    if (f.min !== "" && f.min !== null && f.min !== undefined && num < Number(f.min))
+                        return false;
+                    if (f.max !== "" && f.max !== null && f.max !== undefined && num > Number(f.max))
+                        return false;
+                }
+                return true;
+            };
+        }
+
+        /**
+         * The detail modal's parent-fields section — a single row's own
+         * fields, view + edit + independent save. Not a DataGrid instance:
+         * one row's own fields don't need a Tabulator grid, just a small
+         * form, so this is a lighter, bespoke component instead of
+         * reusing the heavier multi-row class. Reuses formatCellValue/
+         * buildFieldInput though, so the two never present a field
+         * differently.
+         *
+         * opts: { tableName, schema, keyFields, rowData, onSaved(updatedRow) }
+         * Returns { hasUnsavedChanges() } — checked by the modal's own
+         * close guard.
+         */
+        function buildParentFieldsEditor(container, opts) {
+            let editing = false;
+            let saving = false;
+            let dirty = false;
+            let workingRow = Object.assign({}, opts.rowData);
+            let saveBtn, errorEl;
+
+            function updateSaveButton() {
+                saveBtn.disabled = !dirty || saving;
+            }
+
+            function doSave() {
+                saving = true;
+                errorEl.textContent = "";
+                updateSaveButton();
+                apiCall("save_table_row", { table: opts.tableName, isNew: false, row: workingRow }).then((res) => {
+                    saving = false;
+                    if (!res.ok) {
+                        errorEl.textContent = res.error || "Could not save.";
+                        updateSaveButton();
+                        return;
+                    }
+                    opts.rowData = Object.assign({}, workingRow);
+                    dirty = false;
+                    editing = false;
+                    opts.onSaved(opts.rowData);
+                    render();
+                });
+            }
+
+            function render() {
+                container.innerHTML = "";
+
+                const header = document.createElement("div");
+                header.className = "detail-parent-header";
+
+                const editBtn = document.createElement("button");
+                editBtn.className = "dash-btn";
+                editBtn.style.background = "var(--line)";
+                editBtn.style.color = "var(--ink)";
+                editBtn.textContent = "Edit";
+                editBtn.style.display = editing ? "none" : "";
+                editBtn.addEventListener("click", () => {
+                    editing = true;
+                    render();
+                });
+                header.appendChild(editBtn);
+
+                const cancelBtn = document.createElement("button");
+                cancelBtn.className = "dash-btn";
+                cancelBtn.style.background = "var(--line)";
+                cancelBtn.style.color = "var(--ink)";
+                cancelBtn.textContent = "Cancel";
+                cancelBtn.style.display = editing ? "" : "none";
+                cancelBtn.addEventListener("click", () => {
+                    const proceed = () => {
+                        workingRow = Object.assign({}, opts.rowData);
+                        dirty = false;
+                        editing = false;
+                        render();
+                    };
+                    if (dirty) {
+                        confirmModal("Discard unsaved changes?").then((yes) => yes && proceed());
+                    } else {
+                        proceed();
+                    }
+                });
+                header.appendChild(cancelBtn);
+
+                saveBtn = document.createElement("button");
+                saveBtn.className = "dash-btn";
+                saveBtn.textContent = "Save";
+                saveBtn.style.display = editing ? "" : "none";
+                saveBtn.disabled = !dirty || saving;
+                saveBtn.addEventListener("click", doSave);
+                header.appendChild(saveBtn);
+
+                container.appendChild(header);
+
+                // Wrapping flex row, not one long column — a table with a
+                // dozen short fields (name, email, a couple flags) reads
+                // far better across two or three columns than stacked.
+                const fieldsWrap = document.createElement("div");
+                fieldsWrap.className = "detail-fields-grid";
+                container.appendChild(fieldsWrap);
+
+                opts.schema
+                    .filter((f) => f.hidden !== true && f.type !== "sub_table")
+                    .forEach((f) => {
+                        const isKey = opts.keyFields.includes(f);
+                        const canEdit = editing && !isKey && f.editable_on_update === true;
+                        const value = workingRow[f.column_name];
+
+                        if (canEdit) {
+                            const wrap = document.createElement("div");
+                            wrap.className = "modal-field";
+                            const label = document.createElement("label");
+                            label.textContent = f.label || f.column_name;
+                            wrap.appendChild(label);
+                            wrap.appendChild(
+                                buildFieldInput(f, value, (newVal) => {
+                                    workingRow[f.column_name] = newVal;
+                                    dirty = !rowsEqual(workingRow, opts.rowData);
+                                    updateSaveButton();
+                                }),
+                            );
+                            fieldsWrap.appendChild(wrap);
+                            return;
+                        }
+
+                        // Blank fields (e.g. a supplier with no
+                        // contact_email set) just clutter the view with
+                        // empty rows — skip them entirely rather than
+                        // showing a label over nothing. Only applies to
+                        // the read-only display; a field currently being
+                        // edited always shows (see canEdit branch above).
+                        const display = formatCellValue(f, value);
+                        if (display === "" || display === null || display === undefined) return;
+                        const wrap = document.createElement("div");
+                        wrap.className = "modal-field";
+                        wrap.innerHTML = "<label>" + (f.label || f.column_name) + "</label><div>" + display + "</div>";
+                        fieldsWrap.appendChild(wrap);
+                    });
+
+                errorEl = document.createElement("div");
+                errorEl.className = "modal-error";
+                container.appendChild(errorEl);
+            }
+
+            render();
+
+            return {
+                hasUnsavedChanges: () => dirty,
+            };
+        }
+
+        // --- DataGrid: one independent grid instance --------------------------
+        //
+        // One instance owns one Tabulator grid, its own toolbar, and all of
+        // its own edit/filter/save state — genuinely independent of any
+        // other instance on the page. The page-level tab (PAGE_GRID) is one
+        // instance; a future detail-view modal instantiates more, one per
+        // embedded child table, each with its own container.
+
+        class DataGrid {
+            /**
+             * @param {Object} opts
+             * @param {HTMLElement} opts.container - element this instance
+             *   owns exclusively; builds its own toolbar/spinner/grid
+             *   sub-elements into it.
+             * @param {string} opts.tableName
+             * @param {Object} [opts.parentScope] - {column, value}. Only
+             *   ever set for a grid embedded under a specific parent row
+             *   (a detail-view child section): auto-fills + hides `column`
+             *   on Add, restricts displayed rows to `value`, and hides
+             *   that column in the grid itself. Not a generalization of
+             *   any other filter mechanism — a fresh, standalone
+             *   mechanism built for this purpose.
+             * @param {Function} [opts.onRendered] - called with (this)
+             *   after every successful renderFromData. Only ever wired up
+             *   for the page-level grid (see activateTable/initial
+             *   bootstrap), to kick off prefetchSubTableChildren_ — a
+             *   child instance never receives one, so embedding a child
+             *   grid can't accidentally trigger its own further prefetch.
+             *
+             * this.meta (this table's own table_schema row — label,
+             * description, hard_delete, has_detail_view, type) is not a
+             * constructor param: it's populated by renderFromData from
+             * whatever response it's given (res.meta), which every
+             * bootstrap_data_table call includes for its own table — works
+             * identically for the page-level grid and any child grid.
+             */
+            constructor({ container, tableName, parentScope, onRendered }) {
+                this.container = container;
+                this.tableName = tableName;
+                this.meta = {};
+                this.parentScope = parentScope || null;
+                this.onRendered = onRendered || null;
+
+                this.schema = [];
+                this.keyFields = [];
+                this.tabulator = null;
+                this.tableReady = Promise.resolve();
+                this.searchText = "";
+                // column_name -> filter state, shape depends on the
+                // column's type (see columnFilterMatches) — set/cleared
+                // via each column's filter icon popup, independent of
+                // Tabulator's own column definitions so it survives every
+                // setColumns() rebuild (Edit/Cancel/Save) instead of
+                // resetting on each one.
+                this.columnFilters = {};
+                this.editMode = false;
+                // Snapshot of what the server last returned — Cancel
+                // restores from this locally (no round trip); Save updates
+                // it on success so a later Cancel never wipes out
+                // already-saved work.
+                this.originalRows = [];
+                // rowKeyStr -> { isNew, data } — only what's actually
+                // changed since the last save gets sent back, never the
+                // whole table.
+                this.dirty = {};
+                // Set once destroy() runs (e.g. a tab switch replaces the
+                // page-level instance, or a detail modal closes) — guards
+                // against an in-flight fetch's response trying to touch a
+                // torn-down instance's DOM.
+                this.destroyed = false;
+
+                this._buildScaffold();
+                LIVE_GRID_INSTANCES.add(this);
+            }
+
+            _buildScaffold() {
+                this.toolbarEl = document.createElement("div");
+                this.toolbarEl.className = "dash-toolbar";
+                this.toolbarEl.style.display = "none";
+                this.spinnerEl = document.createElement("div");
+                this.spinnerEl.className = "dash-spinner";
+                this.gridEl = document.createElement("div");
+                this.gridEl.className = "dash-grid-area";
+                this.gridEl.style.display = "none";
+                this.container.append(this.toolbarEl, this.spinnerEl, this.gridEl);
+            }
+
+            destroy() {
+                this.destroyed = true;
+                LIVE_GRID_INSTANCES.delete(this);
+                if (this.tabulator) {
+                    this.tabulator.destroy();
+                    this.tabulator = null;
+                }
+                this.container.innerHTML = "";
+            }
+
+            hasUnsavedChanges() {
+                return Object.keys(this.dirty).length > 0;
+            }
+
+            rowKeyStr(row) {
+                // Every primary key is client-known immediately: a picked
+                // foreign key (reference-type), or a UUID generated right
+                // here at Add time (see openAddModal) — never
+                // server-generated, so a row's real key never changes
+                // after it's created and this is always safe to use.
+                return this.keyFields.map((f) => row[f.column_name]).join("||");
+            }
+
+            findOriginalRow(key) {
+                return this.originalRows.find((r) => this.rowKeyStr(r) === key);
+            }
+
+            /** Finds the live Tabulator RowComponent for a given primary
+             * key value — used to auto-open a detail deep link once the
+             * grid has actually finished building (see the page's initial
+             * bootstrap). Not Tabulator's own getRow(id) lookup, which
+             * indexes by a field literally named "id" by default — this
+             * schema's primary keys are rarely named that, so a direct
+             * scan by this table's own configured key column is the
+             * reliable option. Single-column parent keys only, same
+             * constraint as sub_table embedding generally. */
+            findRowComponent(pkValue) {
+                const pkField = this.keyFields[0];
+                if (!pkField) return null;
+                return (
+                    this.tabulator
+                        .getRows()
+                        .find((r) => String(r.getData()[pkField.column_name]) === String(pkValue)) || null
+                );
+            }
+
+            /**
+             * Fetches this table's data fresh from the backend — used for
+             * a tab switch (see activateTable). A future child instance
+             * embedded in a detail modal skips this entirely and calls
+             * renderFromData directly with already-prefetched data — no
+             * network call needed there.
+             */
+            load() {
+                this.toolbarEl.style.display = "none";
+                this.gridEl.style.display = "none";
+                this.spinnerEl.style.display = "";
+
+                // First visit to this table this session: one combined
+                // call for schema + rows + every referenced table + every
+                // enum (was up to 4 separate GAS invocations — see
+                // bootstrapDataTable on the backend). Already cached from
+                // an earlier visit: just the lightweight rows-only call,
+                // schema/refs/enums untouched.
+                const dataPromise = SCHEMA_CACHE[this.tableName]
+                    ? apiCall("list_table_rows", { table: this.tableName }).then((res) => ({
+                          ok: res.ok,
+                          error: res.error,
+                          fields: SCHEMA_CACHE[this.tableName],
+                          meta: TABLE_META_CACHE[this.tableName],
+                          rows: res.rows,
+                      }))
+                    : apiCall("bootstrap_data_table", { table: this.tableName }).then((res) =>
+                          cacheBootstrapResponse(res, this.tableName),
+                      );
+
+                dataPromise.then((res) => {
+                    // This instance was torn down (e.g. the admin switched
+                    // tabs again, or a detail modal closed) before this
+                    // came back — discard, nothing to render into anymore.
+                    if (this.destroyed) return;
+                    this.renderFromData(res);
+                });
+            }
+
+            /** Renders once data (fields/rows, shaped like
+             * bootstrapDataTable's response) is available, regardless of
+             * whether load() fetched it or a caller already had it (the
+             * page's very first load, or a prefetched child grid). */
+            renderFromData(res) {
+                if (!res.ok) {
+                    this.spinnerEl.style.display = "none";
+                    this.gridEl.style.display = "";
+                    this.gridEl.textContent = res.error || "Could not load this table.";
+                    return;
+                }
+                this.schema = res.fields;
+                this.meta = res.meta || {};
+                this.keyFields = this.schema.filter((f) => f.primary_key === true);
+                let rows = res.rows;
+                if (this.parentScope) {
+                    rows = rows.filter(
+                        (r) => String(r[this.parentScope.column]) === String(this.parentScope.value),
+                    );
+                }
+                this.originalRows = rows;
+
+                this.buildToolbar();
+                this.spinnerEl.style.display = "none";
+                this.toolbarEl.style.display = "";
+                this.gridEl.style.display = "";
+                // Constructed only once the grid container is actually
+                // visible — sizing a height-based grid inside a
+                // display:none element is a common source of glitches.
+                this.renderGrid(this.originalRows);
+                if (this.onRendered) this.onRendered(this);
+            }
+
+            // --- Toolbar: search + add/edit/save/cancel -------------------
+
+            buildToolbar() {
+                this.toolbarEl.innerHTML = "";
+
+                if (this.schema.some((f) => f.searchable === true)) {
+                    const search = document.createElement("input");
+                    search.type = "search";
+                    search.placeholder = "Search…";
+                    search.style.marginRight = "auto";
+                    search.style.maxWidth = "16rem";
+                    search.addEventListener("input", () => {
+                        this.searchText = search.value.trim().toLowerCase();
+                        this.tabulator.setFilter((row) => this.rowMatchesFilters(row));
+                        this.updateSelectAllCheckbox_();
+                    });
+                    this.toolbarEl.appendChild(search);
+                }
+
+                this.addBtn = document.createElement("button");
+                this.addBtn.className = "dash-btn";
+                this.addBtn.textContent = "+ Add row";
+                this.addBtn.addEventListener("click", () => this.openAddModal());
+                this.toolbarEl.appendChild(this.addBtn);
+
+                this.editBtn = document.createElement("button");
+                this.editBtn.className = "dash-btn";
+                this.editBtn.style.background = "var(--line)";
+                this.editBtn.style.color = "var(--ink)";
+                this.editBtn.textContent = "Edit";
+                this.editBtn.addEventListener("click", () => this.toggleEditMode());
+                this.toolbarEl.appendChild(this.editBtn);
+
+                this.cancelBtn = document.createElement("button");
+                this.cancelBtn.className = "dash-btn";
+                this.cancelBtn.textContent = "Cancel";
+                this.cancelBtn.style.background = "var(--line)";
+                this.cancelBtn.style.color = "var(--ink)";
+                this.cancelBtn.addEventListener("click", () => this.cancelEdits());
+                this.toolbarEl.appendChild(this.cancelBtn);
+
+                this.saveBtn = document.createElement("button");
+                this.saveBtn.className = "dash-btn";
+                this.saveBtn.textContent = "Save";
+                this.saveBtn.addEventListener("click", () => this.saveDirtyRows());
+                this.toolbarEl.appendChild(this.saveBtn);
+
+                this.bulkDeleteBtn = document.createElement("button");
+                this.bulkDeleteBtn.className = "dash-btn";
+                this.bulkDeleteBtn.style.background = "var(--line)";
+                this.bulkDeleteBtn.style.color = "var(--ink)";
+                this.bulkDeleteBtn.addEventListener("click", () => this.handleBulkDelete());
+                this.toolbarEl.appendChild(this.bulkDeleteBtn);
+
+                this.updateToolbarButtons();
+            }
+
+            updateToolbarButtons() {
+                // Includes pending enum-option edits (any enum-manage
+                // popup, any grid instance) — they ride along on the next
+                // Save regardless of which grid it's clicked from, so the
+                // count here needs to reflect that too, not just this
+                // instance's own dirty state.
+                const dirtyCount = Object.keys(this.dirty).length + Object.keys(ENUM_OPTION_DIRTY).length;
+
+                this.editBtn.style.display = this.editMode ? "none" : "";
+                this.cancelBtn.style.display = this.editMode ? "" : "none";
+                this.saveBtn.style.display = this.editMode ? "" : "none";
+                this.saveBtn.disabled = dirtyCount === 0;
+                this.saveBtn.textContent = dirtyCount ? "Save (" + dirtyCount + ")" : "Save";
+                this.addBtn.style.display = this.editMode ? "" : "none";
+
+                // Only ever meaningful alongside the per-row ❌ column
+                // (buildBulkDeleteColumn), which is gated the same way —
+                // edit mode + hard_delete — so this mirrors that gate
+                // exactly, plus needing at least one row actually checked.
+                const selectedCount =
+                    this.editMode && this.meta.hard_delete === true && this.tabulator
+                        ? this.tabulator.getSelectedRows().length
+                        : 0;
+                this.bulkDeleteBtn.style.display = selectedCount > 0 ? "" : "none";
+                this.bulkDeleteBtn.textContent = "Delete Selected (" + selectedCount + ")";
+            }
+
+            /** Keeps the header select-all checkbox's checked/indeterminate
+             * state honest against this.tabulator.getRows("active") — the
+             * same filtered-rows set its own click handler acts on (see
+             * buildBulkDeleteColumn) — after any selection change, whether
+             * from the header itself, an individual row checkbox, or a
+             * filter change that alters what's currently active. */
+            updateSelectAllCheckbox_() {
+                if (!this.selectAllCheckboxEl || !this.tabulator) return;
+                const activeRows = this.tabulator.getRows("active");
+                const selectedActive = activeRows.filter((r) => r.isSelected());
+                this.selectAllCheckboxEl.checked = activeRows.length > 0 && selectedActive.length === activeRows.length;
+                this.selectAllCheckboxEl.indeterminate = selectedActive.length > 0 && selectedActive.length < activeRows.length;
+            }
+
+            // setColumns/replaceData/setFilter are all asynchronous in
+            // Tabulator 5.x (they return promises) — firing them
+            // back-to-back without chaining let a later call start
+            // rebuilding the grid before an earlier one had actually
+            // finished. Also gated on tableReady: calling any of them
+            // before this instance's own tableBuilt event isn't just
+            // racy, it can fail outright (see the constructor's tableReady
+            // comment) — that, not the chaining alone, was the actual
+            // cause of the first click after a table load sometimes not
+            // registering at all.
+
+            /** Shared tail of every "rebuild the grid's columns" action
+             * (toggling edit mode, an enum-manage Apply affecting this
+             * instance) — setColumns then re-attach the filter/manage
+             * icons and refresh the toolbar. */
+            rebuildColumns() {
+                return this.tableReady
+                    .then(() => this.tabulator.setColumns(this.buildColumns()))
+                    .then(() => {
+                        this.attachColumnFilterIcons();
+                        this.attachColumnManageIcons();
+                        this.updateToolbarButtons();
+                    });
+            }
+
+            toggleEditMode() {
+                this.editMode = true;
+                this.rebuildColumns();
+            }
+
+            cancelEdits() {
+                const proceed = () => {
+                    this.dirty = {};
+                    this.editMode = false;
+                    this.tableReady
+                        .then(() => this.tabulator.replaceData(JSON.parse(JSON.stringify(this.originalRows))))
+                        .then(() => this.tabulator.setFilter((row) => this.rowMatchesFilters(row)))
+                        .then(() => this.rebuildColumns());
+                };
+                if (Object.keys(this.dirty).length) {
+                    confirmModal("Discard all unsaved changes?").then((yes) => yes && proceed());
+                } else {
+                    proceed();
+                }
+            }
+
+            /**
+             * Full takeover of this instance's grid area — used when a
+             * background save fails (see saveDirtyRows). By the time a
+             * failure comes back, the admin has already been shown the
+             * edit as saved and moved on, so there's no reliable way to
+             * mark just the bad cells; this instance's whole local state
+             * is suspect until reloaded fresh from source.
+             */
+            showTableSaveError(message) {
+                if (this.tabulator) {
+                    this.tabulator.destroy();
+                    this.tabulator = null;
+                }
+                this.toolbarEl.style.display = "none";
+                this.gridEl.style.display = "";
+                this.gridEl.innerHTML = "";
+                const box = document.createElement("div");
+                box.className = "table-save-error";
+                const p = document.createElement("p");
+                p.textContent = message;
+                box.appendChild(p);
+                const reloadBtn = document.createElement("button");
+                reloadBtn.className = "dash-btn";
+                reloadBtn.textContent = "Reload table";
+                reloadBtn.addEventListener("click", () => {
+                    this.gridEl.innerHTML = "";
+                    this.load();
+                });
+                box.appendChild(reloadBtn);
+                this.gridEl.appendChild(box);
+            }
+
+            /**
+             * Optimistic: leaves Edit mode and shows the grid as saved
+             * immediately, without waiting on the round trip — the
+             * requests still go out and are awaited, just in the
+             * background. On success this is a no-op beyond what already
+             * happened locally. On failure, this instance's whole view is
+             * replaced with an error + reload prompt (showTableSaveError)
+             * rather than trying to reconcile which rows actually made it,
+             * since the grid was already shown as clean.
+             */
+            saveDirtyRows() {
+                const entries = Object.entries(this.dirty);
+                // Any enum-manage popup edits (this instance's columns or
+                // another grid's, from earlier in the session) ride along
+                // here too — they were never sent on their own, only ever
+                // queued until whichever Save actually gets clicked.
+                const enumEntries = Object.entries(ENUM_OPTION_DIRTY);
+                if (!entries.length && !enumEntries.length) return;
+
+                // Deleted rows (single ❌ or bulk) were only ever hidden via
+                // the filter (queueRowDelete_/rowMatchesFilters), never
+                // actually removed from Tabulator's own data — getData()
+                // below would still include them. Exclude them here, from
+                // `entries` (still has the real isDelete flags), before
+                // this.dirty is cleared and that information is gone.
+                const deleteKeys = new Set(entries.filter(([, d]) => d.isDelete).map(([key]) => key));
+                const survivingRows = this.tabulator.getData().filter((row) => !deleteKeys.has(this.rowKeyStr(row)));
+
+                this.dirty = {};
+                ENUM_OPTION_DIRTY = {};
+                this.editMode = false;
+                // Local baseline moves forward optimistically — a later
+                // Cancel should only undo edits made after this point, not
+                // this save.
+                this.originalRows = JSON.parse(JSON.stringify(survivingRows));
+                // A no-op unless this table is also cached as some
+                // parent's embedded child (see CHILD_TABLE_CACHE) — drops
+                // that session-lifetime snapshot so the next detail view
+                // opened for *any* parent re-fetches fresh instead of
+                // showing this table as it was before this save. Simpler
+                // and safer than merging this save into the cached rows
+                // by hand; the cost is one extra round trip next time,
+                // not a correctness risk.
+                delete CHILD_TABLE_CACHE[this.tableName];
+                // Forces genuinely fresh cell DOM nodes, so no
+                // cell-changed highlight from before this save can
+                // possibly linger — setColumns alone doesn't guarantee
+                // that for classes added directly via classList.
+                this.tableReady
+                    .then(() => this.tabulator.replaceData(JSON.parse(JSON.stringify(this.originalRows))))
+                    .then(() => this.rebuildColumns());
+
+                // One bulk_save_table_rows call per logical table (this
+                // table's own changes, plus a second one only if there are
+                // pending enum-option edits) instead of one
+                // save_table_row/delete_table_row call per dirty row — N
+                // concurrent requests each fighting over the same global
+                // script lock is exactly what made a large batch start
+                // timing out (see DECISIONS.md). Same per-row failure
+                // granularity as before, just read from res.results
+                // instead of one Promise.all entry per row.
+                const tableName = this.tableName;
+                const toChange = (key, d) => ({ key: key, isNew: !!d.isNew, isDelete: !!d.isDelete, row: d.data });
+                const batches = [];
+                if (entries.length) {
+                    batches.push(
+                        apiCall("bulk_save_table_rows", {
+                            table: tableName,
+                            changes: entries.map(([key, d]) => toChange(key, d)),
+                        }).then((res) => ({ table: tableName, res: res })),
+                    );
+                }
+                if (enumEntries.length) {
+                    batches.push(
+                        apiCall("bulk_save_table_rows", {
+                            table: "enum_option",
+                            changes: enumEntries.map(([key, d]) => toChange(key, d)),
+                        }).then((res) => ({ table: "enum_option", res: res })),
+                    );
+                }
+
+                Promise.all(batches).then((batchResults) => {
+                    const failures = [];
+                    batchResults.forEach((br) => {
+                        if (!br.res.ok) {
+                            failures.push({ table: br.table, error: br.res.error || "Unknown error" });
+                            return;
+                        }
+                        (br.res.results || []).forEach((r) => {
+                            if (!r.ok) failures.push({ table: br.table, error: (r.key || "") + ": " + (r.error || "Unknown error") });
+                        });
+                    });
+                    if (!failures.length) return;
+
+                    const message =
+                        "Some changes could not be saved:\n" +
+                        failures.map((f) => f.table + ": " + f.error).join("\n") +
+                        "\n\nReload to see the table's real current state.";
+                    if (!this.destroyed) {
+                        this.showTableSaveError(message);
+                    } else {
+                        // Already torn down by the time this came back —
+                        // the takeover above wouldn't even be visible, so
+                        // at least don't let the failure go by completely
+                        // silently.
+                        alert(message + "\n\n(You've since switched away from " + tableName + ".)");
+                    }
+                });
+            }
+
+            // --- Filtering ---------------------------------------------------
+
+            /**
+             * Single combined filter (free-text search + every active
+             * per-column filter), passed to Tabulator as one function
+             * rather than juggling multiple setFilter calls. Reference-type
+             * searchable columns match against the resolved label (e.g.
+             * product name), same lookup already used for display and
+             * sorting — not the raw stored id.
+             */
+            rowMatchesFilters(row) {
+                // A row queued for delete (single ❌ or bulk — see
+                // queueRowDelete_) is hidden via this same filter mechanism
+                // rather than a direct Tabulator row.delete() call — one
+                // cheap setFilter() covers hiding any number of rows at
+                // once instead of N separate row mutations.
+                const dirtyEntry = this.dirty[this.rowKeyStr(row)];
+                if (dirtyEntry && dirtyEntry.isDelete) return false;
+                if (this.searchText) {
+                    const matches = this.schema.filter((f) => f.searchable === true).some((f) => {
+                        let val = row[f.column_name];
+                        if (f.type === "reference") {
+                            const cache = REF_CACHES[f.ref_table] || {};
+                            val = cache[val] ? cache[val][f.ref_label_field] : val;
+                        } else if (f.type === "enum_list") {
+                            val = enumListLabel(val, ENUM_CACHES[f.enum_source] || []);
+                        }
+                        return String(val ?? "").toLowerCase().includes(this.searchText);
+                    });
+                    if (!matches) return false;
+                }
+                // Every active column filter must match (AND) — the
+                // free-text box above is deliberately an OR-across-columns
+                // quick search, this is its precise per-column complement.
+                for (const columnName in this.columnFilters) {
+                    const f = this.schema.find((s) => s.column_name === columnName);
+                    if (f && !columnFilterMatches(f, row[columnName], this.columnFilters[columnName])) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            /**
+             * Adds a filter icon into the header of every searchable
+             * column, wired to open that column's filter popup — done via
+             * direct DOM manipulation (tabulator.getColumn(...).getElement())
+             * rather than Tabulator's titleFormatter, since that requires
+             * re-running after every setColumns() rebuild (Edit/Cancel/Save
+             * all trigger one) — called explicitly at each of those call
+             * sites once the rebuild has actually settled, same
+             * tableReady-gated pattern as everything else that touches
+             * this instance's Tabulator structure.
+             */
+            attachColumnFilterIcons() {
+                this.schema.filter((f) => f.searchable === true).forEach((f) => {
+                    const col = this.tabulator.getColumn(f.column_name);
+                    if (!col) return;
+                    const headerEl = col.getElement();
+                    const titleEl = headerEl.querySelector(".tabulator-col-title");
+                    if (!titleEl || titleEl.querySelector(".col-filter-icon")) return;
+                    const isActive = !!this.columnFilters[f.column_name];
+                    headerEl.classList.toggle("col-header-filtered", isActive);
+                    const btn = document.createElement("span");
+                    btn.className = "col-filter-icon" + (isActive ? " is-active" : "");
+                    btn.innerHTML = COLUMN_FILTER_ICON_SVG;
+                    btn.title = "Filter " + (f.label || f.column_name);
+                    btn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        this.openColumnFilterPopup(f, btn);
+                    });
+                    titleEl.appendChild(btn);
+                });
+            }
+
+            /** Sets/clears this instance's columnFilters for one column,
+             * re-applies the combined filter, and updates just that
+             * column's icon/header styling — no full column rebuild needed
+             * for this part. */
+            applyColumnFilter(f, result) {
+                if (result) {
+                    this.columnFilters[f.column_name] = result;
+                } else {
+                    delete this.columnFilters[f.column_name];
+                }
+                this.tableReady
+                    .then(() => this.tabulator.setFilter((row) => this.rowMatchesFilters(row)))
+                    .then(() => this.updateSelectAllCheckbox_());
+                const col = this.tabulator.getColumn(f.column_name);
+                if (!col) return;
+                const headerEl = col.getElement();
+                headerEl.classList.toggle("col-header-filtered", !!result);
+                const icon = headerEl.querySelector(".col-filter-icon");
+                if (icon) icon.classList.toggle("is-active", !!result);
+            }
+
+            /**
+             * Small floating popup anchored under a column's filter icon,
+             * with a form shaped by the column's type (see the individual
+             * buildXFilterForm functions) plus shared Apply/Clear actions.
+             */
+            openColumnFilterPopup(f, anchorEl) {
+                document.querySelectorAll(".col-filter-popup, .enum-manage-popup").forEach((el) => el.remove());
+
+                const popup = document.createElement("div");
+                popup.className = "col-filter-popup";
+
+                const state = this.columnFilters[f.column_name];
+                let getResult;
+                if (f.type === "integer" || f.type === "decimal" || f.type === "money") {
+                    getResult = buildNumberFilterForm(popup, state);
+                } else if (f.type === "date") {
+                    getResult = buildDateFilterForm(popup, state);
+                } else if (f.type === "boolean") {
+                    getResult = buildBooleanFilterForm(popup, state);
+                } else if (f.type === "enum" || f.type === "enum_list") {
+                    getResult = buildEnumFilterForm(popup, f, state);
+                } else if (f.type === "reference" && referenceOptionCount_(f) > 0 && referenceOptionCount_(f) <= REFERENCE_CHECKLIST_MAX_OPTIONS) {
+                    getResult = buildReferenceFilterForm(popup, f, state);
+                } else {
+                    getResult = buildTextFilterForm(popup, state);
+                }
+
+                const actions = document.createElement("div");
+                actions.className = "col-filter-actions";
+                const clearBtn = document.createElement("button");
+                clearBtn.type = "button";
+                clearBtn.className = "col-filter-clear";
+                clearBtn.textContent = "Clear";
+                const applyBtn = document.createElement("button");
+                applyBtn.type = "button";
+                applyBtn.className = "dash-btn col-filter-apply";
+                applyBtn.textContent = "Apply";
+                actions.append(clearBtn, applyBtn);
+                popup.appendChild(actions);
+
+                const close = makeFloatingPopup(popup, anchorEl);
+                clearBtn.addEventListener("click", () => {
+                    this.applyColumnFilter(f, null);
+                    close();
+                });
+                applyBtn.addEventListener("click", () => {
+                    this.applyColumnFilter(f, getResult());
+                    close();
+                });
+            }
+
+            /**
+             * Gear icon for columns explicitly opted in via field_schema's
+             * manage_options — deliberately not automatic for every enum
+             * column (most fixed vocabularies shouldn't invite casual
+             * editing the way a genuinely owner-managed list should).
+             * Opens a popup to add/reorder/activate-deactivate that
+             * column's enum_source options.
+             */
+            attachColumnManageIcons() {
+                // Editing enum_option is a change to what a column's cells
+                // can even contain — only meaningful, and only offered,
+                // while actually in Edit mode, same as every other write
+                // action here.
+                if (!this.editMode) return;
+                const manageable = this.schema.filter(
+                    (f) => (f.type === "enum" || f.type === "enum_list") && f.manage_options === true,
+                );
+                // Fire-and-forget prefetch: by the time any gear icon
+                // actually gets clicked, the fetch has very likely already
+                // resolved (or is already in flight, in which case
+                // openEnumManagePopup's own call just joins it), so the
+                // popup opens from cache even the very first time, not
+                // just on subsequent opens.
+                if (manageable.length) loadEnumOptionRows_();
+                manageable.forEach((f) => {
+                    const col = this.tabulator.getColumn(f.column_name);
+                    if (!col) return;
+                    const titleEl = col.getElement().querySelector(".tabulator-col-title");
+                    if (!titleEl || titleEl.querySelector(".col-manage-icon")) return;
+                    const btn = document.createElement("span");
+                    btn.className = "col-manage-icon";
+                    btn.innerHTML = COLUMN_MANAGE_ICON_SVG;
+                    btn.title = "Manage options for " + (f.label || f.column_name);
+                    btn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        openEnumManagePopup(f, btn);
+                    });
+                    titleEl.appendChild(btn);
+                });
+            }
+
+            // --- Grid columns / row edits -------------------------------------
+
+            buildColumns() {
+                // hidden=TRUE columns still exist in the row data (settable
+                // via the add modal, sent on save) — just not rendered as
+                // a grid column. Covers things like a table's own raw id
+                // (nothing to resolve it to, unlike a foreign key such as
+                // product_id). A scoped instance's own join column back to
+                // its parent (see parentScope) is hidden dynamically here,
+                // not via a static hidden=TRUE schema flag — the same
+                // child table could plausibly be embedded under more than
+                // one parent later, each with a different join column that
+                // should only be hidden when actually viewed scoped to
+                // that specific parent.
+                // type=sub_table rows are synthetic (see field_schema.type)
+                // and should already carry hidden=TRUE by convention — the
+                // explicit exclusion here is belt-and-suspenders so a
+                // future schema edit that forgets that flag can't leak a
+                // synthetic row into the grid as a real column.
+                const visibleSchema = this.schema.filter(
+                    (f) =>
+                        f.hidden !== true &&
+                        f.type !== "sub_table" &&
+                        !(this.parentScope && f.column_name === this.parentScope.column),
+                );
+
+                const dataColumns = visibleSchema.map((f) => {
+                    const editable = this.editMode && f.editable_on_update === true;
+                    const isNumeric = f.type === "integer" || f.type === "decimal" || f.type === "money";
+                    // A real default width per type, not just a minWidth
+                    // floor — layout is "fitDataFill" (see renderGrid), not
+                    // "fitColumns", so tables with few columns still
+                    // stretch to fill the box (via an invisible filler
+                    // column, not by inflating real ones), but a table
+                    // with enough columns to need more room than the box
+                    // has just scrolls horizontally instead of every
+                    // column getting squeezed to fit.
+                    let width = 160; // text/reference/enum/enum_list default
+                    let minWidth = 120;
+                    if (f.type === "boolean") {
+                        width = 70;
+                        minWidth = 60;
+                    } else if (f.type === "date") {
+                        width = 110;
+                        minWidth = 100;
+                    } else if (isNumeric) {
+                        width = 100;
+                        minWidth = 80;
+                    }
+                    const col = {
+                        title: f.label || f.column_name,
+                        field: f.column_name,
+                        editable: editable,
+                        validator: fieldValidator(f),
+                        width: width,
+                        minWidth: minWidth,
+                    };
+                    // The highlight color IS the "this is editable" signal
+                    // — no separate label needed.
+                    if (editable) col.cssClass = "editable-cell";
+
+                    if (f.type === "reference") {
+                        col.formatter = (cell) => formatCellValue(f, cell.getValue());
+                        // Default sort would compare raw ids (K01 vs K02)
+                        // — sort by the same label the column actually
+                        // displays.
+                        col.sorter = (a, b) =>
+                            String(formatCellValue(f, a)).localeCompare(String(formatCellValue(f, b)));
+                    } else if (f.type === "enum") {
+                        const options = ENUM_CACHES[f.enum_source] || [];
+                        col.formatter = (cell) => formatCellValue(f, cell.getValue());
+                        col.sorter = (a, b) =>
+                            String(formatCellValue(f, a)).localeCompare(String(formatCellValue(f, b)));
+                        if (editable) {
+                            col.editor = "list";
+                            col.editorParams = {
+                                values: options.reduce((acc, o) => {
+                                    acc[o.value] = o.label;
+                                    return acc;
+                                }, {}),
+                            };
+                        }
+                    } else if (f.type === "enum_list") {
+                        const options = ENUM_CACHES[f.enum_source] || [];
+                        col.formatter = (cell) => formatCellValue(f, cell.getValue());
+                        if (editable) {
+                            col.editor = enumListEditor;
+                            col.editorParams = { options: options };
+                        }
+                    } else if (isNumeric) {
+                        col.hozAlign = "right";
+                        if (f.type === "money") {
+                            col.formatter = (cell) => formatCellValue(f, cell.getValue());
+                        }
+                        if (editable) {
+                            col.editor = "number";
+                            const params = {};
+                            if (f.min !== "" && f.min !== null && f.min !== undefined) params.min = Number(f.min);
+                            if (f.max !== "" && f.max !== null && f.max !== undefined) params.max = Number(f.max);
+                            if (f.type === "integer") params.step = 1;
+                            col.editorParams = params;
+                        }
+                    } else if (f.type === "boolean") {
+                        // A real toggle switch, not Tabulator's built-in
+                        // tickCross editor — that one needs a click to
+                        // turn the cell into a checkbox, then a second
+                        // click plus a blur just to see the tick/cross
+                        // again. This flips on one click instead, same as
+                        // the delete button's cellClick.
+                        col.hozAlign = "center";
+                        col.editable = false;
+                        col.formatter = (cell) => {
+                            const on = cell.getValue() === true;
+                            return (
+                                '<span class="bool-switch' +
+                                (on ? " is-on" : "") +
+                                (editable ? "" : " is-disabled") +
+                                '"></span>'
+                            );
+                        };
+                        if (editable) {
+                            col.cellClick = (e, cell) => {
+                                e.stopPropagation();
+                                cell.setValue(cell.getValue() !== true);
+                                this.markRowDirty(cell);
+                            };
+                        }
+                    } else if (f.type === "date") {
+                        if (editable) col.editor = "date";
+                    } else {
+                        if (editable) col.editor = "input";
+                    }
+
+                    // The designated title column gets a click-to-open
+                    // detail link, but only in view mode (tied to the
+                    // whole grid's editMode, not this column's own
+                    // editable flag — a title column that happens not to
+                    // be editable_on_update shouldn't keep the link active
+                    // while the rest of the grid is mid-edit) and only for
+                    // tables that opted in via table_schema.has_detail_view.
+                    if (f.is_title_column === true && this.meta.has_detail_view === true && !this.editMode) {
+                        const baseFormatter = col.formatter || ((cell) => cell.getValue());
+                        col.formatter = (cell) => '<span class="row-detail-link">' + baseFormatter(cell) + "</span>";
+                        col.cellClick = (e, cell) => {
+                            e.stopPropagation();
+                            this.openDetailView(cell.getRow());
+                        };
+                    }
+                    return col;
+                });
+                return this.buildBulkDeleteColumn().concat(dataColumns, this.buildDeleteColumn());
+            }
+
+            /**
+             * A leading checkbox column for multi-row selection — only
+             * present under the exact same condition as buildDeleteColumn
+             * (Edit mode + hard_delete), since it exists purely to feed
+             * handleBulkDelete. Per-row checkboxes use Tabulator's built-in
+             * "rowSelection" formatter (getSelectedRows() etc.) — no custom
+             * cellClick, since that formatter wires up its own checkbox
+             * click handling internally and adding one here too would
+             * toggle the row twice per click. The HEADER "select all"
+             * checkbox is custom, not Tabulator's stock titleFormatter:
+             * Tabulator's own select-all selects every row in the table's
+             * data regardless of the active filter, which would silently
+             * bulk-select rows the admin can't even see. This one only
+             * ever acts on this.tabulator.getRows("active") — rows
+             * currently passing the grid's filter (see rowMatchesFilters),
+             * not "visible" (viewport-scrolled) and not every row.
+             */
+            buildBulkDeleteColumn() {
+                if (!this.editMode || this.meta.hard_delete !== true) return [];
+                return [
+                    {
+                        title: "",
+                        field: "__select",
+                        width: 40,
+                        hozAlign: "center",
+                        headerSort: false,
+                        headerHozAlign: "center",
+                        formatter: "rowSelection",
+                        cellClick: (e) => e.stopPropagation(),
+                        titleFormatter: () => {
+                            const cb = document.createElement("input");
+                            cb.type = "checkbox";
+                            cb.className = "select-all-checkbox";
+                            cb.addEventListener("click", (e) => {
+                                e.stopPropagation();
+                                const activeRows = this.tabulator.getRows("active");
+                                const allSelected = activeRows.length > 0 && activeRows.every((r) => r.isSelected());
+                                if (allSelected) this.tabulator.deselectRow(activeRows);
+                                else this.tabulator.selectRow(activeRows);
+                            });
+                            this.selectAllCheckboxEl = cb;
+                            this.updateSelectAllCheckbox_();
+                            return cb;
+                        },
+                    },
+                ];
+            }
+
+            /**
+             * A trailing delete-button column — only present in Edit mode,
+             * and only for a hard_delete table (see table_schema). A table
+             * without hard_delete doesn't get this column at all:
+             * "deleting" there just means unchecking its ordinary active
+             * column, which is already a normal editable cell — no
+             * dedicated button needed.
+             */
+            buildDeleteColumn() {
+                if (!this.editMode || this.meta.hard_delete !== true) return [];
+                return [
+                    {
+                        title: "",
+                        field: "__delete",
+                        width: 50,
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: () => '<span class="row-delete-btn" title="Delete row">❌</span>',
+                        cellClick: (e, cell) => {
+                            e.stopPropagation();
+                            this.handleDeleteRow(cell.getRow());
+                        },
+                    },
+                ];
+            }
+
+            /**
+             * Opens the detail view for one row — the title-column link's
+             * target. Two independent pieces, both scoped to just this
+             * modal: the parent row's own fields (buildParentFieldsEditor)
+             * and one embedded DataGrid instance per declared sub_table
+             * child, each with its own edit/save/cancel.
+             *
+             * @param {Object} rowComponent - Tabulator RowComponent for
+             *   the row being opened.
+             * @param {Object} [opts]
+             * @param {boolean} [opts.pushUrl=true] - false only for the
+             *   page's own initial-load auto-open (see bootstrap below) —
+             *   the URL already points here, nothing to push.
+             */
+            openDetailView(rowComponent, opts) {
+                const pushUrl = !opts || opts.pushUrl !== false;
+                const rowData = rowComponent.getData();
+                // Single-column parent keys only — see the sub_table
+                // documentation in database_schema.md.
+                const pkField = this.keyFields[0];
+                const rowId = rowData[pkField.column_name];
+                const detailUrl = "/dashboard/tables/" + this.tableName + "/detail/" + rowId;
+                if (pushUrl) history.pushState(null, "", detailUrl);
+
+                const overlay = document.createElement("div");
+                overlay.className = "modal-overlay";
+                const box = document.createElement("div");
+                box.className = "modal-box detail-modal-box";
+                overlay.appendChild(box);
+
+                const title = document.createElement("h3");
+                title.textContent = this.meta.label || this.tableName;
+                box.appendChild(title);
+
+                const parentSection = document.createElement("div");
+                box.appendChild(parentSection);
+                const parentEditor = buildParentFieldsEditor(parentSection, {
+                    tableName: this.tableName,
+                    schema: this.schema,
+                    keyFields: this.keyFields,
+                    rowData: rowData,
+                    onSaved: (updatedRow) => {
+                        // Keep the underlying grid in sync with a save that
+                        // happened independently, via this modal — both the
+                        // visible cells (rowComponent.update) and this
+                        // instance's own revert baseline (originalRows),
+                        // so a later Cancel in the outer grid doesn't
+                        // clobber this save by reverting to pre-modal data.
+                        rowComponent.update(updatedRow);
+                        const key = this.rowKeyStr(updatedRow);
+                        const idx = this.originalRows.findIndex((r) => this.rowKeyStr(r) === key);
+                        if (idx !== -1) this.originalRows[idx] = Object.assign({}, updatedRow);
+                    },
+                });
+
+                // One independent DataGrid instance per declared child —
+                // rendered from whatever prefetchSubTableChildren_ already
+                // fetched (or is still fetching; the .then below just
+                // joins that same in-flight promise), so opening this
+                // view never waits on a fresh round trip for data that
+                // was already known to be needed the moment the parent
+                // table's own schema loaded.
+                const childInstances = [];
+                this.schema
+                    .filter((f) => f.type === "sub_table")
+                    .forEach((f) => {
+                        const section = document.createElement("div");
+                        section.className = "detail-subtable-section";
+                        const heading = document.createElement("h4");
+                        heading.textContent = f.label || f.sub_table;
+                        section.appendChild(heading);
+                        const mount = document.createElement("div");
+                        mount.className = "detail-subtable-mount";
+                        // Placeholder text for the (usually brief) gap
+                        // before the prefetch resolves — almost always
+                        // already settled by the time this renders, since
+                        // it was kicked off back when the parent table's
+                        // own schema first loaded, but not guaranteed if
+                        // the admin opens this modal right away.
+                        mount.textContent = "Loading…";
+                        section.appendChild(mount);
+                        box.appendChild(section);
+
+                        const childTable = f.sub_table;
+                        const fetchPromise = CHILD_TABLE_CACHE[childTable] || Promise.resolve(null);
+                        fetchPromise.then((res) => {
+                            mount.textContent = "";
+                            if (!res) {
+                                mount.textContent = "Could not load.";
+                                return;
+                            }
+                            const child = new DataGrid({
+                                container: mount,
+                                tableName: childTable,
+                                parentScope: { column: f.sub_table_join_column, value: rowData[pkField.column_name] },
+                            });
+                            child.renderFromData(res);
+                            childInstances.push(child);
+                        });
+                    });
+
+                const closeBtn = document.createElement("button");
+                closeBtn.className = "dash-btn detail-modal-close";
+                closeBtn.textContent = "Close";
+                box.appendChild(closeBtn);
+
+                document.body.appendChild(overlay);
+
+                const modalHasUnsavedChanges = () =>
+                    parentEditor.hasUnsavedChanges() || childInstances.some((c) => c.hasUnsavedChanges());
+
+                // Pure DOM teardown, no history write — used both by this
+                // modal's own explicit close (see closeViaButton, which
+                // writes history itself before calling this) and by
+                // external callers (activateTable switching tables,
+                // popstate on browser Back) where the URL is either
+                // already correct or about to be overwritten by the
+                // caller's own navigation, so writing it here too would
+                // just race or duplicate that.
+                const forceClose = () => {
+                    childInstances.forEach((c) => c.destroy());
+                    overlay.remove();
+                    ACTIVE_DETAIL_MODAL = null;
+                };
+                const closeViaButton = () => {
+                    const proceed = () => {
+                        forceClose();
+                        history.replaceState(null, "", "/dashboard/tables/" + ACTIVE_TABLE);
+                    };
+                    if (modalHasUnsavedChanges()) {
+                        confirmModal("Discard unsaved changes?").then((yes) => yes && proceed());
+                    } else {
+                        proceed();
+                    }
+                };
+                closeBtn.addEventListener("click", closeViaButton);
+                overlay.addEventListener("mousedown", (e) => {
+                    if (e.target === overlay) closeViaButton();
+                });
+
+                ACTIVE_DETAIL_MODAL = {
+                    hasUnsavedChanges: modalHasUnsavedChanges,
+                    forceClose: forceClose,
+                    url: detailUrl,
+                };
+            }
+
+            /**
+             * Queues a delete into this.dirty, same as a cell edit — only
+             * actually sent to the backend when Save is clicked (see
+             * saveDirtyRows). A row that was itself added-but-not-yet-saved
+             * this session just gets dropped from this.dirty entirely
+             * instead: the server has never heard of it, so there's
+             * nothing to tell it to delete. Shared by both the single-row
+             * ❌ button (handleDeleteRow) and bulk delete
+             * (handleBulkDelete) — each owns its own confirm-modal wording,
+             * this is just the marking. Doesn't touch the Tabulator row
+             * itself (no row.delete()) — the caller hides queued-delete
+             * rows via one setFilter() afterward instead (see
+             * rowMatchesFilters), so marking N rows here costs nothing
+             * visible until that one shared refresh, rather than N separate
+             * Tabulator row mutations.
+             */
+            queueRowDelete_(rowComponent) {
+                const rowData = rowComponent.getData();
+                const key = this.rowKeyStr(rowData);
+                const isUnsavedNewRow = this.dirty[key] && this.dirty[key].isNew;
+                if (isUnsavedNewRow) {
+                    delete this.dirty[key];
+                } else {
+                    this.dirty[key] = { isNew: false, isDelete: true, data: rowData };
+                }
+            }
+
+            handleDeleteRow(rowComponent) {
+                const rowData = rowComponent.getData();
+                const key = this.rowKeyStr(rowData);
+                const isUnsavedNewRow = this.dirty[key] && this.dirty[key].isNew;
+                const message = isUnsavedNewRow
+                    ? "Remove this not-yet-saved row?"
+                    : "Delete this row? Won't happen until you hit Save.";
+                confirmModal(message, isUnsavedNewRow ? "Remove" : "Delete").then((yes) => {
+                    if (!yes) return;
+                    this.queueRowDelete_(rowComponent);
+                    // In case this row also happened to be bulk-select
+                    // checked — same reasoning as handleBulkDelete's
+                    // deselectRow call.
+                    if (rowComponent.isSelected && rowComponent.isSelected()) this.tabulator.deselectRow(rowComponent);
+                    this.tabulator.setFilter((row) => this.rowMatchesFilters(row));
+                    this.updateToolbarButtons();
+                    this.updateSelectAllCheckbox_();
+                });
+            }
+
+            /**
+             * Same queuing as a single ❌ click, just for every currently
+             * checked row (buildBulkDeleteColumn) at once, behind one
+             * confirm instead of one per row, and one setFilter() refresh
+             * instead of N — see queueRowDelete_.
+             */
+            handleBulkDelete() {
+                const rows = this.tabulator.getSelectedRows();
+                if (!rows.length) return;
+                const allUnsavedNew = rows.every((r) => {
+                    const key = this.rowKeyStr(r.getData());
+                    return this.dirty[key] && this.dirty[key].isNew;
+                });
+                const message = allUnsavedNew
+                    ? "Remove " + rows.length + " not-yet-saved row(s)?"
+                    : "Delete " + rows.length + " row(s)? Won't happen until you hit Save.";
+                confirmModal(message, allUnsavedNew ? "Remove" : "Delete").then((yes) => {
+                    if (!yes) return;
+                    rows.forEach((r) => this.queueRowDelete_(r));
+                    // Deselect explicitly — these rows are only hidden by
+                    // the filter now (queueRowDelete_ no longer removes
+                    // them from Tabulator's data), so without this they'd
+                    // still count as "selected" while just invisible,
+                    // leaving a stale count behind for the next selection.
+                    this.tabulator.deselectRow(rows);
+                    this.tabulator.setFilter((row) => this.rowMatchesFilters(row));
+                    this.updateToolbarButtons();
+                    this.updateSelectAllCheckbox_();
+                });
+            }
+
+            // A row already queued as new stays new — only default to
+            // "existing" the first time this key is touched.
+            markRowDirty(cell) {
+                const rowData = cell.getRow().getData();
+                const key = this.rowKeyStr(rowData);
+                const wasNew = !!(this.dirty[key] && this.dirty[key].isNew);
+                const original = wasNew ? null : this.findOriginalRow(key);
+
+                // Per-cell highlight: did THIS field actually change from
+                // its last-saved value? A separate signal from the
+                // "editable-cell" yellow (which just means "you're
+                // allowed to edit this") — a row can have one touched
+                // cell and five untouched ones, each reflecting its own
+                // state independently of row-level dirty tracking below.
+                const field = cell.getField();
+                const changed =
+                    wasNew || !original || String(cell.getValue() ?? "") !== String(original[field] ?? "");
+                cell.getElement().classList.toggle("cell-changed", changed);
+
+                if (!wasNew && original && rowsEqual(rowData, original)) {
+                    // Every field is back to what the server last returned
+                    // — not a pending change anymore, e.g. toggling a
+                    // switch back to where it started.
+                    delete this.dirty[key];
+                } else {
+                    this.dirty[key] = { isNew: wasNew, data: rowData };
+                }
+                this.updateToolbarButtons();
+            }
+
+            renderGrid(rows) {
+                this.tableReady = new Promise((resolve) => {
+                    this.tabulator = new Tabulator(this.gridEl, {
+                        // Deep-cloned, not the same row objects
+                        // originalRows holds — Tabulator mutates row data
+                        // objects in place on every edit (no reactiveData
+                        // proxy in use here), so handing it the exact same
+                        // references originalRows pointed at would
+                        // silently corrupt the "original" baseline with
+                        // every edit. That's what made markRowDirty's
+                        // revert-detection compare a value against itself
+                        // (always "unchanged") and made Cancel "revert" to
+                        // whatever was last typed instead of the true
+                        // original.
+                        data: JSON.parse(JSON.stringify(rows)),
+                        // Columns keep their own default width (see
+                        // buildColumns) and only grow past it to fill
+                        // genuinely leftover space — via an invisible
+                        // filler column, not by stretching real ones
+                        // ("fitColumns" used to force every column to fit
+                        // the box regardless of column count, making a
+                        // 3-column table look absurdly wide and a
+                        // 12-column one uncomfortably cramped).
+                        layout: "fitDataFill",
+                        height: "100%",
+                        // Needed for the rowSelection formatter/getSelectedRows()
+                        // used by buildBulkDeleteColumn — harmless when that
+                        // column isn't present (view mode, non-hard_delete
+                        // tables), just an unused capability then.
+                        selectableRows: true,
+                        columns: this.buildColumns(),
+                    });
+                    // .on(), not a constructor-option callback — checked
+                    // the actual Tabulator source: "cellEdited" is only
+                    // ever registered as a per-column option there
+                    // (registerColumnOption), never read as a table-level
+                    // constructor callback, so it was silently never
+                    // firing at all. .on() is the public, always-correct
+                    // API for both of these regardless of that —
+                    // registering a listener is synchronous and safe to
+                    // do right after construction no matter when the
+                    // table actually finishes building, since the events
+                    // themselves can only dispatch strictly later than
+                    // that.
+                    this.tabulator.on("cellEdited", (cell) => this.markRowDirty(cell));
+                    this.tabulator.on("rowSelectionChanged", () => {
+                        this.updateToolbarButtons();
+                        this.updateSelectAllCheckbox_();
+                    });
+                    this.tabulator.on("tableBuilt", () => {
+                        this.tabulator.setFilter((row) => this.rowMatchesFilters(row));
+                        this.attachColumnFilterIcons();
+                        this.attachColumnManageIcons();
+                        resolve();
+                    });
+                });
+            }
+
+            // --- Add-new modal -------------------------------------------------
+
+            openAddModal() {
+                const valueFields = this.schema.filter(
+                    (f) =>
+                        f.editable_on_create === true &&
+                        !this.keyFields.includes(f) &&
+                        !(this.parentScope && f.column_name === this.parentScope.column),
+                );
+                const formState = {};
+                // A non-reference key (a table's own id, e.g. user_id) is
+                // generated right here, once — never asked for, and the
+                // row's real identity is known immediately, no server
+                // round trip needed to find out what it ended up being.
+                this.keyFields.filter((f) => f.type !== "reference").forEach((f) => {
+                    formState[f.column_name] = crypto.randomUUID();
+                });
+                // A grid scoped to a specific parent row (see
+                // parentScope) auto-fills its join column and never asks
+                // for it again — that's the whole point of already being
+                // scoped to one parent.
+                if (this.parentScope) formState[this.parentScope.column] = this.parentScope.value;
+
+                const overlay = document.createElement("div");
+                overlay.className = "modal-overlay";
+                const box = document.createElement("div");
+                box.className = "modal-box";
+                box.innerHTML = "<h3>Add row</h3>";
+                overlay.appendChild(box);
+
+                if (this.parentScope) {
+                    const scopeField = this.schema.find((f) => f.column_name === this.parentScope.column);
+                    let display = this.parentScope.value;
+                    if (scopeField && scopeField.type === "reference") {
+                        const cache = REF_CACHES[scopeField.ref_table] || {};
+                        const row = cache[this.parentScope.value];
+                        display = row ? row[scopeField.ref_label_field] : this.parentScope.value;
+                    }
+                    const info = document.createElement("div");
+                    info.className = "modal-field";
+                    info.innerHTML =
+                        "<label>" +
+                        (scopeField ? scopeField.label || scopeField.column_name : this.parentScope.column) +
+                        "</label><div>" +
+                        display +
+                        "</div>";
+                    box.appendChild(info);
+                }
+
+                const visibleKeyFields = this.keyFields.filter(
+                    (f) => !(this.parentScope && f.column_name === this.parentScope.column),
+                );
+                const referenceKeyFields = visibleKeyFields.filter((f) => f.type === "reference");
+
+                // Includes rows currently hidden by an active filter, and
+                // any row already added-but-unsaved in this edit session —
+                // both are real "already used" combinations. Only
+                // meaningful for reference-type key columns (a picker with
+                // a fixed candidate list) — a plain text key like a
+                // hand-typed id has no list to filter; the backend still
+                // rejects a duplicate on save.
+                const usedCombos = () => this.tabulator.getData();
+
+                const norm = (v) => String(v ?? "").trim();
+
+                const optionsFor = (field) => {
+                    const cache = REF_CACHES[field.ref_table] || {};
+                    return Object.keys(cache).filter((id) => {
+                        return !usedCombos().some((row) =>
+                            this.keyFields.every((kf) => {
+                                const candidate = kf.column_name === field.column_name ? id : formState[kf.column_name];
+                                return norm(row[kf.column_name]) === norm(candidate);
+                            }),
+                        );
+                    });
+                };
+
+                // Non-reference key fields (e.g. user_id) get no UI at all
+                // — they're always server-generated (see saveTableRow),
+                // never asked for. Only a reference-type key (a real
+                // foreign key the admin must pick, e.g. kiosk_id/
+                // product_id) needs a picker — same searchable/sortable
+                // widget the staff forms already use for product pickers,
+                // instead of a plain <select>. Its options are recomputed
+                // fresh on every focus/keystroke (see getItems below), so
+                // — unlike a plain <select> — nothing needs to be manually
+                // rebuilt when a sibling field changes; each picker just
+                // reflects current formState whenever it's actually used.
+                referenceKeyFields.forEach((f) => {
+                    const wrap = document.createElement("div");
+                    wrap.className = "modal-field";
+                    const label = document.createElement("label");
+                    label.textContent = f.label || f.column_name;
+                    wrap.appendChild(label);
+                    const pickWrap = document.createElement("div");
+                    wrap.appendChild(pickWrap);
+                    box.appendChild(wrap);
+
+                    const cache = REF_CACHES[f.ref_table] || {};
+                    makeSearchPick(pickWrap, {
+                        placeholder: "Search " + (f.label || f.column_name).toLowerCase() + "…",
+                        getItems: (q) =>
+                            optionsFor(f)
+                                .map((id) => ({
+                                    id: id,
+                                    label: cache[id] ? cache[id][f.ref_label_field] : id,
+                                }))
+                                .filter((it) => !q || it.label.toLowerCase().includes(q))
+                                .sort((a, b) => a.label.localeCompare(b.label)),
+                        onSelect: (item) => {
+                            formState[f.column_name] = item.id;
+                        },
+                    });
+                });
+
+                valueFields.forEach((f) => {
+                    const wrap = document.createElement("div");
+                    wrap.className = "modal-field";
+                    const label = document.createElement("label");
+                    label.textContent = f.label || f.column_name;
+                    wrap.appendChild(label);
+                    wrap.appendChild(
+                        buildFieldInput(f, formState[f.column_name], (val) => {
+                            formState[f.column_name] = val;
+                        }),
+                    );
+                    box.appendChild(wrap);
+                });
+
+                const errorEl = document.createElement("div");
+                errorEl.className = "modal-error";
+                box.appendChild(errorEl);
+
+                const actions = document.createElement("div");
+                actions.className = "modal-actions";
+                actions.innerHTML =
+                    '<button class="dash-btn" style="background:var(--line);color:var(--ink)" id="modalCancel">Cancel</button>' +
+                    '<button class="dash-btn" id="modalSave">Add</button>';
+                box.appendChild(actions);
+
+                document.body.appendChild(overlay);
+
+                box.querySelector("#modalCancel").addEventListener("click", () => overlay.remove());
+                box.querySelector("#modalSave").addEventListener("click", () => {
+                    const missing = this.keyFields.concat(valueFields).find(
+                        (f) => f.required === true && !formState[f.column_name],
+                    );
+                    if (missing) {
+                        errorEl.textContent = (missing.label || missing.column_name) + " is required.";
+                        return;
+                    }
+                    this.tabulator.addRow(formState);
+                    this.dirty[this.rowKeyStr(formState)] = { isNew: true, data: Object.assign({}, formState) };
+                    this.updateToolbarButtons();
+                    overlay.remove();
+                });
+            }
+        }
+    </script>
+</body>
+</html>

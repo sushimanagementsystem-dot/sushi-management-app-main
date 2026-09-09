@@ -1,0 +1,16 @@
+{
+    "cleanUrls": true,
+    "rewrites": [
+        { "source": "/", "destination": "/pages/auth/index" },
+        { "source": "/login", "destination": "/pages/auth/login" },
+        { "source": "/enter", "destination": "/pages/auth/enter" },
+        { "source": "/forbidden", "destination": "/pages/auth/forbidden" },
+        { "source": "/dashboard/tables/:table/detail/:rowId", "destination": "/pages/dashboard/tables" },
+        { "source": "/dashboard/tables/:table", "destination": "/pages/dashboard/tables" },
+        { "source": "/dashboard/inbox/:ownerActionId", "destination": "/pages/dashboard/inbox" },
+        { "source": "/dashboard/:page", "destination": "/pages/dashboard/:page" },
+        { "source": "/dashboard", "destination": "/pages/dashboard/dashboard" },
+        { "source": "/:slug", "destination": "/pages/kiosk/home" },
+        { "source": "/:slug/:page", "destination": "/pages/kiosk/:page" }
+    ]
+}

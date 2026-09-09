@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard — Stock Usage View</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+</head>
+<body>
+    <div class="dash-shell">
+        <nav class="dash-sidebar" id="dashSidebar"></nav>
+
+        <!-- Hidden until initDashboard() confirms access. -->
+        <main class="dash-main" id="dashMain" style="display: none">
+            <div class="dash-content">
+                <h1>Stock Usage View</h1>
+                <div class="kpi-usage-picker" id="usagePicker"></div>
+                <div class="dash-spinner" id="usageSpinner"></div>
+                <div id="usageError" style="display: none; color: #b3261e"></div>
+
+                <div id="usageContent" style="display: none; flex: 1; min-height: 0; overflow-y: auto">
+                    <div id="usageNotAvailable" class="kpi-usage-not-available" style="display: none"></div>
+
+                    <div id="usageAvailable" style="display: none">
+                        <p style="color: var(--muted); font-size: 0.85rem" id="usageRangeLabel"></p>
+                        <div class="kpi-compare-table-wrap">
+                            <table class="kpi-compare-table" id="usageTable"></table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/assets/common.js"></script>
+    <script src="/assets/dashboard-common.js"></script>
+    <script>
+        let USAGE_KIOSKS = [];
+        let USAGE_SELECTION = { kioskId: "", openingId: "", closingId: "" };
+
+        initDashboard("stock-usage").then((ok) => {
+            if (!ok) return;
+            buildUsagePicker_();
+            loadStockUsage_();
+        });
+
+        function moneyStrU_(n) {
+            return "€" + (Math.round((n || 0) * 100) / 100).toFixed(2);
+        }
+        function qtyStrU_(n) {
+            const r = Math.round((n || 0) * 100) / 100;
+            return Number.isInteger(r) ? String(r) : r.toFixed(2);
+        }
+
+        // --- Picker ------------------------------------------------------------
+        // Rebuilt on every load (not just once) since the stocktake dropdowns'
+        // options depend on which kiosk is selected.
+
+        function buildUsagePicker_() {
+            const el = document.getElementById("usagePicker");
+            el.innerHTML = "";
+
+            const kioskSel = document.createElement("select");
+            kioskSel.innerHTML = '<option value="">Choose a kiosk…</option>';
+            kioskSel.addEventListener("change", () => {
+                USAGE_SELECTION = { kioskId: kioskSel.value, openingId: "", closingId: "" };
+                loadStockUsage_();
+            });
+            el.appendChild(kioskSel);
+            el._kioskSel = kioskSel;
+        }
+
+        function syncUsageKioskOptions_() {
+            const sel = document.getElementById("usagePicker")._kioskSel;
+            if (!sel || sel.options.length > 1) return;
+            USAGE_KIOSKS.forEach((k) => {
+                const opt = document.createElement("option");
+                opt.value = k.id;
+                opt.textContent = k.name;
+                sel.appendChild(opt);
+            });
+            if (USAGE_SELECTION.kioskId) sel.value = USAGE_SELECTION.kioskId;
+        }
+
+        // Opening/closing stocktake pickers only make sense once a kiosk with
+        // >=2 complete stocktakes is selected — built fresh each load from
+        // res.completeStocktakes (newest first).
+        function buildStocktakePickers_(res) {
+            const el = document.getElementById("usagePicker");
+            [el._openingSel, el._closingSel, el._openingLabel, el._closingLabel].forEach((n) => n && n.remove());
+            if (!res.completeStocktakes || res.completeStocktakes.length < 2) return;
+
+            const openingLabel = document.createTextNode(" Opening: ");
+            const openingSel = document.createElement("select");
+            const closingLabel = document.createTextNode(" Closing: ");
+            const closingSel = document.createElement("select");
+
+            res.completeStocktakes.forEach((s) => {
+                const o1 = document.createElement("option");
+                o1.value = s.id;
+                o1.textContent = s.date;
+                openingSel.appendChild(o1);
+                const o2 = document.createElement("option");
+                o2.value = s.id;
+                o2.textContent = s.date;
+                closingSel.appendChild(o2);
+            });
+            openingSel.value = res.openingDate ? findStocktakeIdByDate_(res, res.openingDate) : "";
+            closingSel.value = res.closingDate ? findStocktakeIdByDate_(res, res.closingDate) : "";
+
+            openingSel.addEventListener("change", () => {
+                USAGE_SELECTION.openingId = openingSel.value;
+                loadStockUsage_();
+            });
+            closingSel.addEventListener("change", () => {
+                USAGE_SELECTION.closingId = closingSel.value;
+                loadStockUsage_();
+            });
+
+            el.appendChild(openingLabel);
+            el.appendChild(openingSel);
+            el.appendChild(closingLabel);
+            el.appendChild(closingSel);
+            el._openingSel = openingSel;
+            el._closingSel = closingSel;
+            el._openingLabel = openingLabel;
+            el._closingLabel = closingLabel;
+        }
+
+        function findStocktakeIdByDate_(res, date) {
+            const match = res.completeStocktakes.find((s) => s.date === date);
+            return match ? match.id : "";
+        }
+
+        // --- Load + render -----------------------------------------------------
+
+        function loadStockUsage_() {
+            const spinner = document.getElementById("usageSpinner");
+            const content = document.getElementById("usageContent");
+            const errorEl = document.getElementById("usageError");
+            spinner.style.display = "";
+            content.style.display = "none";
+            errorEl.style.display = "none";
+
+            return apiCall("bootstrap_stock_usage", {
+                kioskId: USAGE_SELECTION.kioskId,
+                openingStocktakeHeaderId: USAGE_SELECTION.openingId,
+                closingStocktakeHeaderId: USAGE_SELECTION.closingId,
+            })
+                .then((res) => {
+                    spinner.style.display = "none";
+                    if (!res.ok) {
+                        errorEl.style.display = "";
+                        errorEl.textContent = res.error || "Failed to load.";
+                        return;
+                    }
+                    content.style.display = "";
+                    USAGE_KIOSKS = res.kiosks || USAGE_KIOSKS;
+                    syncUsageKioskOptions_();
+                    buildStocktakePickers_(res);
+                    renderUsage_(res);
+                })
+                .catch(() => {
+                    spinner.style.display = "none";
+                    errorEl.style.display = "";
+                    errorEl.textContent = "Failed to load.";
+                });
+        }
+
+        function renderUsage_(res) {
+            const notAvailable = document.getElementById("usageNotAvailable");
+            const available = document.getElementById("usageAvailable");
+
+            if (!res.available) {
+                notAvailable.style.display = "";
+                available.style.display = "none";
+                notAvailable.textContent = res.kioskId
+                    ? res.reason || "Not available."
+                    : "Choose a kiosk to see its stock usage.";
+                return;
+            }
+
+            notAvailable.style.display = "none";
+            available.style.display = "";
+            document.getElementById("usageRangeLabel").textContent =
+                "Comparing stocktake on " + res.openingDate + " to stocktake on " + res.closingDate + ".";
+            renderUsageTable_(res.lines || []);
+        }
+
+        function renderUsageTable_(lines) {
+            const table = document.getElementById("usageTable");
+            table.innerHTML = "";
+
+            const columns = ["Stock Item", "Opening", "Deliveries In", "Transfers In", "Transfers Out", "Closing", "Actual Usage"];
+            const thead = document.createElement("thead");
+            const headRow = document.createElement("tr");
+            columns.forEach((c) => {
+                const th = document.createElement("th");
+                th.textContent = c;
+                headRow.appendChild(th);
+            });
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement("tbody");
+            lines.forEach((line) => {
+                const tr = document.createElement("tr");
+                tr.appendChild(td_(line.name + " (" + line.unit + ")"));
+                tr.appendChild(td_(qtyStrU_(line.opening)));
+                tr.appendChild(td_(qtyStrU_(line.deliveriesIn)));
+                tr.appendChild(td_(qtyStrU_(line.transfersIn)));
+                tr.appendChild(td_(qtyStrU_(line.transfersOut)));
+                tr.appendChild(td_(qtyStrU_(line.closing)));
+                tr.appendChild(td_(qtyStrU_(line.actualUsage), true));
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+
+            function td_(text, isUsage) {
+                const cell = document.createElement("td");
+                if (isUsage) cell.className = "kpi-rate-cell";
+                cell.textContent = text;
+                return cell;
+            }
+        }
+    </script>
+</body>
+</html>
