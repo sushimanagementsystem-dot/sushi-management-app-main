@@ -20,6 +20,7 @@ import {
     Globe,
     PanelLeftClose,
     PanelLeft,
+    Upload,
 } from "lucide-react";
 import { requireRole } from "@/lib/api";
 import { confirmModal } from "./ConfirmModal";
@@ -80,6 +81,7 @@ const DASHBOARD_GROUPS = [
             { key: "tables", Icon: Table2, label: "Data Tables", shortLabel: "Tables", href: "/dashboard/tables" },
             { key: "settings", Icon: SettingsIcon, label: "Settings", shortLabel: "Settings", href: "/dashboard/settings" },
             { key: "site-config", Icon: Globe, label: "Site Configuration", shortLabel: "Site Config", href: "/dashboard/site-config" },
+            { key: "upload-data", Icon: Upload, label: "Upload Data", shortLabel: "Upload", href: "/dashboard/upload-data" },
         ],
     },
 ];

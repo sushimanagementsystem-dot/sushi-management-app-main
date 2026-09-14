@@ -102,6 +102,18 @@ export function readFileForUpload(file, maxDimension, quality) {
     });
 }
 
+/** Reads a File as raw base64 (no image recompression) — for the Upload
+ * Data page's workbook upload, where the file must reach the backend
+ * byte-for-byte since it's parsed as an xlsx workbook there. */
+export function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
 /**
  * Fire-and-forget nudge, called right after a successful submit: hits the
  * Vercel relay (app/api/process-now/route.js), which calls back into GAS

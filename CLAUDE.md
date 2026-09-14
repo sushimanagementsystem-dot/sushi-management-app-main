@@ -4,10 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-Sushi kiosk management system (monorepo, merged from two separate repos 2026-07-28). Staff at
-each kiosk submit forms (waste, stocktake, deliveries, audits, etc.); an owner dashboard reviews
-and manages that data. No package.json, no build step, no test framework anywhere in this repo —
-it's plain JS deployed as-is.
+Sushi kiosk management system. Staff at each kiosk submit forms (waste, stocktake, deliveries,
+audits, etc.); an owner dashboard reviews and manages that data. The repo currently holds **two
+parallel implementations of the same product**:
+
+- `backend/` + `frontend/` — the original, production stack: Google Apps Script + a static
+  Vercel site, data stored in a Google Sheet. No package.json, no build step, no test framework —
+  plain JS deployed as-is.
+- `nest-backend/` + `frontend-next/` — a from-scratch rewrite onto NestJS/Prisma/Postgres +
+  Next.js, added in bulk (single `new` commits, thin git history) with no migration doc in the
+  repo describing rollout/cutover plans. `nest-backend`'s Prisma schema is commented as "ported
+  1:1" from the Google Sheet, and `frontend-next` is laid out as a route-for-route port of
+  `frontend/`'s pages — treat it as an in-progress migration of the legacy stack, not an
+  unrelated app. Confirm with the user which stack a task targets before assuming; `deploy.sh`
+  (below) only knows about the legacy one.
 
 ```text
 backend/            Google Apps Script — clasp's rootDir. doPost-only, no page-serving code.
@@ -26,15 +36,24 @@ frontend/            Static site — Vercel's Root Directory. Plain HTML/CSS/JS,
     auth/                index, login, enter, forbidden
     kiosk/               home + the 11 staff forms (kiosk identity via URL slug, not a file)
     dashboard/           dashboard (shell) + tables (Data Tables), inbox, kpi, settings, etc.
+
+nest-backend/       NestJS + Prisma, targets Postgres (Neon). One HTTP route per action,
+                     replacing doPost + action dispatch. See "nest-backend architecture" below.
+
+frontend-next/       Next.js (App Router) rewrite of frontend/, same page set under app/.
+                     See "frontend-next architecture" below.
 ```
 
-The data store is a Google Sheet, accessed only through `backend/core/DAL.js` — there is no
-database beyond that spreadsheet.
+For the legacy stack, the data store is a Google Sheet, accessed only through
+`backend/core/DAL.js` — there is no database beyond that spreadsheet. The new stack replaces
+this with real Postgres via Prisma (see below).
 
 ## Commands
 
-There's no build/lint/test tooling — this repo has no `package.json`. The only workflow is
-edit → deploy:
+### Legacy stack (`backend/` + `frontend/`)
+
+There's no build/lint/test tooling in this half of the repo — no `package.json` here. The only
+workflow is edit → deploy:
 
 ```bash
 ./deploy.sh [patch|minor|major] ["commit message"]
@@ -55,6 +74,38 @@ Script project to target — it's not something Claude can regenerate from repo 
 There is no local dev server for the backend (Apps Script only runs deployed) or automated way
 to preview the frontend other than opening the HTML files directly or pushing to Vercel — treat
 edits as review-then-deploy, not run-then-verify.
+
+### New stack (`nest-backend/` + `frontend-next/`)
+
+Each half has its own `package.json`; no root-level script ties them together and no deploy
+tooling for this stack exists in the repo yet.
+
+```bash
+cd nest-backend && npm install     # postinstall runs `prisma generate`
+npm run start:dev                  # Nest dev server with watch (needs DATABASE_URL, PORT optional)
+npm test                           # vitest unit tests (src/**/*.spec.ts)
+npm run test:e2e                   # vitest e2e tests (test/**/*.e2e-spec.ts), separate config
+npm run lint                       # oxlint src/ test/
+npm run db:migrate                 # prisma migrate dev
+npm run db:studio                  # prisma studio
+```
+
+`DATABASE_URL` (Postgres/Neon connection string) is required — read via `dotenv` in
+`prisma.config.ts` for the CLI, and via `ConfigService.getOrThrow('DATABASE_URL')` in
+`src/prisma/prisma.service.ts` at runtime, where it's wrapped in a long-lived `pg.Pool`
+(`idleTimeoutMillis: 0`) specifically to avoid paying Neon's compute-suspend wake latency on
+every gap between dashboard page loads — don't "simplify" that back to a bare connection string.
+Test coverage is currently thin (one `.spec.ts`, one `.e2e-spec.ts`).
+
+```bash
+cd frontend-next && npm install
+npm run dev                        # next dev
+npm run build && npm run start     # production build/serve
+npm run lint                       # next lint
+```
+
+`NEXT_PUBLIC_BACKEND_URL` points the frontend at `nest-backend` (defaults to
+`http://localhost:3000` — see `lib/api.js`). No test runner is configured for this package.
 
 ## Backend architecture (`backend/`, Google Apps Script)
 
@@ -141,7 +192,54 @@ project (`GAS_BACKEND_URL`, `GAS_PROCESS_SECRET`) distinct from the frontend's h
 table/enum in one call) — it's config-driven, not one hand-built table per entity. Prefer
 extending the schema/DAL side over hand-rolling a new table page.
 
-## Adding a new kiosk form
+## nest-backend architecture (`nest-backend/`, NestJS + Prisma)
+
+**Routing is one Nest controller/route per action** (e.g. `POST /submit`), not a single dispatch
+endpoint — `frontend-next`'s `apiCall()` calls `${BACKEND_URL}/${action}`. Modules mirror the
+legacy backend's shape 1:1: `forms/` (shared `submit` route + per-form DTOs), `pipeline/`
+(submission queue + processors, same async-intake model as `api/Pipeline.js`),
+`production-engine/` (production plan computation, secondary-item allocation, invoice AI, email —
+maps to `engine/`), `dashboard/` (one subfolder per dashboard area — `data-tables`, `kpi`,
+`action-inbox`, `settings`, etc. — maps to `dashboard/`), `reference-data/`, `purchasing/`,
+`kiosk/`, `auth/`, `upload/`, `import/` (one-off Excel/Sheet import tooling), `mailer/`.
+
+**Auth is global guards, not per-action opt-in** — the inverse of the legacy backend. `AppModule`
+registers `SessionAuthGuard` then `RolesGuard` as `APP_GUARD`s applied to every route by default;
+a route opts *out* of session auth with `@Public()` and declares role restrictions with
+`@Roles(...)` (`src/common/decorators/`), rather than each handler calling something like
+`isOwnerRole_()` itself. Kiosk-token-gated routes (`bootstrap_*`, `submit`) additionally use
+`KioskTokenGuard` and read the resolved kiosk/user via `@CurrentKiosk()`/`@CurrentUser()`.
+
+**Data access is Prisma over Postgres**, not the Sheet-backed DAL. `prisma/schema.prisma` is
+commented as a 1:1 port of the Google Sheet: models use `snake_case` field names (not Prisma's
+usual camelCase) and enum-like columns stay plain `String` (many are backed by the
+owner-editable `enum_option` table at runtime, so a compile-time enum would be wrong) — this is
+deliberate, so the API can return rows shaped the way `frontend-next` (and the old DAL contract)
+already expects. Every response is normalized by `ResponseEnvelopeInterceptor` /
+`HttpExceptionFilter` (registered globally in `AppModule`) rather than each handler shaping its
+own JSON.
+
+## frontend-next architecture (`frontend-next/`, Next.js App Router)
+
+Route-for-route port of `frontend/`: `app/[slug]/` is the dynamic kiosk-slug segment (same
+URL-is-identity model as the old `vercel.json` catch-all — see `getSlugFromPath()`'s equivalent
+in `lib/api.js`), `app/dashboard/` mirrors `pages/dashboard/`, `app/login`, `app/enter`,
+`app/forbidden` mirror `pages/auth/`. `app/api/process-now/` is the Next.js equivalent of
+`frontend/api/process-now.js`.
+
+`lib/api.js` is the `assets/common.js` equivalent: `apiCall()` posts to
+`${BACKEND_URL}/${action}` (one route per action, matching nest-backend's routing — not
+action-in-body), auto-attaches and re-stores the session token every call. Auth *state* (session
+token, per-kiosk tokens, allowed-slug cache) lives in Zustand (`lib/store/useAuthStore.js`)
+rather than being read/written ad hoc — components that need to re-render on auth changes should
+use the `useAuthStore()` hook, not call the imperative helpers in `lib/api.js` directly. Data
+fetching goes through TanStack Query (`lib/queries.js`, `components/QueryProvider.js`).
+
+`frontend-next/AGENTS.md`/`CLAUDE.md` only contain Next.js's own auto-generated "this isn't the
+Next.js you know" notice (regenerated by `next dev` — don't strip it from diffs) — no
+project-specific guidance lives there; this file is the source of truth for both stacks.
+
+## Adding a new kiosk form (legacy stack)
 
 Following the existing 11 (`forms/Form*.js` + matching `pages/kiosk/*.html`) is the fastest path
 to correctness: add a `FORM_TYPES` entry (`core/Config.js`), a `bootstrap_*` + handling in the

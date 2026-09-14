@@ -20,6 +20,53 @@ export type ImportTableResult = {
     errors: ImportRowError[];
 };
 
+/** Parses the uploaded workbook once — callers that need to process sheets
+ * one at a time (the dashboard's step-by-step import) reuse this instead
+ * of re-parsing the buffer on every step. */
+export function parseWorkbook(fileBuffer: Buffer): XLSX.WorkBook {
+    return XLSX.read(fileBuffer, { cellDates: true, type: "buffer" });
+}
+
+/** Row count for a sheet without upserting anything — lets the dashboard
+ * show the full sheet list (and how many rows each has) before the first
+ * table is actually synced. */
+export function countSheetRows(wb: XLSX.WorkBook, table: ImportTable): number {
+    const sheet = wb.Sheets[table.sheet];
+    if (!sheet) return 0;
+    return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true }).length;
+}
+
+/**
+ * Upserts one sheet's rows into Postgres via `prisma`. Shared by the
+ * whole-workbook import below and the dashboard's one-sheet-at-a-time
+ * step endpoint (see ImportSessionService) — same per-row error handling
+ * either way, just called once per table instead of in one big loop.
+ */
+export async function importSingleTable(prisma: PrismaClient, wb: XLSX.WorkBook, table: ImportTable): Promise<ImportTableResult> {
+    const sheet = wb.Sheets[table.sheet];
+    if (!sheet) {
+        return { sheet: table.sheet, rows: 0, upserted: 0, errors: [{ row: -1, message: "Sheet not found in workbook" }] };
+    }
+
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true });
+    const result: ImportTableResult = { sheet: table.sheet, rows: rows.length, upserted: 0, errors: [] };
+
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        try {
+            const data = buildRowData(row, table);
+            const where = table.pk(row);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (prisma as any)[table.model].upsert({ where, create: data, update: data });
+            result.upserted++;
+        } catch (err) {
+            result.errors.push({ row: i, message: err instanceof Error ? err.message : String(err) });
+        }
+    }
+
+    return result;
+}
+
 /**
  * Upserts every sheet in `fileBuffer` into Postgres via `prisma`, in
  * IMPORT_ORDER's dependency order (parents before children) so foreign
@@ -36,43 +83,11 @@ export async function importExcelDatabase(
     prisma: PrismaClient,
     fileBuffer: Buffer,
 ): Promise<ImportTableResult[]> {
-    const wb = XLSX.read(fileBuffer, { cellDates: true, type: "buffer" });
+    const wb = parseWorkbook(fileBuffer);
     const results: ImportTableResult[] = [];
-
     for (const table of IMPORT_ORDER) {
-        const sheet = wb.Sheets[table.sheet];
-        if (!sheet) {
-            results.push({
-                sheet: table.sheet,
-                rows: 0,
-                upserted: 0,
-                errors: [{ row: -1, message: "Sheet not found in workbook" }],
-            });
-            continue;
-        }
-
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-            defval: null,
-            raw: true,
-        });
-        const result: ImportTableResult = { sheet: table.sheet, rows: rows.length, upserted: 0, errors: [] };
-
-        for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
-            try {
-                const data = buildRowData(row, table);
-                const where = table.pk(row);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                await (prisma as any)[table.model].upsert({ where, create: data, update: data });
-                result.upserted++;
-            } catch (err) {
-                result.errors.push({ row: i, message: err instanceof Error ? err.message : String(err) });
-            }
-        }
-
-        results.push(result);
+        results.push(await importSingleTable(prisma, wb, table));
     }
-
     return results;
 }
 
@@ -85,6 +100,10 @@ function buildRowData(row: Record<string, unknown>, table: ImportTable): Record<
             } catch {
                 data[key] = value; // not valid JSON — store as-is rather than lose it
             }
+            continue;
+        }
+        if (table.stringify?.includes(key) && (typeof value === "number" || typeof value === "boolean")) {
+            data[key] = String(value);
             continue;
         }
         data[key] = value;

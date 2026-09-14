@@ -6,9 +6,13 @@
 // own workbook at go-live) — see src/import/import.service.ts.
 //
 // `pk` builds the Prisma `where` clause for upsert from a row; `decimal`/
-// `json` list fields that need explicit coercion beyond what the xlsx
-// reader gives us for free (numbers/booleans/Dates already come through
-// as the right JS type since we read with `cellDates: true`).
+// `json`/`stringify` list fields that need explicit coercion beyond what
+// the xlsx reader gives us for free (numbers/booleans/Dates already come
+// through as the right JS type since we read with `cellDates: true`).
+// `stringify` is for a Prisma `String` column whose sheet values are
+// sometimes numeric-looking (e.g. a setting value of 500) — xlsx reads
+// those as a JS number, which Prisma's client rejects outright for a
+// String field ("Expected String, provided Int") rather than coercing it.
 
 export type ImportTable = {
     sheet: string;
@@ -16,6 +20,7 @@ export type ImportTable = {
     pk: (row: any) => Record<string, any>;
     decimal?: string[];
     json?: string[];
+    stringify?: string[];
 };
 
 export const IMPORT_ORDER: ImportTable[] = [
@@ -43,7 +48,7 @@ export const IMPORT_ORDER: ImportTable[] = [
         pk: (r) => ({ table_name_column_name: { table_name: r.table_name, column_name: r.column_name } }),
         decimal: ["min", "max"],
     },
-    { sheet: "setting", model: "setting", pk: (r) => ({ setting_key: r.setting_key }) },
+    { sheet: "setting", model: "setting", pk: (r) => ({ setting_key: r.setting_key }), stringify: ["value"] },
 
     // --- Level 1: depend only on level 0 ---
     { sheet: "kiosk", model: "kiosk", pk: (r) => ({ kiosk_id: r.kiosk_id }) },
@@ -150,6 +155,7 @@ export const IMPORT_ORDER: ImportTable[] = [
         model: "invoiceLine",
         pk: (r) => ({ invoice_line_id: r.invoice_line_id }),
         decimal: ["qty", "unit_cost", "line_total"],
+        stringify: ["supplier_item_code"],
     },
     {
         sheet: "stocktake_line",

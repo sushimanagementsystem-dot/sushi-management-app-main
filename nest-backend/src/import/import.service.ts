@@ -4,6 +4,19 @@ import { TableCacheService } from "../reference-data/table-cache.service.js";
 import { SettingsService } from "../reference-data/settings.service.js";
 import { importExcelDatabase, type ImportTableResult } from "./excel-import.js";
 
+/** Shared by both import endpoints (the public handover one and the
+ * dashboard-facing one) so their response shape stays identical. */
+export function summarizeImportResults(results: ImportTableResult[]) {
+    return results.reduce(
+        (acc, r) => ({
+            rows: acc.rows + r.rows,
+            upserted: acc.upserted + r.upserted,
+            errors: acc.errors + r.errors.length,
+        }),
+        { rows: 0, upserted: 0, errors: 0 },
+    );
+}
+
 /**
  * Thin NestJS wrapper around excel-import.ts's framework-agnostic
  * importExcelDatabase() — this is what the client-facing "upload your

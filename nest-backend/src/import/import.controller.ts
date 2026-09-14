@@ -9,7 +9,7 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ConfigService } from "@nestjs/config";
-import { ImportService } from "./import.service.js";
+import { ImportService, summarizeImportResults } from "./import.service.js";
 import { Public } from "../common/decorators/public.decorator.js";
 
 /**
@@ -44,15 +44,6 @@ export class ImportController {
         }
 
         const results = await this.importService.importFromBuffer(file.buffer);
-        const totals = results.reduce(
-            (acc, r) => ({
-                rows: acc.rows + r.rows,
-                upserted: acc.upserted + r.upserted,
-                errors: acc.errors + r.errors.length,
-            }),
-            { rows: 0, upserted: 0, errors: 0 },
-        );
-
-        return { totals, tables: results };
+        return { totals: summarizeImportResults(results), tables: results };
     }
 }
