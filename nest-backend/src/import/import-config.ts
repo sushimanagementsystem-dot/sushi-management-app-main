@@ -13,6 +13,21 @@
 // sometimes numeric-looking (e.g. a setting value of 500) — xlsx reads
 // those as a JS number, which Prisma's client rejects outright for a
 // String field ("Expected String, provided Int") rather than coercing it.
+// `omitIfNull` is for a non-nullable column that has a Prisma @default
+// (e.g. product.active @default(true)) — a blank cell reads as an
+// explicit `null` from xlsx, and Prisma sends that straight through as
+// NULL rather than falling back to the default (a default only applies
+// when the key is absent from the write), so the key must be dropped
+// from the row entirely for a blank cell to mean "use the default".
+// Deliberately NOT used for a required column with no default (e.g.
+// recipe_component.unit) — there a blank cell is genuinely missing data,
+// and surfacing it as a per-row import error is the correct behavior.
+// `emptyStringIfNull` is the one exception to that rule: setting.value
+// has no Prisma default (it's a String, not optional), but the app
+// itself already treats a blank/unset setting as "" everywhere it reads
+// one (see SettingsService call sites' `?? ""` fallbacks) — a handful of
+// rows in the handover sheet are intentionally blank ("no live Sando
+// product exists yet"), so "" is the correct stored value, not an error.
 
 export type ImportTable = {
     sheet: string;
@@ -21,6 +36,8 @@ export type ImportTable = {
     decimal?: string[];
     json?: string[];
     stringify?: string[];
+    omitIfNull?: string[];
+    emptyStringIfNull?: string[];
 };
 
 export const IMPORT_ORDER: ImportTable[] = [
@@ -48,7 +65,13 @@ export const IMPORT_ORDER: ImportTable[] = [
         pk: (r) => ({ table_name_column_name: { table_name: r.table_name, column_name: r.column_name } }),
         decimal: ["min", "max"],
     },
-    { sheet: "setting", model: "setting", pk: (r) => ({ setting_key: r.setting_key }), stringify: ["value"] },
+    {
+        sheet: "setting",
+        model: "setting",
+        pk: (r) => ({ setting_key: r.setting_key }),
+        stringify: ["value"],
+        emptyStringIfNull: ["value"],
+    },
 
     // --- Level 1: depend only on level 0 ---
     { sheet: "kiosk", model: "kiosk", pk: (r) => ({ kiosk_id: r.kiosk_id }) },
@@ -58,6 +81,7 @@ export const IMPORT_ORDER: ImportTable[] = [
         model: "product",
         pk: (r) => ({ product_id: r.product_id }),
         decimal: ["current_unit_cost"],
+        omitIfNull: ["staff_food_eligible", "active"],
     },
     {
         sheet: "defrost_item",
@@ -118,6 +142,7 @@ export const IMPORT_ORDER: ImportTable[] = [
         model: "stockMovement",
         pk: (r) => ({ stock_movement_id: r.stock_movement_id }),
         decimal: ["qty", "unit_cost", "cost"],
+        omitIfNull: ["created_at"],
     },
     {
         sheet: "product_movement",

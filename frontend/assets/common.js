@@ -115,10 +115,15 @@ function kickProcessing() {
     fetch("/api/process-now", { method: "POST" }).catch(() => {});
 }
 
-/** First path segment: "/k01/home" -> "k01". "" if the URL is unexpected. */
+/** First path segment: "/k01/home" -> "k01". "" if the URL is unexpected.
+ * Lowercased because the token is always stored under the lowercased
+ * kiosk_id (see enter.html) — a kiosk link shared/typed with the kiosk's
+ * real casing (e.g. "/K01/..." for kiosk_id "K01") would otherwise never
+ * find its stored token and land on /forbidden?reason=kiosk even though
+ * the token genuinely was saved, just under a different-case key. */
 function getSlugFromPath() {
     const parts = window.location.pathname.split("/").filter(Boolean);
-    return parts[0] || "";
+    return (parts[0] || "").toLowerCase();
 }
 
 function tokenStorageKey(slug) {

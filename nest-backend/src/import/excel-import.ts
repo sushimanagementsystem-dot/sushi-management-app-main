@@ -94,6 +94,13 @@ export async function importExcelDatabase(
 function buildRowData(row: Record<string, unknown>, table: ImportTable): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(row)) {
+        if (value === null && table.omitIfNull?.includes(key)) {
+            continue; // dropped, not set to null — lets the column's @default apply
+        }
+        if (value === null && table.emptyStringIfNull?.includes(key)) {
+            data[key] = "";
+            continue;
+        }
         if (table.json?.includes(key) && typeof value === "string") {
             try {
                 data[key] = JSON.parse(value);
