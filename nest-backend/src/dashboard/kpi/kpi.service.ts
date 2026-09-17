@@ -29,24 +29,35 @@ export class KpiService {
 
     async bootstrapKpiDashboard(kioskId: string | undefined, startDate: Date | undefined, endDate: Date | undefined) {
         const range = this.resolveRange(startDate, endDate);
+        // Same-length window immediately before the selected range — lets
+        // the Waste/Damage/Staff Food tiles show a "vs previous period"
+        // trend without the caller having to pick a comparison range
+        // itself. Deliberately NOT used anywhere else (Kiosk Comparison
+        // has no trend UI) to keep that page's query cost unchanged.
+        const prevRange = this.previousRange(range);
         const kiosks = await this.activeKiosks();
         const kioskIds = kioskId ? [kioskId] : kiosks.map((k) => k.kiosk_id);
 
-        const [movementStats, staffFood, stocktakeStatus, deliveryInvoice, ownerActionCounts, plannedByKiosk] = await Promise.all([
+        const [movement, staffFood, stocktakeStatus, deliveryInvoice, ownerActionCounts, plannedByKiosk, previousMovement] = await Promise.all([
             this.computeProductMovementStats(kioskIds, range.startDate, range.endDate),
             this.computeStaffFoodBreakdown(kioskIds, range.startDate, range.endDate),
             this.computeStocktakeStatus(kioskIds),
             this.computeDeliveryInvoiceStats(kioskIds, range.startDate, range.endDate),
             this.computeOwnerActionCounts(),
             this.fetchPlannedQtyByKiosk(kioskIds, range.startDate, range.endDate),
+            this.computeProductMovementStats(kioskIds, prevRange.startDate, prevRange.endDate),
         ]);
-        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movementStats, plannedByKiosk);
+        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movement.stats, plannedByKiosk);
 
         return {
             startDate: toDateStr(range.startDate),
             endDate: toDateStr(range.endDate),
+            previousStartDate: toDateStr(prevRange.startDate),
+            previousEndDate: toDateStr(prevRange.endDate),
             kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })),
-            movementStats,
+            movementStats: movement.stats,
+            movementByDate: movement.byDate,
+            previousMovementStats: previousMovement.stats,
             damageWasteRates,
             staffFood,
             stocktakeStatus,
@@ -61,16 +72,16 @@ export class KpiService {
         const kiosks = await this.activeKiosks();
         const kioskIds = kiosks.map((k) => k.kiosk_id);
 
-        const [movementStats, staffFood, stocktakeStatus, deliveryInvoice, plannedByKiosk] = await Promise.all([
+        const [movement, staffFood, stocktakeStatus, deliveryInvoice, plannedByKiosk] = await Promise.all([
             this.computeProductMovementStats(kioskIds, range.startDate, range.endDate),
             this.computeStaffFoodBreakdown(kioskIds, range.startDate, range.endDate),
             this.computeStocktakeStatus(kioskIds),
             this.computeDeliveryInvoiceStats(kioskIds, range.startDate, range.endDate),
             this.fetchPlannedQtyByKiosk(kioskIds, range.startDate, range.endDate),
         ]);
-        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movementStats, plannedByKiosk);
+        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movement.stats, plannedByKiosk);
 
-        return { startDate: toDateStr(range.startDate), endDate: toDateStr(range.endDate), kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })), movementStats, damageWasteRates, staffFood, stocktakeStatus, deliveryInvoice };
+        return { startDate: toDateStr(range.startDate), endDate: toDateStr(range.endDate), kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })), movementStats: movement.stats, damageWasteRates, staffFood, stocktakeStatus, deliveryInvoice };
     }
 
     /** Bounded by two COMPLETE stocktake_header rows, not a free date range —
@@ -129,21 +140,50 @@ export class KpiService {
     }
 
     /** Per kiosk × movement_type: qty, cost, count, and how many rows are
-     * uncosted (missing unit_cost) — surfaced separately, never silently folded into cost. */
-    private async computeProductMovementStats(kioskIds: string[], startDate: Date, endDate: Date): Promise<Record<string, Record<string, StatTotals>>> {
+     * uncosted (missing unit_cost) — surfaced separately, never silently
+     * folded into cost. Also returns the same cost totals broken down by
+     * calendar date (`byDate`), one query instead of a second pass over
+     * the same rows — the KPI Dashboard's per-tile sparklines are the only
+     * current consumer of that half; Kiosk Comparison ignores it. */
+    private async computeProductMovementStats(
+        kioskIds: string[],
+        startDate: Date,
+        endDate: Date,
+    ): Promise<{ stats: Record<string, Record<string, StatTotals>>; byDate: Record<string, Record<string, Record<string, number>>> }> {
         const rows = await this.prisma.productMovement.findMany({ where: { kiosk_id: { in: kioskIds }, movement_date: { gte: startDate, lte: endDate } } });
-        const out: Record<string, Record<string, StatTotals>> = {};
-        for (const k of kioskIds) out[k] = { EXPIRED_WASTE: emptyStats(), DAMAGE: emptyStats(), STAFF_FOOD: emptyStats() };
+        const stats: Record<string, Record<string, StatTotals>> = {};
+        const byDate: Record<string, Record<string, Record<string, number>>> = {};
+        for (const k of kioskIds) {
+            stats[k] = { EXPIRED_WASTE: emptyStats(), DAMAGE: emptyStats(), STAFF_FOOD: emptyStats() };
+            byDate[k] = { EXPIRED_WASTE: {}, DAMAGE: {}, STAFF_FOOD: {} };
+        }
         for (const r of rows) {
-            const bucket = out[r.kiosk_id]?.[r.movement_type];
+            const bucket = stats[r.kiosk_id]?.[r.movement_type];
             if (!bucket) continue;
             const uncosted = r.cost === null;
+            const cost = uncosted ? 0 : Number(r.cost);
             bucket.qty += Number(r.qty) || 0;
-            bucket.cost += uncosted ? 0 : Number(r.cost);
+            bucket.cost += cost;
             bucket.count += 1;
             if (uncosted) bucket.uncostedCount += 1;
+            const dateBucket = byDate[r.kiosk_id]?.[r.movement_type];
+            if (dateBucket) {
+                const d = toDateStr(r.movement_date);
+                dateBucket[d] = (dateBucket[d] ?? 0) + cost;
+            }
         }
-        return out;
+        return { stats, byDate };
+    }
+
+    /** The same-length window immediately preceding `range`, for a
+     * "vs previous period" comparison — e.g. range = Sep 11-17 (7 days)
+     * gives Sep 4-10, not a fixed "last week" offset, so it stays correct
+     * for any preset (Today, Last 30 days, This month, a custom range). */
+    private previousRange(range: { startDate: Date; endDate: Date }): { startDate: Date; endDate: Date } {
+        const days = Math.round((range.endDate.getTime() - range.startDate.getTime()) / 86400000) + 1;
+        const prevEndDate = addDays(range.startDate, -1);
+        const prevStartDate = addDays(prevEndDate, -(days - 1));
+        return { startDate: prevStartDate, endDate: prevEndDate };
     }
 
     private async computeStaffFoodBreakdown(kioskIds: string[], startDate: Date, endDate: Date) {

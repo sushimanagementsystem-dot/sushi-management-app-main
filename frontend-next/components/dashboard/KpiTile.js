@@ -1,9 +1,15 @@
+import { TrendingDown, TrendingUp } from "lucide-react";
 import { addDaysStr, moneyStr } from "@/lib/kpiUtils";
 
 /** Ported from dashboard.css's .kpi-tile / .kpi-tile-label / .kpi-tile-value
  * / .kpi-tile-sub / .kpi-tile-flag rules — shared by Overview, Kiosk
- * Comparison, and Stock Usage View. */
-export function KpiTile({ label, value, subLines, children, unavailable }) {
+ * Comparison, and Stock Usage View. `icon`/`iconClassName` are optional
+ * (most existing call sites pass neither) — iconClassName is a full
+ * Tailwind className pair (e.g. "bg-chip-rose-bg text-chip-rose-ink", see
+ * tailwind.config.js's chip tokens) so each metric can read as its own
+ * color at a glance, same convention as the kiosk home menu's task icons
+ * and Data Tables' Actions column. */
+export function KpiTile({ label, value, subLines, children, unavailable, icon: Icon, iconClassName }) {
     return (
         <div
             className={
@@ -18,6 +24,15 @@ export function KpiTile({ label, value, subLines, children, unavailable }) {
                 relying on shadow depth alone to read as interactive. */}
             {!unavailable && (
                 <span className="absolute inset-x-0 top-0 h-[3px] origin-left scale-x-0 bg-accent transition-transform duration-200 group-hover:scale-x-100" />
+            )}
+            {Icon && (
+                <span
+                    className={
+                        "mb-2.5 flex h-11 w-11 items-center justify-center rounded-full " + (iconClassName || "bg-panel text-muted")
+                    }
+                >
+                    <Icon size={22} strokeWidth={1.9} />
+                </span>
             )}
             <div className="mb-[0.4rem] text-[0.8rem] font-semibold tracking-[0.01em] text-muted">{label}</div>
             <div
@@ -36,6 +51,34 @@ export function KpiTile({ label, value, subLines, children, unavailable }) {
             ))}
             {children}
         </div>
+    );
+}
+
+/** "vs previous period" delta pill — deliberately neutral-toned (no red/
+ * green judgment) rather than color-coding up/down as bad/good: for a
+ * waste or damage figure a decrease is the desired direction, but for
+ * Staff Food an increase isn't necessarily "bad" either, so picking a
+ * color would be asserting a value judgment this component has no basis
+ * for. `current`/`previous` are cost totals; renders nothing when there's
+ * no previous-period baseline to compare against (previous === 0 and
+ * current === 0 both read as flat "—0%" rather than a misleading ±∞%). */
+export function TrendBadge({ current, previous }) {
+    if (!previous && !current) {
+        return (
+            <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-panel px-1.5 py-0.5 text-[0.72rem] font-semibold text-muted">
+                — 0%
+            </span>
+        );
+    }
+    if (!previous) return null; // no baseline (previous period had nothing) — a % change would be meaningless
+    const pct = Math.round(((current - previous) / previous) * 1000) / 10;
+    const Icon = pct > 0 ? TrendingUp : pct < 0 ? TrendingDown : null;
+    return (
+        <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-panel px-1.5 py-0.5 text-[0.72rem] font-semibold text-muted">
+            {Icon && <Icon size={11} strokeWidth={2.5} />}
+            {pct > 0 ? "+" : ""}
+            {pct}%
+        </span>
     );
 }
 
@@ -76,7 +119,9 @@ export function KpiBadge({ status }) {
 
 /** Lightweight CSS-only sparkline — no charting library loaded for a single
  * trend strip; matches dashboard.css's "defer Chart.js until a tile
- * actually needs it" decision. */
+ * actually needs it" decision. Renders nothing when every value in range
+ * is zero — a flat empty line at the bottom of an already-€0.00 tile is
+ * visual weight with no signal, not a real trend to show. */
 export function Sparkline({ byDate, startDate, endDate }) {
     const dates = [];
     let d = startDate;
@@ -85,6 +130,7 @@ export function Sparkline({ byDate, startDate, endDate }) {
         d = addDaysStr(d, 1);
     }
     const values = dates.map((dt) => byDate[dt] || 0);
+    if (!values.some((v) => v > 0)) return null;
     const max = Math.max(1, ...values);
     return (
         <div className="mt-2 flex h-[2.2rem] items-end gap-[2px]">

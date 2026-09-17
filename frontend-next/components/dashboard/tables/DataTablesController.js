@@ -708,6 +708,39 @@ function refBadgeHtml(label) {
     );
 }
 
+/** Compact icon-only View/Edit/Delete buttons for the Actions column — a
+ * labelled button per action (as a generic mockup might show) doesn't fit
+ * next to 5-10 data columns on a real table here, so this stays icon+
+ * tooltip, same density tradeoff Tabulator's own header icons already
+ * make. `data-row-action` is read by buildActionsColumn's single
+ * delegated cellClick rather than each button carrying its own listener
+ * (Tabulator re-runs formatters on every redraw, so listeners attached
+ * here would leak). */
+function actionsButtonsHtml(showView, showDelete) {
+    const eye =
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const pencil =
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>';
+    const trash =
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+    const btn = (action, title, icon, hoverCls) =>
+        '<button type="button" data-row-action="' +
+        action +
+        '" title="' +
+        title +
+        '" class="flex h-6 w-6 items-center justify-center rounded-md border-none bg-transparent p-0 text-muted cursor-pointer ' +
+        hoverCls +
+        '">' +
+        icon +
+        "</button>";
+    let html = '<span class="inline-flex items-center gap-0.5">';
+    if (showView) html += btn("view", "View", eye, "hover:bg-panel hover:text-ink");
+    html += btn("edit", "Edit", pencil, "hover:bg-accent-soft hover:text-accent");
+    if (showDelete) html += btn("delete", "Delete", trash, "hover:bg-danger-bg hover:text-danger-ink");
+    html += "</span>";
+    return html;
+}
+
 function boolSwitchHtml(on, disabled) {
     const cls = on
         ? "inline-block relative w-[34px] h-[18px] rounded-full align-middle cursor-pointer transition-colors duration-150 bg-accent after:content-[''] after:absolute after:top-[2px] after:left-[18px] after:w-[14px] after:h-[14px] after:rounded-full after:bg-white after:shadow-[0_1px_2px_rgba(0,0,0,0.3)] after:transition-[left] after:duration-150" +
@@ -1218,21 +1251,16 @@ class DataGrid {
         });
         this.toolbarEl.appendChild(this.refreshBtn);
 
+        // Always visible now (used to only appear once already in edit
+        // mode, back when that was the only entry point into editing at
+        // all) — per-row Edit/Delete in the Actions column are what open
+        // an edit session now, so Add needs its own always-on entry point
+        // rather than depending on one of those having been clicked first.
         this.addBtn = document.createElement("button");
         this.addBtn.className = DASH_BTN;
         this.addBtn.textContent = "+ Add row";
         this.addBtn.addEventListener("click", () => this.openAddModal());
         this.toolbarEl.appendChild(this.addBtn);
-
-        this.editBtn = document.createElement("button");
-        this.editBtn.className = DASH_BTN_MUTED + " flex items-center gap-1.5";
-        // Same Pencil glyph used everywhere else a row/cell becomes
-        // editable (Product Prices' PriceRow, e.g.) — the bare "Edit" text
-        // button next to an already-iconed Refresh read as unfinished.
-        this.editBtn.innerHTML =
-            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span>Edit</span>';
-        this.editBtn.addEventListener("click", () => this.toggleEditMode());
-        this.toolbarEl.appendChild(this.editBtn);
 
         this.cancelBtn = document.createElement("button");
         this.cancelBtn.className = DASH_BTN_MUTED;
@@ -1257,14 +1285,16 @@ class DataGrid {
     updateToolbarButtons() {
         const dirtyCount = Object.keys(this.dirty).length + Object.keys(this.shared.enumOptionDirtyBox.value).length;
 
-        this.editBtn.style.display = this.editMode ? "none" : "";
         this.cancelBtn.style.display = this.editMode ? "" : "none";
         this.saveBtn.style.display = this.editMode ? "" : "none";
         this.saveBtn.disabled = dirtyCount === 0;
         this.saveBtn.textContent = dirtyCount ? "Save (" + dirtyCount + ")" : "Save";
-        this.addBtn.style.display = this.editMode ? "" : "none";
+        // Add is always available now — see the comment where it's built.
 
-        const selectedCount = this.editMode && this.meta.hard_delete === true && this.tabulator ? this.tabulator.getSelectedRows().length : 0;
+        // Row selection (and so bulk delete) works independently of
+        // editMode now too — only hard_delete gates it, same as the
+        // per-row Delete button in the Actions column.
+        const selectedCount = this.meta.hard_delete === true && this.tabulator ? this.tabulator.getSelectedRows().length : 0;
         this.bulkDeleteBtn.style.display = selectedCount > 0 ? "" : "none";
         this.bulkDeleteBtn.textContent = "Delete Selected (" + selectedCount + ")";
     }
@@ -1628,11 +1658,14 @@ class DataGrid {
             }
             return col;
         });
-        return this.buildBulkDeleteColumn().concat(dataColumns, this.buildDeleteColumn());
+        return this.buildBulkDeleteColumn().concat(dataColumns, this.buildActionsColumn());
     }
 
     buildBulkDeleteColumn() {
-        if (!this.editMode || this.meta.hard_delete !== true) return [];
+        // Always visible (not gated on editMode any more) — selecting rows
+        // for bulk delete is its own action, independent of whether any
+        // cell is currently being edited.
+        if (this.meta.hard_delete !== true) return [];
         return [
             {
                 title: "",
@@ -1662,19 +1695,35 @@ class DataGrid {
         ];
     }
 
-    buildDeleteColumn() {
-        if (!this.editMode || this.meta.hard_delete !== true) return [];
+    /** Per-row View/Edit/Delete buttons, always visible (not gated on
+     * editMode — clicking Edit or Delete puts the grid INTO edit mode
+     * itself, same as the old standalone top-of-toolbar Edit button did,
+     * so this replaces that button rather than sitting alongside it).
+     * View only appears for tables with a real detail view (Product,
+     * Supplier — the ones with sub_table children); Delete only for
+     * hard_delete tables, matching the old ❌ column's own gating. */
+    buildActionsColumn() {
+        const showView = this.meta.has_detail_view === true;
+        const showDelete = this.meta.hard_delete === true;
+        const buttonCount = 1 + (showView ? 1 : 0) + (showDelete ? 1 : 0);
         return [
             {
-                title: "",
-                field: "__delete",
-                width: 50,
+                title: "Actions",
+                field: "__actions",
+                width: buttonCount * 30 + 24,
+                minWidth: 80,
                 hozAlign: "center",
+                headerHozAlign: "center",
                 headerSort: false,
-                formatter: () => '<span class="cursor-pointer opacity-60 hover:opacity-100" title="Delete row">❌</span>',
+                formatter: () => actionsButtonsHtml(showView, showDelete),
                 cellClick: (e, cell) => {
+                    const btn = e.target.closest("[data-row-action]");
+                    if (!btn) return;
                     e.stopPropagation();
-                    this.handleDeleteRow(cell.getRow());
+                    const action = btn.dataset.rowAction;
+                    if (action === "view") this.openDetailView(cell.getRow());
+                    else if (action === "edit") this.toggleEditMode();
+                    else if (action === "delete") this.handleDeleteRow(cell.getRow());
                 },
             },
         ];
@@ -1805,7 +1854,12 @@ class DataGrid {
             this.queueRowDelete_(rowComponent);
             if (rowComponent.isSelected && rowComponent.isSelected()) this.tabulator.deselectRow(rowComponent);
             this.tabulator.setFilter((row) => this.rowMatchesFilters(row));
-            this.updateToolbarButtons();
+            // A queued delete needs Save/Cancel to commit or undo it — those
+            // only show in edit mode, and this can now be triggered straight
+            // from the always-visible per-row Delete button, not just from
+            // inside an edit session that was already open.
+            this.editMode = true;
+            this.rebuildColumns();
             this.updateSelectAllCheckbox_();
         });
     }
@@ -1823,7 +1877,8 @@ class DataGrid {
             rows.forEach((r) => this.queueRowDelete_(r));
             this.tabulator.deselectRow(rows);
             this.tabulator.setFilter((row) => this.rowMatchesFilters(row));
-            this.updateToolbarButtons();
+            this.editMode = true;
+            this.rebuildColumns();
             this.updateSelectAllCheckbox_();
         });
     }
@@ -2027,7 +2082,12 @@ class DataGrid {
             }
             this.tabulator.addRow(formState);
             this.dirty[this.rowKeyStr(formState)] = { isNew: true, data: Object.assign({}, formState) };
-            this.updateToolbarButtons();
+            // Same reasoning as handleDeleteRow — Add is now reachable
+            // without already being in an edit session (the button is
+            // always visible), so this has to open one itself for the
+            // new row's Save/Cancel to appear.
+            this.editMode = true;
+            this.rebuildColumns();
             overlay.remove();
         });
     }
