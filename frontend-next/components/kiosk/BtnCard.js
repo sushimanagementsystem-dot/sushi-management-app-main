@@ -10,7 +10,10 @@ import { ChevronRight } from "lucide-react";
  *
  * `Icon` is a lucide-react component, not a string — one consistent line-
  * icon set across every form tile instead of mismatched emoji glyphs that
- * render differently per OS/browser.
+ * render differently per OS/browser. `chipClassName` optionally colors
+ * that icon's circle (see the kiosk home menu's per-task chip colors) —
+ * omit it for the plain muted circle used elsewhere (e.g. the kiosk/
+ * dashboard picker on "/").
  *
  * Two layouts in one component, switched at `sm:` (640px) — below that,
  * a full-width row (icon-left, label, chevron: the natural shape for a
@@ -21,7 +24,7 @@ import { ChevronRight } from "lucide-react";
  * `gap-*` on a flex/grid container), so it stays even in both a stacked
  * list and a multi-column grid instead of doubling up with a grid gap.
  */
-export default function BtnCard({ href, Icon, children, onClick }) {
+export default function BtnCard({ href, Icon, children, onClick, chipClassName }) {
     return (
         <Link
             href={href}
@@ -36,7 +39,10 @@ export default function BtnCard({ href, Icon, children, onClick }) {
 
             {Icon && (
                 <span
-                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-panel text-muted transition-colors duration-150 group-hover:bg-accent-soft group-hover:text-accent sm:h-12 sm:w-12"
+                    className={
+                        "flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-150 sm:h-12 sm:w-12 " +
+                        (chipClassName || "bg-panel text-muted group-hover:bg-accent-soft group-hover:text-accent")
+                    }
                     aria-hidden
                 >
                     <Icon size={18} strokeWidth={1.9} className="sm:hidden" />

@@ -22,34 +22,38 @@ import KioskTopbar from "@/components/kiosk/KioskTopbar";
 import Wrap from "@/components/kiosk/Wrap";
 import BtnCard from "@/components/kiosk/BtnCard";
 
+// Each item's chip color is a full, static Tailwind className string (not
+// built from a template literal) so the JIT scanner — which only picks up
+// classes it can find written out somewhere under content's globs — sees
+// it here. See tailwind.config.js's `chip` tokens for the palette.
 const MENU_GROUPS = [
     {
         label: "Daily tasks",
         note: "Complete each of these tasks every day.",
         items: [
-            { page: "morning-waste", Icon: Trash2, label: "Morning Waste" },
-            { page: "fridge-count", Icon: Snowflake, label: "Morning Fridge Count" },
-            { page: "staff-food", Icon: UtensilsCrossed, label: "Staff Food" },
+            { page: "morning-waste", Icon: Trash2, label: "Morning Waste", chip: "bg-chip-rose-bg text-chip-rose-ink" },
+            { page: "fridge-count", Icon: Snowflake, label: "Morning Fridge Count", chip: "bg-chip-sky-bg text-chip-sky-ink" },
+            { page: "staff-food", Icon: UtensilsCrossed, label: "Staff Food", chip: "bg-chip-amber-bg text-chip-amber-ink" },
         ],
     },
     {
         label: "As needed",
         note: "Complete the relevant task whenever the event occurs.",
         items: [
-            { page: "food-waste", Icon: Scale, label: "Food Waste" },
-            { page: "damaged-product", Icon: Camera, label: "Damaged Product Log" },
-            { page: "delivery-invoices", Icon: FileText, label: "Delivery Invoices" },
-            { page: "help-issues", Icon: LifeBuoy, label: "Help / Issues" },
-            { page: "move-stock", Icon: ArrowLeftRight, label: "Move Stock Between Kiosks" },
+            { page: "food-waste", Icon: Scale, label: "Food Waste", chip: "bg-chip-orange-bg text-chip-orange-ink" },
+            { page: "damaged-product", Icon: Camera, label: "Damaged Product Log", chip: "bg-chip-fuchsia-bg text-chip-fuchsia-ink" },
+            { page: "delivery-invoices", Icon: FileText, label: "Delivery Invoices", chip: "bg-chip-indigo-bg text-chip-indigo-ink" },
+            { page: "help-issues", Icon: LifeBuoy, label: "Help / Issues", chip: "bg-chip-red-bg text-chip-red-ink" },
+            { page: "move-stock", Icon: ArrowLeftRight, label: "Move Stock Between Kiosks", chip: "bg-teal-soft text-teal" },
         ],
     },
     {
         label: "Scheduled",
         note: "Weekly and monthly routines.",
         items: [
-            { page: "weekly-stocktake", Icon: ClipboardList, label: "Weekly Stocktake" },
-            { page: "monthly-audit", Icon: ClipboardCheck, label: "Monthly Audit" },
-            { page: "audit-corrections", Icon: Wrench, label: "Audit Corrections" },
+            { page: "weekly-stocktake", Icon: ClipboardList, label: "Weekly Stocktake", chip: "bg-chip-violet-bg text-chip-violet-ink" },
+            { page: "monthly-audit", Icon: ClipboardCheck, label: "Monthly Audit", chip: "bg-chip-blue-bg text-chip-blue-ink" },
+            { page: "audit-corrections", Icon: Wrench, label: "Audit Corrections", chip: "bg-chip-slate-bg text-chip-slate-ink" },
         ],
     },
 ];
@@ -105,7 +109,7 @@ export default function KioskHomeContent() {
                                 itself switches shape at the same breakpoint. */}
                             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                                 {group.items.map((item) => (
-                                    <BtnCard key={item.page} href={"/" + slug + "/" + item.page} Icon={item.Icon}>
+                                    <BtnCard key={item.page} href={"/" + slug + "/" + item.page} Icon={item.Icon} chipClassName={item.chip}>
                                         {item.label}
                                     </BtnCard>
                                 ))}

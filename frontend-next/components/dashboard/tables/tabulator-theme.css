@@ -171,7 +171,14 @@
     background: #efece1;
     border-color: #ddd7c8;
 }
-.tabulator-footer .tabulator-page.active {
+/* .tabulator prefix matters here, not just tidiness — Tabulator's own
+   base tabulator.css sets `.tabulator .tabulator-footer .tabulator-page.active
+   { color: #d00 }` (4 class selectors). Without the same leading
+   `.tabulator` ancestor, our 3-class rule below loses the specificity
+   fight for `color` specifically (background/border still won, since
+   Tabulator's base rule never sets those) — the active page number
+   rendered in that library red instead of white on our green pill. */
+.tabulator .tabulator-footer .tabulator-page.active {
     background: #0e5c45;
     border-color: #0e5c45;
     color: #ffffff;

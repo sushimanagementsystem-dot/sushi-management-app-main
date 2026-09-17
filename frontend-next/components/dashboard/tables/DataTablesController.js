@@ -696,6 +696,18 @@ function formatCellValue(f, value) {
     return value === null || value === undefined ? "" : String(value);
 }
 
+/** A foreign-key reference value ("YO!", "Sushi Circle", a supplier name,
+ * …) as a small neutral pill instead of bare text — same visual language
+ * as Product Prices' brand badge, so a reference column reads as "this
+ * links elsewhere" at a glance rather than blending into every plain-text
+ * column next to it. Empty values render as an em-dash, not an empty pill. */
+function refBadgeHtml(label) {
+    const text = label === null || label === undefined || label === "" ? "—" : String(label);
+    return (
+        '<span class="inline-flex items-center rounded-full bg-panel px-2 py-0.5 text-[0.78rem] font-medium text-ink">' + text + "</span>"
+    );
+}
+
 function boolSwitchHtml(on, disabled) {
     const cls = on
         ? "inline-block relative w-[34px] h-[18px] rounded-full align-middle cursor-pointer transition-colors duration-150 bg-accent after:content-[''] after:absolute after:top-[2px] after:left-[18px] after:w-[14px] after:h-[14px] after:rounded-full after:bg-white after:shadow-[0_1px_2px_rgba(0,0,0,0.3)] after:transition-[left] after:duration-150" +
@@ -1213,8 +1225,12 @@ class DataGrid {
         this.toolbarEl.appendChild(this.addBtn);
 
         this.editBtn = document.createElement("button");
-        this.editBtn.className = DASH_BTN_MUTED;
-        this.editBtn.textContent = "Edit";
+        this.editBtn.className = DASH_BTN_MUTED + " flex items-center gap-1.5";
+        // Same Pencil glyph used everywhere else a row/cell becomes
+        // editable (Product Prices' PriceRow, e.g.) — the bare "Edit" text
+        // button next to an already-iconed Refresh read as unfinished.
+        this.editBtn.innerHTML =
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg><span>Edit</span>';
         this.editBtn.addEventListener("click", () => this.toggleEditMode());
         this.toolbarEl.appendChild(this.editBtn);
 
@@ -1544,7 +1560,13 @@ class DataGrid {
             if (editable) col.cssClass = "editable-cell";
 
             if (f.type === "reference") {
-                col.formatter = (cell) => formatCellValue(f, cell.getValue());
+                // Badge, not plain text — a bare string reads as "just
+                // another column," which is exactly what made two
+                // identically-named products in different brands (see
+                // Product Prices) hard to tell apart at a glance. The
+                // sorter stays on the plain label (below), so this is
+                // display-only.
+                col.formatter = (cell) => refBadgeHtml(formatCellValue(f, cell.getValue()));
                 col.sorter = (a, b) => String(formatCellValue(f, a)).localeCompare(String(formatCellValue(f, b)));
             } else if (f.type === "enum") {
                 const options = ENUM_CACHES[f.enum_source] || [];

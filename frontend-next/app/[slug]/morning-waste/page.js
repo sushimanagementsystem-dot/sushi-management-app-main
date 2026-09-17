@@ -174,7 +174,17 @@ export default function MorningWastePage() {
                                                     .map((p) => ({ id: p.id, label: p.name }));
                                             }}
                                             onSelect={(it) => {
-                                                updateLine(l.key, { name: it.label });
+                                                // Category here is just a search filter, never
+                                                // submitted (payloadLines only carries product_id/
+                                                // qty — the dashboard derives category from the
+                                                // product record itself) — but staff were leaving
+                                                // it on "All" since picking a product doesn't
+                                                // require touching it first, which reads as if the
+                                                // category wasn't recorded. Snapping it to the
+                                                // picked product's own category removes that
+                                                // confusion without changing what's stored.
+                                                const picked = (boot?.products || []).find((p) => p.id === it.id);
+                                                updateLine(l.key, { name: it.label, category: picked?.cat ?? l.category });
                                                 qtyRefs.current[l.key]?.focus();
                                             }}
                                         />

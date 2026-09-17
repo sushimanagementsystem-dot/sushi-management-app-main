@@ -33,7 +33,17 @@ const SECTIONS = [
 
 export default function ProductPricesPage() {
     const [sectionKey, setSectionKey] = useState("product");
+    const [brandFilter, setBrandFilter] = useState(null); // null = All brands
     const section = SECTIONS.find((s) => s.key === sectionKey);
+
+    // Only Finished Products carry a brand_id (stock_item/ingredients are
+    // shared across brands) — same names recur across brands (e.g. both
+    // YO! and Sushi Circle sell a "Chicken Gyoza") at different costs, so
+    // without a brand split the list shows two identically-named rows with
+    // no way to tell which is which.
+    const { data: brandRes } = useBootstrap("list_table_rows", sectionKey === "product" ? { table: "brand" } : null);
+    const brands = brandRes?.rows || [];
+    const brandById = useMemo(() => new Map(brands.map((b) => [b.brand_id, b.name])), [brands]);
 
     return (
         <>
@@ -45,36 +55,71 @@ export default function ProductPricesPage() {
                         description="Set the cost of every product and stock item — these feed Waste, Damage, Staff Food, and Profit automatically, no re-entry needed anywhere else."
                     />
 
-                    <div className="mb-4 flex flex-wrap gap-1.5">
+                    <div className="mb-2.5 flex flex-wrap gap-1.5">
                         {SECTIONS.map((s) => (
-                            <PillButton key={s.key} active={sectionKey === s.key} onClick={() => setSectionKey(s.key)} icon={s.Icon}>
+                            <PillButton
+                                key={s.key}
+                                active={sectionKey === s.key}
+                                onClick={() => {
+                                    setSectionKey(s.key);
+                                    setBrandFilter(null);
+                                }}
+                                icon={s.Icon}
+                            >
                                 {s.label}
                             </PillButton>
                         ))}
                     </div>
 
-                    <PriceTable table={section.key} idField={section.idField} label={section.label} />
+                    {sectionKey === "product" && brands.length > 0 && (
+                        <div className="mb-4 flex flex-wrap gap-1.5">
+                            <PillButton active={brandFilter === null} onClick={() => setBrandFilter(null)}>
+                                All brands
+                            </PillButton>
+                            {brands.map((b) => (
+                                <PillButton key={b.brand_id} active={brandFilter === b.brand_id} onClick={() => setBrandFilter(b.brand_id)}>
+                                    {b.name}
+                                </PillButton>
+                            ))}
+                        </div>
+                    )}
+
+                    <PriceTable
+                        table={section.key}
+                        idField={section.idField}
+                        label={label(section, brandFilter, brands)}
+                        brandId={sectionKey === "product" ? brandFilter : null}
+                        brandById={brandById}
+                    />
                 </div>
             </DashboardShell>
         </>
     );
 }
 
-function PriceTable({ table, idField, label }) {
+function label(section, brandFilter, brands) {
+    if (!brandFilter) return section.label;
+    const brand = brands.find((b) => b.brand_id === brandFilter);
+    return section.label + " — " + (brand?.name || brandFilter);
+}
+
+function PriceTable({ table, idField, label, brandId, brandById }) {
     const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
     const { data: res, isPending: loading, error: bootError, refetch } = useBootstrap("list_table_rows", { table });
 
     const error = (res && res.ok === false && (res.error || "Failed to load.")) || (bootError && "Failed to load.");
     const rows = useMemo(() => {
-        const all = (res?.rows || []).filter((r) => r.active !== false);
+        const all = (res?.rows || []).filter((r) => r.active !== false && (!brandId || r.brand_id === brandId));
         const q = search.trim().toLowerCase();
         const filtered = q ? all.filter((r) => String(r.name || "").toLowerCase().includes(q)) : all;
         return filtered.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-    }, [res, search]);
+    }, [res, search, brandId]);
 
-    const totalActive = (res?.rows || []).filter((r) => r.active !== false).length;
-    const pricedCount = (res?.rows || []).filter((r) => r.active !== false && r.current_unit_cost !== null && r.current_unit_cost !== undefined).length;
+    const totalActive = (res?.rows || []).filter((r) => r.active !== false && (!brandId || r.brand_id === brandId)).length;
+    const pricedCount = (res?.rows || []).filter(
+        (r) => r.active !== false && (!brandId || r.brand_id === brandId) && r.current_unit_cost !== null && r.current_unit_cost !== undefined,
+    ).length;
 
     return (
         <SectionCard title={label} className="mb-0">
@@ -121,6 +166,10 @@ function PriceTable({ table, idField, label }) {
                                         key={row[idField]}
                                         row={row}
                                         table={table}
+                                        // Only worth showing when brand isn't already
+                                        // pinned by the active tab — otherwise every
+                                        // row would repeat the same badge.
+                                        brandName={!brandId ? brandById.get(row.brand_id) : null}
                                         onSaved={() => {
                                             refetch();
                                             queryClient.invalidateQueries({ queryKey: ["bootstrap_data_table", { table }] });
@@ -143,7 +192,7 @@ function PriceTable({ table, idField, label }) {
     );
 }
 
-function PriceRow({ row, table, onSaved }) {
+function PriceRow({ row, table, brandName, onSaved }) {
     const [editing, setEditing] = useState(false);
     const [value, setValue] = useState("");
     const [saveError, setSaveError] = useState("");
@@ -182,7 +231,9 @@ function PriceRow({ row, table, onSaved }) {
     if (editing) {
         return (
             <tr>
-                <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 font-medium text-ink">{row.name}</td>
+                <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 font-medium text-ink">
+                    <NameCell name={row.name} brandName={brandName} />
+                </td>
                 <td className="border-b border-line px-[0.9rem] py-2">
                     <div className="flex items-center gap-1.5">
                         <input
@@ -224,7 +275,9 @@ function PriceRow({ row, table, onSaved }) {
     const hasPrice = row.current_unit_cost !== null && row.current_unit_cost !== undefined;
     return (
         <tr className="transition-colors duration-100 hover:bg-panel/70">
-            <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 text-ink">{row.name}</td>
+            <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 text-ink">
+                <NameCell name={row.name} brandName={brandName} />
+            </td>
             <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5">
                 <button
                     type="button"
@@ -241,5 +294,23 @@ function PriceRow({ row, table, onSaved }) {
                 </button>
             </td>
         </tr>
+    );
+}
+
+/** Product name plus a small brand badge — only rendered when the caller
+ * passes a brandName (i.e. the "All brands" tab, where two differently-
+ * priced products can otherwise share an identical name — see this file's
+ * top comment). Once a brand tab narrows the list, the badge is redundant
+ * (every row's brand is already the tab you're on) so callers pass null. */
+function NameCell({ name, brandName }) {
+    return (
+        <span className="inline-flex items-center gap-1.5">
+            {name}
+            {brandName && (
+                <span className="rounded-full bg-panel px-1.5 py-0.5 text-[0.68rem] font-semibold uppercase tracking-[0.03em] text-muted">
+                    {brandName}
+                </span>
+            )}
+        </span>
     );
 }

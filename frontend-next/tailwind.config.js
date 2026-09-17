@@ -58,6 +58,26 @@ module.exports = {
                     ink: "#b3261e",
                     border: "#efcdc8",
                 },
+                // Icon-chip colors — the kiosk home menu's only use of a
+                // wider palette than the rest of the app. Each is a soft
+                // pastel bg + a medium-saturation ink, same two-tone shape
+                // as success/warn/danger above, so a task's icon reads as
+                // its own color at a glance (staff scanning 11 tiles) while
+                // staying within the app's restrained, non-neon tone. Kept
+                // separate from accent/teal, which stay reserved for brand
+                // and data-viz per the notes above.
+                chip: {
+                    rose: { bg: "#fff1f2", ink: "#e11d48" },
+                    sky: { bg: "#f0f9ff", ink: "#0284c7" },
+                    amber: { bg: "#fffbeb", ink: "#d97706" },
+                    orange: { bg: "#fff7ed", ink: "#ea580c" },
+                    fuchsia: { bg: "#fdf4ff", ink: "#c026d3" },
+                    indigo: { bg: "#eef2ff", ink: "#4f46e5" },
+                    red: { bg: "#fef2f2", ink: "#dc2626" },
+                    violet: { bg: "#f5f3ff", ink: "#7c3aed" },
+                    blue: { bg: "#eff6ff", ink: "#2563eb" },
+                    slate: { bg: "#f1f5f9", ink: "#475569" },
+                },
             },
             // A restrained radius scale — one step for controls (inputs,
             // buttons — also available as the plain Tailwind `rounded-lg`
