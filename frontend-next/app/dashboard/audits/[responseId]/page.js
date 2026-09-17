@@ -49,6 +49,7 @@ export default function AuditResultPage() {
                                 onClick={() => window.print()}
                                 className="no-print flex items-center gap-1.5 rounded-lg border border-line bg-card px-2.5 py-1.5 text-[0.78rem] font-medium text-ink hover:border-accent/40 hover:text-accent"
                             >
+                                
                                 <Printer size={13} strokeWidth={2.25} />
                                 Print / Save as PDF
                             </button>
