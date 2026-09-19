@@ -806,11 +806,28 @@ function buildFieldInput(f, currentValue, onChange) {
         input.addEventListener("change", () => onChange(input.checked));
         return input;
     }
-    const inputType = f.type === "integer" || f.type === "decimal" || f.type === "money" ? "number" : f.type === "date" ? "date" : "text";
+    const isNumeric = f.type === "integer" || f.type === "decimal" || f.type === "money";
+    const inputType = isNumeric ? "number" : f.type === "date" ? "date" : "text";
     const input = document.createElement("input");
     input.type = inputType;
+    if (f.type === "integer") input.step = "1";
     input.value = currentValue ?? "";
-    input.addEventListener("input", () => onChange(input.value));
+    input.addEventListener("input", () => {
+        // input.value on a DOM element is always a string, even for
+        // type="number" — Tabulator's own built-in numeric cell editor
+        // (used by the inline grid's edit mode) coerces this itself, but
+        // this hand-built input didn't, so a value typed here (Add-row
+        // modal, detail-view field editor) went to the backend as e.g.
+        // "5" instead of 5. Prisma's Int/Decimal columns reject that
+        // outright rather than coercing it — this is exactly the failure
+        // a client hit adding a recipe_component qty from a product's
+        // detail view.
+        if (!isNumeric) {
+            onChange(input.value);
+            return;
+        }
+        onChange(input.value === "" ? undefined : Number(input.value));
+    });
     return input;
 }
 
