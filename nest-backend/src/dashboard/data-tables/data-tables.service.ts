@@ -5,6 +5,7 @@ import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { SettingsService } from "../../reference-data/settings.service.js";
 import { toModelName } from "../../common/model-name.util.js";
 import type { FieldSchemaRow, RowChange, RowChangeResult } from "./data-tables.types.js";
+import { explainWriteError } from "./write-error.js";
 
 type PrismaDelegate = {
     findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
@@ -91,18 +92,8 @@ export class DataTablesService {
         if (!fields.length) throw new BadRequestException("Unknown or unconfigured table.");
         const keyCols = this.keyColumns(fields, tableName);
 
-        const clean = this.validateAndCleanRow(fields, isNew, row);
-        const delegate = this.getDelegate(tableName);
-
-        if (isNew) {
-            const dup = await delegate.findFirst({ where: keyWhere(keyCols, clean) });
-            if (dup) throw new BadRequestException("A row with this key already exists.");
-            await delegate.create({ data: clean });
-            if (tableName === "product") await this.provisionProductionPar(clean);
-        } else {
-            const result = await delegate.updateMany({ where: keyWhere(keyCols, clean), data: clean });
-            if (result.count === 0) throw new NotFoundException("Row not found.");
-        }
+        const clean = this.validateAndCleanRow(tableName, fields, isNew, row);
+        await this.writeRow(tableName, fields, keyCols, isNew, clean);
         this.invalidateFor(tableName);
         // Client can't know a server-generated id in advance — hand back the final row.
         return { row: clean };
@@ -156,16 +147,8 @@ export class DataTablesService {
                     continue;
                 }
 
-                const clean = this.validateAndCleanRow(fields, c.isNew, c.row);
-                if (c.isNew) {
-                    const dup = await delegate.findFirst({ where: keyWhere(keyCols, clean) });
-                    if (dup) throw new Error("A row with this key already exists.");
-                    await delegate.create({ data: clean });
-                    if (tableName === "product") await this.provisionProductionPar(clean);
-                } else {
-                    const result = await delegate.updateMany({ where: keyWhere(keyCols, clean), data: clean });
-                    if (result.count === 0) throw new Error("Row not found.");
-                }
+                const clean = this.validateAndCleanRow(tableName, fields, c.isNew, c.row);
+                await this.writeRow(tableName, fields, keyCols, c.isNew, clean);
                 results.push({ key: c.key, ok: true, row: clean });
             } catch (err) {
                 results.push({ key: c.key, ok: false, error: toUserMessage(err) });
@@ -173,6 +156,42 @@ export class DataTablesService {
         }
         if (changes.length) this.invalidateFor(tableName);
         return results;
+    }
+
+    /**
+     * The one insert/update used by both the single-row and batch save, so
+     * a database rejection is explained the same way on either path: a
+     * duplicate email/token or a bad reference becomes a message naming
+     * the value and who already has it (see write-error.ts), instead of the
+     * raw "Unique constraint failed on the constraint: `user_email_key`".
+     */
+    private async writeRow(tableName: string, fields: FieldSchemaRow[], keyCols: string[], isNew: boolean, clean: Record<string, unknown>): Promise<void> {
+        const delegate = this.getDelegate(tableName);
+        try {
+            if (isNew) {
+                const dup = await delegate.findFirst({ where: keyWhere(keyCols, clean) });
+                if (dup) throw new BadRequestException("A row with this key already exists.");
+                await delegate.create({ data: clean });
+                if (tableName === "product") await this.provisionProductionPar(clean);
+            } else {
+                const result = await delegate.updateMany({ where: keyWhere(keyCols, clean), data: clean });
+                if (result.count === 0) throw new NotFoundException("Row not found.");
+            }
+        } catch (err) {
+            const message = (
+                await explainWriteError(err, {
+                    tableName,
+                    isNew,
+                    row: clean,
+                    labels: Object.fromEntries(fields.map((f) => [f.column_name, f.label || f.column_name])),
+                    titleColumn: fields.find((f) => f.is_title_column)?.column_name,
+                    findConflict: (where) => delegate.findFirst({ where }),
+                })
+            ).message;
+            // Only database rejections are rewritten; our own validation errors keep their type.
+            if (message !== (err instanceof Error ? err.message : String(err))) throw new BadRequestException(message);
+            throw err;
+        }
     }
 
     private async getFieldSchema(tableName: string): Promise<FieldSchemaRow[]> {
@@ -236,7 +255,7 @@ export class DataTablesService {
      * inferred from editable flags: required on insert, carried through
      * as-is on update.
      */
-    private validateAndCleanRow(fields: FieldSchemaRow[], isNew: boolean, row: Record<string, unknown>): Record<string, unknown> {
+    private validateAndCleanRow(tableName: string, fields: FieldSchemaRow[], isNew: boolean, row: Record<string, unknown>): Record<string, unknown> {
         const clean: Record<string, unknown> = {};
         for (const f of fields) {
             // Not a real column — an embedded child-table marker (see
@@ -273,6 +292,15 @@ export class DataTablesService {
             // blank text field, "" here only ever means "no value", so it
             // must become a real null, never be written literally.
             clean[f.column_name] = isNumericType && val === "" ? null : val;
+        }
+        // Sign-in looks a user up by the Google account's email, which is
+        // always lowercase, and the unique index is case-sensitive. An email
+        // typed as "Jane@Gmail.com " (or with a stray space) would never
+        // match at sign-in, so a duplicate inactive "Jane" row got
+        // auto-created next to it — the root of most duplicate-email clashes.
+        if (tableName === "user" && typeof clean.email === "string") {
+            clean.email = clean.email.trim().toLowerCase();
+            if (!clean.email) throw new Error("Email is required.");
         }
         return clean;
     }

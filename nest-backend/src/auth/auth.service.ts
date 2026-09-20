@@ -29,13 +29,27 @@ export class AuthService {
      * Settings/Users dashboard page) rather than rejected outright.
      */
     async login(idToken: string): Promise<{ user: AuthenticatedUser; sessionToken: string }> {
-        const email = await this.verifyGoogleIdToken(idToken);
+        const email = (await this.verifyGoogleIdToken(idToken)).trim().toLowerCase();
 
-        let user = (await this.tableCache.getAll<User>("user")).find((u) => u.email === email);
+        // Case-insensitive: an email stored as "Jane@Gmail.com" (typed by an
+        // owner before Data Tables started lowercasing them) must still match
+        // Google's lowercase one, or a duplicate inactive row gets created
+        // next to the real one and that person can't sign in.
+        const findByEmail = async () => (await this.tableCache.getAll<User>("user")).find((u) => u.email.trim().toLowerCase() === email);
+        let user = await findByEmail();
         if (!user) {
-            user = await this.prisma.user.create({
-                data: { user_id: crypto.randomUUID(), name: email.split("@")[0]!, email, role: "STAFF", active: false },
-            });
+            try {
+                user = await this.prisma.user.create({
+                    data: { user_id: crypto.randomUUID(), name: email.split("@")[0]!, email, role: "STAFF", active: false },
+                });
+            } catch (err) {
+                // Two first sign-ins with the same new email at once: the other
+                // request created the row between our lookup and our insert.
+                if ((err as { code?: string }).code !== "P2002") throw err;
+                this.tableCache.invalidate("user");
+                user = await findByEmail();
+                if (!user) throw err;
+            }
             // A second write path into `user` besides DataTablesService
             // (owner Staff-tab edits) — this one must invalidate too.
             this.tableCache.invalidate("user");

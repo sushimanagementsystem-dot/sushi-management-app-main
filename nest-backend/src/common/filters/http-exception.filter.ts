@@ -1,3 +1,4 @@
+import { friendlyDbError } from "./prisma-error.js";
 import { Catch, HttpException, HttpStatus, Logger, type ArgumentsHost, type ExceptionFilter } from "@nestjs/common";
 
 /**
@@ -17,8 +18,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse();
 
-        const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-        const message = exception instanceof HttpException ? extractMessage(exception) : "Something went wrong.";
+        // A known database rejection (duplicate value, missing reference, DB
+        // unreachable, ...) gets a plain-language message the user can act on
+        // instead of "Something went wrong." — still logged below.
+        const db = exception instanceof HttpException ? null : friendlyDbError(exception);
+        const status = exception instanceof HttpException ? exception.getStatus() : (db?.status ?? HttpStatus.INTERNAL_SERVER_ERROR);
+        const message = exception instanceof HttpException ? extractMessage(exception) : (db?.message ?? "Something went wrong.");
 
         // A 4xx from a deliberate HttpException (validation, not found, ...)
         // is expected, everyday traffic — not logged. Anything else is a

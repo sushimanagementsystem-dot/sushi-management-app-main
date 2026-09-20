@@ -931,7 +931,9 @@ function buildParentFieldsEditor(container, opts) {
         saving = true;
         errorEl.textContent = "";
         updateSaveButton();
-        apiCall("save_table_row", { table: opts.tableName, isNew: false, row: workingRow }).then((res) => {
+        apiCall("save_table_row", { table: opts.tableName, isNew: false, row: workingRow })
+            .catch(() => ({ ok: false, error: "Could not reach the server — check your internet connection and try again." }))
+            .then((res) => {
             saving = false;
             if (!res.ok) {
                 errorEl.textContent = res.error || "Could not save.";
@@ -1364,11 +1366,41 @@ class DataGrid {
         this.gridEl.classList.remove("hidden");
         this.gridEl.innerHTML = "";
         const box = document.createElement("div");
-        box.className = "mx-auto my-12 max-w-[30rem] text-center";
-        const p = document.createElement("p");
-        p.className = "mb-4 whitespace-pre-line text-ink";
-        p.textContent = message;
-        box.appendChild(p);
+        box.className = "mx-auto my-10 max-w-[34rem] px-4";
+        if (typeof message === "string") {
+            box.classList.add("text-center");
+            const p = document.createElement("p");
+            p.className = "mb-4 whitespace-pre-line text-ink";
+            p.textContent = message;
+            box.appendChild(p);
+        } else {
+            // { title, intro, items: [{ who, error }], footer } — one card per failed row.
+            const heading = document.createElement("h3");
+            heading.className = "mb-1 text-lg font-bold tracking-[-0.01em] text-ink";
+            heading.textContent = message.title;
+            box.appendChild(heading);
+            const intro = document.createElement("p");
+            intro.className = "mb-4 text-[0.9rem] text-muted";
+            intro.textContent = message.intro;
+            box.appendChild(intro);
+            message.items.forEach((item) => {
+                const card = document.createElement("div");
+                card.className = "mb-3 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-left";
+                const who = document.createElement("div");
+                who.className = "text-[0.8rem] font-semibold uppercase tracking-[0.04em] text-danger-ink";
+                who.textContent = item.who;
+                const why = document.createElement("div");
+                why.className = "mt-1 text-[0.95rem] leading-snug text-ink";
+                why.textContent = item.error;
+                card.appendChild(who);
+                card.appendChild(why);
+                box.appendChild(card);
+            });
+            const footer = document.createElement("p");
+            footer.className = "mb-4 mt-4 text-[0.9rem] text-muted";
+            footer.textContent = message.footer;
+            box.appendChild(footer);
+        }
         const reloadBtn = document.createElement("button");
         reloadBtn.className = DASH_BTN;
         reloadBtn.textContent = "Reload table";
@@ -1407,41 +1439,68 @@ class DataGrid {
         const tableName = this.tableName;
         const toChange = (key, d) => ({ key: key, isNew: !!d.isNew, isDelete: !!d.isDelete, row: d.data });
         const batches = [];
+        // A dropped connection / server down rejects apiCall; without this the
+        // user would see nothing at all and their edits would silently vanish.
+        const unreachable = { ok: false, error: "Could not reach the server — check your internet connection and try again." };
         if (entries.length) {
             batches.push(
-                apiCall("bulk_save_table_rows", { table: tableName, changes: entries.map(([key, d]) => toChange(key, d)) }).then((res) => ({
-                    table: tableName,
-                    res: res,
-                })),
+                apiCall("bulk_save_table_rows", { table: tableName, changes: entries.map(([key, d]) => toChange(key, d)) })
+                    .catch(() => unreachable)
+                    .then((res) => ({
+                        table: tableName,
+                        res: res,
+                    })),
             );
         }
         if (enumEntries.length) {
             batches.push(
-                apiCall("bulk_save_table_rows", { table: "enum_option", changes: enumEntries.map(([key, d]) => toChange(key, d)) }).then((res) => ({
-                    table: "enum_option",
-                    res: res,
-                })),
+                apiCall("bulk_save_table_rows", { table: "enum_option", changes: enumEntries.map(([key, d]) => toChange(key, d)) })
+                    .catch(() => unreachable)
+                    .then((res) => ({
+                        table: "enum_option",
+                        res: res,
+                    })),
             );
         }
+
+        // Name the row the way the owner knows it ("Zuzanna Bekacz"), not by its
+        // internal id ("b6d99458-7701-..."), so the message says what failed.
+        const titleColumn = (this.schema.find((f) => f.is_title_column === true) || {}).column_name || "name";
+        const tableLabel = this.meta.label || tableName;
+        const describe = (table, key) => {
+            const list = table === "enum_option" ? enumEntries : entries;
+            const entry = list.find(([k]) => k === key);
+            const row = entry ? entry[1].data || {} : {};
+            const name = table === "enum_option" ? row.label : row[titleColumn];
+            const kind = table === "enum_option" ? "Dropdown option" : tableLabel;
+            const action = entry && entry[1].isNew ? "Adding" : "Editing";
+            return action + " " + kind + (name ? ': "' + name + '"' : "");
+        };
 
         Promise.all(batches).then((batchResults) => {
             const failures = [];
             batchResults.forEach((br) => {
                 if (!br.res.ok) {
-                    failures.push({ table: br.table, error: br.res.error || "Unknown error" });
+                    failures.push({ who: br.table === "enum_option" ? "Dropdown options" : tableLabel, error: br.res.error || "Something went wrong. Please try again." });
                     return;
                 }
                 (br.res.results || []).forEach((r) => {
-                    if (!r.ok) failures.push({ table: br.table, error: (r.key || "") + ": " + (r.error || "Unknown error") });
+                    if (!r.ok) failures.push({ who: describe(br.table, r.key), error: r.error || "Something went wrong. Please try again." });
                 });
             });
             if (!failures.length) return;
 
-            const message = "Some changes could not be saved:\n" + failures.map((f) => f.table + ": " + f.error).join("\n") + "\n\nReload to see the table's real current state.";
+            const content = {
+                title: failures.length === 1 ? "1 change could not be saved" : failures.length + " changes could not be saved",
+                intro: "Anything not listed below was saved.",
+                items: failures,
+                footer: "Fix the problem described above, then click Reload table and make the change again.",
+            };
             if (!this.destroyed) {
-                this.showTableSaveError(message);
+                this.showTableSaveError(content);
             } else {
-                alert(message + "\n\n(You've since switched away from " + tableName + ".)");
+                const text = failures.map((f) => "• " + f.who + "\n  " + f.error).join("\n\n");
+                alert(content.title + ":\n\n" + text + "\n\n(You've since switched away from " + tableName + ".)");
             }
         });
     }
