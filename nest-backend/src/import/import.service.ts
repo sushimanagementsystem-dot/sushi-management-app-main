@@ -3,6 +3,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { TableCacheService } from "../reference-data/table-cache.service.js";
 import { SettingsService } from "../reference-data/settings.service.js";
 import { importExcelDatabase, type ImportTableResult } from "./excel-import.js";
+import { exportExcelDatabase, type ExportResult } from "./excel-export.js";
 
 /** Shared by both import endpoints (the public handover one and the
  * dashboard-facing one) so their response shape stays identical. */
@@ -47,5 +48,10 @@ export class ImportService {
         this.tableCache.invalidateAll();
         this.settings.invalidate();
         return results;
+    }
+
+    /** Whole database as one workbook in the same layout importFromBuffer() reads. */
+    exportToBuffer(): Promise<ExportResult> {
+        return exportExcelDatabase(this.prisma);
     }
 }

@@ -1,5 +1,6 @@
 import { Body, Controller, Post } from "@nestjs/common";
 import { Roles } from "../common/decorators/roles.decorator.js";
+import { ImportService } from "./import.service.js";
 import { ImportSessionService } from "./import-session.service.js";
 import { StartImportDatabaseDto } from "./dto/start-import-database.dto.js";
 import { StepImportDatabaseDto } from "./dto/step-import-database.dto.js";
@@ -28,7 +29,10 @@ import { StepImportDatabaseDto } from "./dto/step-import-database.dto.js";
 @Roles("ADMIN", "DEVELOPER")
 @Controller()
 export class ImportDatabaseController {
-    constructor(private readonly sessions: ImportSessionService) {}
+    constructor(
+        private readonly sessions: ImportSessionService,
+        private readonly importService: ImportService,
+    ) {}
 
     @Post("import_database_excel_start")
     start(@Body() dto: StartImportDatabaseDto) {
@@ -39,5 +43,19 @@ export class ImportDatabaseController {
     @Post("import_database_excel_step")
     async step(@Body() dto: StepImportDatabaseDto) {
         return this.sessions.step(dto.importId, dto.index);
+    }
+
+    /**
+     * Download counterpart of the upload above: the current database as one
+     * workbook in the exact layout the upload reads (one sheet per table), so
+     * a download can be edited and uploaded back. Returned as base64 in the
+     * normal JSON envelope for the same reason uploads are sent that way —
+     * the session token travels in the JSON body, not a header/cookie.
+     */
+    @Post("export_database_excel")
+    async exportDatabase() {
+        const { buffer, sheets, warnings } = await this.importService.exportToBuffer();
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
+        return { fileName: `Database-${stamp}.xlsx`, fileBase64: buffer.toString("base64"), sheets, warnings };
     }
 }

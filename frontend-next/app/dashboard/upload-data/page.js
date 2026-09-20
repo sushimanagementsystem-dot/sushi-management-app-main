@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Download, Loader2, X } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -9,6 +9,19 @@ import SectionCard from "@/components/dashboard/SectionCard";
 import { apiCall, readFileAsBase64 } from "@/lib/api";
 
 const MAX_ERRORS_SHOWN = 5;
+
+/** Hands a base64-encoded file to the browser as a normal download. */
+function saveBase64File(base64, fileName, mimeType) {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
 
 /**
  * Lets an owner re-sync the whole database from an updated copy of the
@@ -23,6 +36,10 @@ const MAX_ERRORS_SHOWN = 5;
  * not in parallel: IMPORT_ORDER (parents before children) only resolves
  * foreign keys correctly if sheets are synced in that exact order.
  *
+ * The Download Data card is the inverse: one click exports the current
+ * database as a workbook in this exact same layout (export_database_excel),
+ * so a download can be edited and uploaded straight back.
+ *
  * Upsert-based on the backend, so re-uploading the same or a newer
  * workbook syncs existing rows rather than duplicating them — safe to
  * run more than once.
@@ -34,6 +51,9 @@ export default function UploadDataPage() {
     const [sheets, setSheets] = useState(null);
     const [running, setRunning] = useState(false);
     const [runError, setRunError] = useState("");
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState("");
+    const [exportInfo, setExportInfo] = useState(null); // { fileName, tables, rows, warnings }
     const inputRef = useRef(null);
     // Bumped on every new run and captured by the loop's closure — lets an
     // abandoned run (Clear clicked mid-upload) stop writing state updates
@@ -101,6 +121,30 @@ export default function UploadDataPage() {
                 setRunError("Upload failed — check your connection and try again.");
                 setRunning(false);
             }
+        }
+    }
+
+    async function handleDownload() {
+        setExporting(true);
+        setExportError("");
+        setExportInfo(null);
+        try {
+            const res = await apiCall("export_database_excel");
+            if (!res.ok) {
+                setExportError(res.error || "Could not export the data.");
+                return;
+            }
+            saveBase64File(res.fileBase64, res.fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            setExportInfo({
+                fileName: res.fileName,
+                tables: res.sheets.length,
+                rows: res.sheets.reduce((n, s) => n + s.rows, 0),
+                warnings: res.warnings || [],
+            });
+        } catch {
+            setExportError("Download failed — check your connection and try again.");
+        } finally {
+            setExporting(false);
         }
     }
 
@@ -178,6 +222,39 @@ export default function UploadDataPage() {
                             <div className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-[0.9rem] text-danger-ink">
                                 {runError}
                             </div>
+                        )}
+                    </SectionCard>
+
+                    <SectionCard
+                        title="Download Data"
+                        description="Download the current data from every table as one .xlsx workbook — one sheet per table, in the same format as the upload above, so you can edit it and upload it back."
+                    >
+                        <div className="flex flex-wrap items-center gap-3">
+                            <button
+                                type="button"
+                                disabled={exporting}
+                                onClick={handleDownload}
+                                className="flex items-center gap-2 rounded-lg border-none bg-accent px-4 py-[0.6rem] text-[0.9rem] font-semibold text-accent-ink shadow-elevate-1 hover:bg-accent/90 hover:shadow-elevate-2 active:scale-[0.97] disabled:opacity-50"
+                            >
+                                {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                                {exporting ? "Preparing file…" : "Download Data"}
+                            </button>
+                            {exportInfo && (
+                                <span className="text-[0.85rem] text-muted">
+                                    {exportInfo.fileName} — {exportInfo.tables} tables, {exportInfo.rows} rows
+                                </span>
+                            )}
+                        </div>
+                        {exportError && (
+                            <div className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-[0.9rem] text-danger-ink">{exportError}</div>
+                        )}
+                        {exportInfo?.warnings.length > 0 && (
+                            <ul className="mt-3 list-inside list-disc text-[0.8rem] text-danger-ink">
+                                {exportInfo.warnings.slice(0, MAX_ERRORS_SHOWN).map((w, i) => (
+                                    <li key={i}>{w}</li>
+                                ))}
+                                {exportInfo.warnings.length > MAX_ERRORS_SHOWN && <li>+{exportInfo.warnings.length - MAX_ERRORS_SHOWN} more</li>}
+                            </ul>
                         )}
                     </SectionCard>
 
