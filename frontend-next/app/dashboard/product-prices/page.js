@@ -10,26 +10,43 @@ import PillButton from "@/components/dashboard/PillButton";
 import { useBootstrap, useApiMutation } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { moneyStr } from "@/lib/kpiUtils";
+import { productMargin } from "@/lib/pricing";
 
 /**
- * Product Prices — a focused, name+price-only view over the same
- * `product.current_unit_cost` / `stock_item.current_unit_cost` columns
- * the generic Data Tables page already exposes (both were already
- * editable there — this doesn't add new capability, it makes the one
- * capability the request cares about easy to find and use without
- * wading through a 10+ column technical grid to get to it).
+ * Product Prices — a focused view over `product` / `stock_item` columns
+ * the generic Data Tables page already exposes (all editable there too —
+ * this makes the ones this page cares about easy to find without wading
+ * through a 10+ column technical grid).
  *
  * Deliberately reuses the existing, already-tested list_table_rows /
  * save_table_row actions directly rather than adding parallel backend
- * logic — this is the exact same write path the generic Data Tables page
- * itself uses, so a price set here is not a second, differently-computed
- * number: it's the one number Waste, Damage, Staff Food, and (through
- * those) Profit already read automatically, no re-entry anywhere else.
+ * logic — a value set here is not a second, differently-computed number:
+ * it's read automatically everywhere else in the app, no re-entry needed.
+ *
+ * Finished Products get four money fields:
+ *   - Cost (`current_unit_cost`) — what Waste, Damage, Staff Food and the
+ *     KPI/Profit tabs already value those movements at. Existed before.
+ *   - Selling Price, Recipe Cost, Packaging Cost — what the customer pays
+ *     and what it costs to make (ingredients vs. packaging, split so they
+ *     can be reviewed separately). New — nothing in the system reads these
+ *     yet beyond the Margin column computed right here (see lib/pricing.js);
+ *     they exist so the numbers have somewhere to live and be seen.
+ * Stock Items only ever had the one Cost field — that's unchanged.
  */
 const SECTIONS = [
     { key: "product", label: "Finished Products", idField: "product_id", Icon: Package },
     { key: "stock_item", label: "Stock Items / Ingredients", idField: "stock_item_id", Icon: Tag },
 ];
+
+const MONEY_FIELDS = {
+    product: [
+        { key: "current_unit_cost", label: "Cost" },
+        { key: "selling_price", label: "Selling Price" },
+        { key: "recipe_cost", label: "Recipe Cost" },
+        { key: "packaging_cost", label: "Packaging Cost" },
+    ],
+    stock_item: [{ key: "current_unit_cost", label: "Cost" }],
+};
 
 export default function ProductPricesPage() {
     const [sectionKey, setSectionKey] = useState("product");
@@ -52,7 +69,7 @@ export default function ProductPricesPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Product Prices"
-                        description="Set the cost of every product and stock item — these feed Waste, Damage, Staff Food, and Profit automatically, no re-entry needed anywhere else."
+                        description="Set the cost, selling price, recipe cost and packaging cost for every product — these feed Waste, Damage, Staff Food, Profit, and the margin shown here automatically, no re-entry needed anywhere else."
                     />
 
                     <div className="mb-2.5 flex flex-wrap gap-1.5">
@@ -87,6 +104,8 @@ export default function ProductPricesPage() {
                     <PriceTable
                         table={section.key}
                         idField={section.idField}
+                        fields={MONEY_FIELDS[section.key]}
+                        showMargin={section.key === "product"}
                         label={label(section, brandFilter, brands)}
                         brandId={sectionKey === "product" ? brandFilter : null}
                         brandById={brandById}
@@ -103,7 +122,7 @@ function label(section, brandFilter, brands) {
     return section.label + " — " + (brand?.name || brandFilter);
 }
 
-function PriceTable({ table, idField, label, brandId, brandById }) {
+function PriceTable({ table, idField, fields, showMargin, label, brandId, brandById }) {
     const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
     const { data: res, isPending: loading, error: bootError, refetch } = useBootstrap("list_table_rows", { table });
@@ -116,6 +135,9 @@ function PriceTable({ table, idField, label, brandId, brandById }) {
         return filtered.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     }, [res, search, brandId]);
 
+    // "Priced" tracks the primary Cost field only — that's the one every
+    // downstream calculation (Waste/Damage/Staff Food/Profit) actually
+    // requires; the newer fields are informational until something reads them.
     const totalActive = (res?.rows || []).filter((r) => r.active !== false && (!brandId || r.brand_id === brandId)).length;
     const pricedCount = (res?.rows || []).filter(
         (r) => r.active !== false && (!brandId || r.brand_id === brandId) && r.current_unit_cost !== null && r.current_unit_cost !== undefined,
@@ -136,7 +158,7 @@ function PriceTable({ table, idField, label, brandId, brandById }) {
                 </div>
                 {!loading && !error && (
                     <span className="text-[0.78rem] text-muted">
-                        <span className="font-semibold text-ink">{pricedCount}</span> of {totalActive} priced
+                        <span className="font-semibold text-ink">{pricedCount}</span> of {totalActive} have a cost
                     </span>
                 )}
             </div>
@@ -155,9 +177,19 @@ function PriceTable({ table, idField, label, brandId, brandById }) {
                                     <th className="whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted">
                                         Name
                                     </th>
-                                    <th className="w-40 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted">
-                                        Price
-                                    </th>
+                                    {fields.map((f) => (
+                                        <th
+                                            key={f.key}
+                                            className="w-32 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
+                                        >
+                                            {f.label}
+                                        </th>
+                                    ))}
+                                    {showMargin && (
+                                        <th className="w-28 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted">
+                                            Margin
+                                        </th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody>
@@ -166,6 +198,8 @@ function PriceTable({ table, idField, label, brandId, brandById }) {
                                         key={row[idField]}
                                         row={row}
                                         table={table}
+                                        fields={fields}
+                                        showMargin={showMargin}
                                         // Only worth showing when brand isn't already
                                         // pinned by the active tab — otherwise every
                                         // row would repeat the same badge.
@@ -178,7 +212,7 @@ function PriceTable({ table, idField, label, brandId, brandById }) {
                                 ))}
                                 {!rows.length && (
                                     <tr>
-                                        <td colSpan={2} className="px-[0.9rem] py-6 text-center text-muted">
+                                        <td colSpan={1 + fields.length + (showMargin ? 1 : 0)} className="px-[0.9rem] py-6 text-center text-muted">
                                             No matching items.
                                         </td>
                                     </tr>
@@ -192,9 +226,9 @@ function PriceTable({ table, idField, label, brandId, brandById }) {
     );
 }
 
-function PriceRow({ row, table, brandName, onSaved }) {
+function PriceRow({ row, table, fields, showMargin, brandName, onSaved }) {
     const [editing, setEditing] = useState(false);
-    const [value, setValue] = useState("");
+    const [values, setValues] = useState({});
     const [saveError, setSaveError] = useState("");
 
     const saveMutation = useApiMutation("save_table_row", {
@@ -210,22 +244,35 @@ function PriceRow({ row, table, brandName, onSaved }) {
     });
 
     function startEdit() {
-        setValue(row.current_unit_cost !== null && row.current_unit_cost !== undefined ? String(row.current_unit_cost) : "");
+        const next = {};
+        fields.forEach((f) => {
+            next[f.key] = row[f.key] !== null && row[f.key] !== undefined ? String(row[f.key]) : "";
+        });
+        setValues(next);
         setSaveError("");
         setEditing(true);
     }
 
     function save() {
-        const num = Number(value);
-        if (value.trim() === "" || Number.isNaN(num) || num < 0) {
-            setSaveError("Enter a valid price.");
-            return;
+        const parsed = {};
+        for (const f of fields) {
+            const raw = (values[f.key] ?? "").trim();
+            if (raw === "") {
+                parsed[f.key] = null; // blank clears the field rather than being rejected
+                continue;
+            }
+            const num = Number(raw);
+            if (Number.isNaN(num) || num < 0) {
+                setSaveError(`Enter a valid ${f.label.toLowerCase()}, or leave it blank.`);
+                return;
+            }
+            parsed[f.key] = num;
         }
         setSaveError("");
         // Whole-row save (not a partial patch) — save_table_row validates
-        // every field_schema-required column on the row, not just the one
+        // every field_schema-required column on the row, not just the ones
         // that changed, so the untouched fields must ride along unchanged.
-        saveMutation.mutate({ table, isNew: false, row: { ...row, current_unit_cost: num } });
+        saveMutation.mutate({ table, isNew: false, row: { ...row, ...parsed } });
     }
 
     if (editing) {
@@ -234,65 +281,95 @@ function PriceRow({ row, table, brandName, onSaved }) {
                 <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 font-medium text-ink">
                     <NameCell name={row.name} brandName={brandName} />
                 </td>
-                <td className="border-b border-line px-[0.9rem] py-2">
-                    <div className="flex items-center gap-1.5">
-                        <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            autoFocus
-                            placeholder="0.00"
-                            className="w-24 py-1.5 text-[0.85rem]"
-                            value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && save()}
-                        />
-                        <button
-                            type="button"
-                            disabled={saveMutation.isPending}
-                            onClick={save}
-                            title="Save"
-                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border-none bg-accent text-accent-ink disabled:opacity-50"
-                        >
-                            <Check size={14} strokeWidth={2.5} />
-                        </button>
-                        <button
-                            type="button"
-                            disabled={saveMutation.isPending}
-                            onClick={() => setEditing(false)}
-                            title="Cancel"
-                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border-none bg-line text-muted disabled:opacity-50"
-                        >
-                            <X size={14} strokeWidth={2.5} />
-                        </button>
-                    </div>
-                    {saveError && <div className="mt-1 text-[0.75rem] text-danger-ink">{saveError}</div>}
-                </td>
+                {fields.map((f, i) => (
+                    <td key={f.key} className="border-b border-line px-[0.9rem] py-2">
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                autoFocus={i === 0}
+                                placeholder="0.00"
+                                className="w-20 py-1.5 text-[0.85rem]"
+                                value={values[f.key] ?? ""}
+                                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                                onKeyDown={(e) => e.key === "Enter" && save()}
+                            />
+                            {i === fields.length - 1 && (
+                                <>
+                                    <button
+                                        type="button"
+                                        disabled={saveMutation.isPending}
+                                        onClick={save}
+                                        title="Save"
+                                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border-none bg-accent text-accent-ink disabled:opacity-50"
+                                    >
+                                        <Check size={14} strokeWidth={2.5} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={saveMutation.isPending}
+                                        onClick={() => setEditing(false)}
+                                        title="Cancel"
+                                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border-none bg-line text-muted disabled:opacity-50"
+                                    >
+                                        <X size={14} strokeWidth={2.5} />
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                        {saveError && i === fields.length - 1 && (
+                            <div className="mt-1 whitespace-nowrap text-[0.75rem] text-danger-ink">{saveError}</div>
+                        )}
+                    </td>
+                ))}
+                {showMargin && <td className="border-b border-line px-[0.9rem] py-2 text-muted">—</td>}
             </tr>
         );
     }
 
-    const hasPrice = row.current_unit_cost !== null && row.current_unit_cost !== undefined;
+    const margin = showMargin
+        ? productMargin({ sellingPrice: row.selling_price, recipeCost: row.recipe_cost, packagingCost: row.packaging_cost })
+        : null;
+
     return (
         <tr className="transition-colors duration-100 hover:bg-panel/70">
             <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 text-ink">
                 <NameCell name={row.name} brandName={brandName} />
             </td>
-            <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5">
-                <button
-                    type="button"
-                    onClick={startEdit}
-                    title={hasPrice ? "Edit price" : "Set price"}
-                    className="group flex items-center gap-1.5 rounded-lg border-none bg-transparent p-0 text-left text-[0.85rem] hover:text-accent"
-                >
-                    {hasPrice ? (
-                        <span className="tabular-nums text-ink">{moneyStr(Number(row.current_unit_cost))}</span>
+            {fields.map((f) => {
+                const val = row[f.key];
+                const hasVal = val !== null && val !== undefined;
+                return (
+                    <td key={f.key} className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5">
+                        <button
+                            type="button"
+                            onClick={startEdit}
+                            title="Edit"
+                            className="group flex items-center gap-1.5 rounded-lg border-none bg-transparent p-0 text-left text-[0.85rem] hover:text-accent"
+                        >
+                            {hasVal ? (
+                                <span className="tabular-nums text-ink">{moneyStr(Number(val))}</span>
+                            ) : (
+                                <span className="text-muted">—</span>
+                            )}
+                            <Pencil size={12} strokeWidth={2} className="flex-shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100" />
+                        </button>
+                    </td>
+                );
+            })}
+            {showMargin && (
+                <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 tabular-nums">
+                    {margin ? (
+                        <span className={margin.pct !== null && margin.pct < 0 ? "text-danger-ink" : "text-ink"}>
+                            {moneyStr(margin.profit)}
+                            {margin.pct !== null && <span className="ml-1 text-muted">({Math.round(margin.pct)}%)</span>}
+                        </span>
                     ) : (
-                        <span className="text-muted">Set price</span>
+                        <span className="text-muted">—</span>
                     )}
-                    <Pencil size={12} strokeWidth={2} className="flex-shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100" />
-                </button>
-            </td>
+                </td>
+            )}
         </tr>
     );
 }

@@ -168,6 +168,9 @@ model Product {
   campaign_id         String?
   shelf_life_days     Int?
   current_unit_cost   Decimal? @db.Decimal(12, 4)
+  selling_price       Decimal? @db.Decimal(12, 4) // SRP, what the customer pays
+  recipe_cost         Decimal? @db.Decimal(12, 4) // ingredients only, excl. packaging
+  packaging_cost      Decimal? @db.Decimal(12, 4) // box/lid/etc. for this product
   plan_group          String?
   staff_food_eligible Boolean  @default(false)
   active              Boolean  @default(true)
