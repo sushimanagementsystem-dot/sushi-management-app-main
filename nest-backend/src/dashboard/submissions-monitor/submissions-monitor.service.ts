@@ -2,7 +2,14 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { addDays, startOfTodayUtc, toDateStr } from "../../common/date.util.js";
-import type { Kiosk } from "@prisma/client";
+import type { Kiosk, Product, StockItem, User } from "@prisma/client";
+
+/** One staff member taking one item ("qty" is always 1 by the form's own
+ * rule — see StaffFoodProcessor — so it's shown, not summed). */
+export type StaffFoodDetailLine = { who: string; product: string };
+/** One Food Waste line: an amount of a raw stock item thrown out, plus its
+ * cost if the item has a cost_per_100g rate set (null = UNCOSTED, never guessed). */
+export type FoodWasteDetailLine = { item: string; grams: number; cost: number | null };
 
 /** Every form_type a kiosk can submit — the client wants all of them
  * visible in this view, not just the daily ones. Order matches the kiosk
@@ -38,6 +45,14 @@ export const DAILY_FORM_TYPES = ["MORNING_WASTE", "FRIDGE_COUNT", "STAFF_FOOD"] 
  * writes on every attempt — including "No waste today" / a fridge count
  * with zero out-of-range items, so "no row" genuinely means "never
  * submitted," not "submitted nothing."
+ *
+ * Staff Food / Food Waste additionally carry their exact submitted lines
+ * (see `detail` below) — an owner clicking either icon on the frontend
+ * sees who took what, or which stock items were wasted and how much,
+ * instead of just a checkmark. Kept inline on this same bootstrap (not a
+ * separate lazy-loaded endpoint): the payload is already scoped to every
+ * kiosk over only 14 days, so both tables together add a small, bounded
+ * amount of data, not a second round trip for every icon clicked.
  */
 @Injectable()
 export class SubmissionsMonitorService {
@@ -53,24 +68,62 @@ export class SubmissionsMonitorService {
         const end = endDate ?? startOfTodayUtc();
         const start = startDate ?? addDays(end, -13); // default: last 14 days
 
-        const rows = await this.prisma.submission.findMany({
-            where: { kiosk_id: { in: kioskIds }, form_type: { in: [...ALL_FORM_TYPES] }, business_date: { gte: start, lte: end } },
-            select: { kiosk_id: true, form_type: true, business_date: true },
-        });
+        const [rows, staffFoodRows, foodWasteRows, products, stockItems, users] = await Promise.all([
+            this.prisma.submission.findMany({
+                where: { kiosk_id: { in: kioskIds }, form_type: { in: [...ALL_FORM_TYPES] }, business_date: { gte: start, lte: end } },
+                select: { kiosk_id: true, form_type: true, business_date: true },
+            }),
+            this.prisma.staffFood.findMany({
+                where: { kiosk_id: { in: kioskIds }, food_date: { gte: start, lte: end } },
+                select: { kiosk_id: true, food_date: true, user_id: true, product_id: true },
+            }),
+            this.prisma.stockMovement.findMany({
+                where: { kiosk_id: { in: kioskIds }, movement_type: "FOOD_WASTE", movement_date: { gte: start, lte: end } },
+                select: { kiosk_id: true, movement_date: true, stock_item_id: true, qty: true, cost: true },
+            }),
+            this.tableCache.getAll<Product>("product"),
+            this.tableCache.getAll<StockItem>("stock_item"),
+            this.tableCache.getAll<User>("user"),
+        ]);
 
         // "kioskId|formType|dateStr" -> true, for O(1) lookup while building the grid.
         const submitted = new Set(rows.filter((r) => r.business_date).map((r) => `${r.kiosk_id}|${r.form_type}|${toDateStr(r.business_date!)}`));
 
-        const days: { date: string; kiosks: Record<string, Record<FormType, boolean>> }[] = [];
+        const productName = new Map(products.map((p) => [p.product_id, p.name]));
+        const stockItemName = new Map(stockItems.map((s) => [s.stock_item_id, s.name]));
+        const userName = new Map(users.map((u) => [u.user_id, u.name]));
+
+        // "kioskId|dateStr" -> lines, built once so the day loop below is a
+        // plain lookup, not a re-filter of the whole range per cell.
+        const staffFoodByKey = new Map<string, StaffFoodDetailLine[]>();
+        for (const r of staffFoodRows) {
+            const key = `${r.kiosk_id}|${toDateStr(r.food_date)}`;
+            const line: StaffFoodDetailLine = { who: (r.user_id && userName.get(r.user_id)) || "Unknown staff", product: productName.get(r.product_id) || r.product_id };
+            (staffFoodByKey.get(key) ?? staffFoodByKey.set(key, []).get(key)!).push(line);
+        }
+        const foodWasteByKey = new Map<string, FoodWasteDetailLine[]>();
+        for (const r of foodWasteRows) {
+            const key = `${r.kiosk_id}|${toDateStr(r.movement_date)}`;
+            const line: FoodWasteDetailLine = { item: stockItemName.get(r.stock_item_id) || r.stock_item_id, grams: Number(r.qty), cost: r.cost === null ? null : Number(r.cost) };
+            (foodWasteByKey.get(key) ?? foodWasteByKey.set(key, []).get(key)!).push(line);
+        }
+
+        const days: { date: string; kiosks: Record<string, Record<FormType, boolean>>; detail: Record<string, { STAFF_FOOD?: StaffFoodDetailLine[]; FOOD_WASTE?: FoodWasteDetailLine[] }> }[] = [];
         for (let d = end; d >= start; d = addDays(d, -1)) {
             const dateStr = toDateStr(d);
             const kioskStatus: Record<string, Record<FormType, boolean>> = {};
+            const detail: Record<string, { STAFF_FOOD?: StaffFoodDetailLine[]; FOOD_WASTE?: FoodWasteDetailLine[] }> = {};
             for (const kId of kioskIds) {
                 const perTask = {} as Record<FormType, boolean>;
                 for (const t of ALL_FORM_TYPES) perTask[t] = submitted.has(`${kId}|${t}|${dateStr}`);
                 kioskStatus[kId] = perTask;
+
+                const key = `${kId}|${dateStr}`;
+                const staffFood = staffFoodByKey.get(key);
+                const foodWaste = foodWasteByKey.get(key);
+                if (staffFood || foodWaste) detail[kId] = { STAFF_FOOD: staffFood, FOOD_WASTE: foodWaste };
             }
-            days.push({ date: dateStr, kiosks: kioskStatus });
+            days.push({ date: dateStr, kiosks: kioskStatus, detail });
         }
 
         return {

@@ -19,6 +19,7 @@ import {
     CheckCircle2,
     AlertTriangle,
 } from "lucide-react";
+import { moneyStr, qtyStr } from "@/lib/kpiUtils";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -200,47 +201,109 @@ function todayLocalStr() {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
+// The two form types whose exact submitted lines are worth drilling into —
+// see SubmissionsMonitorService's `detail` (who took what / which stock
+// items were wasted). Every other form type stays a plain status icon;
+// its full content already has its own dashboard page or review flow.
+const DETAIL_TASKS = ["STAFF_FOOD", "FOOD_WASTE"];
+
 /** Daily tasks always render (green if done, muted + red badge if not) —
  * they're expected every day, so their absence is itself the signal.
  * Everything else only renders when it actually happened that day, so a
  * quiet "as needed" day doesn't clutter the row with a wall of muted
- * icons for things nobody expected to see. */
-function DayStatusCell({ status, dailyTasks, otherTasks }) {
+ * icons for things nobody expected to see. Staff Food / Food Waste icons
+ * become clickable buttons once they're done and detail lines exist for
+ * them, opening SubmissionDetailModal instead of just showing a checkmark. */
+function DayStatusCell({ status, dailyTasks, otherTasks, detail, onOpenDetail }) {
     const submittedOther = otherTasks.filter((t) => status[t]);
+
+    const renderIcon = (t, tone) => {
+        const meta = TASK_META[t] || { label: t, Icon: Check };
+        const Icon = meta.Icon;
+        const done = !!status[t];
+        const lines = detail?.[t];
+        const clickable = done && DETAIL_TASKS.includes(t) && lines?.length > 0;
+        const className =
+            "relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-none p-0 " +
+            (done ? tone : "bg-line/50 text-muted/70") +
+            (clickable ? " cursor-pointer ring-offset-1 hover:ring-2 hover:ring-accent/50" : "");
+        const content = (
+            <>
+                <Icon size={13} strokeWidth={2.25} />
+                {!done && <X size={10} strokeWidth={3} className="absolute -bottom-0.5 -right-0.5 rounded-full bg-card text-danger-ink" />}
+            </>
+        );
+        const title = meta.label + ": " + (done ? (clickable ? "submitted — click to see details" : "submitted") : "not submitted");
+        return clickable ? (
+            <button key={t} type="button" title={title} className={className} onClick={() => onOpenDetail(t, lines)}>
+                {content}
+            </button>
+        ) : (
+            <span key={t} title={title} className={className}>
+                {content}
+            </span>
+        );
+    };
+
     return (
         <div className="flex flex-wrap items-center gap-1.5">
-            {dailyTasks.map((t) => {
-                const meta = TASK_META[t] || { label: t, Icon: Check };
-                const Icon = meta.Icon;
-                const done = !!status[t];
-                return (
-                    <span
-                        key={t}
-                        title={meta.label + ": " + (done ? "submitted" : "not submitted")}
-                        className={
-                            "relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full " +
-                            (done ? "bg-success-bg text-success-ink" : "bg-line/50 text-muted/70")
-                        }
-                    >
-                        <Icon size={13} strokeWidth={2.25} />
-                        {!done && <X size={10} strokeWidth={3} className="absolute -bottom-0.5 -right-0.5 rounded-full bg-card text-danger-ink" />}
-                    </span>
-                );
-            })}
+            {dailyTasks.map((t) => renderIcon(t, "bg-success-bg text-success-ink"))}
             {submittedOther.length > 0 && <span className="mx-0.5 h-4 w-px flex-shrink-0 bg-line" aria-hidden />}
-            {submittedOther.map((t) => {
-                const meta = TASK_META[t] || { label: t, Icon: Check };
-                const Icon = meta.Icon;
-                return (
-                    <span
-                        key={t}
-                        title={meta.label + ": submitted"}
-                        className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-teal-soft text-teal"
-                    >
-                        <Icon size={13} strokeWidth={2.25} />
-                    </span>
-                );
-            })}
+            {submittedOther.map((t) => renderIcon(t, "bg-teal-soft text-teal"))}
+        </div>
+    );
+}
+
+/** What was actually submitted for one Staff Food or Food Waste icon —
+ * who took which product (Staff Food), or how many grams of which stock
+ * item were thrown out and its cost if known (Food Waste, UNCOSTED shown
+ * plainly rather than guessed — see FoodWasteProcessor). */
+function SubmissionDetailModal({ dateLabel, formType, lines, onClose }) {
+    const meta = TASK_META[formType] || { label: formType, Icon: Check };
+    const Icon = meta.Icon;
+    const isFoodWaste = formType === "FOOD_WASTE";
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(20,24,30,0.45)] backdrop-blur-[2px] max-[720px]:items-end"
+            onClick={onClose}
+        >
+            <div
+                className="w-[26rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)] overflow-y-auto rounded-card bg-card p-[1.4rem] shadow-elevate-3 max-[720px]:w-full max-[720px]:max-w-full max-[720px]:max-h-[88vh] max-[720px]:rounded-b-none max-[720px]:rounded-t-[1.2rem] max-[720px]:p-[1.1rem]"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="mb-3 flex items-center gap-2">
+                    <Icon size={16} strokeWidth={2.25} className="text-ink" />
+                    <h3 className="m-0 text-[1.05rem] font-bold tracking-[-0.01em] text-ink">{meta.label}</h3>
+                    <span className="text-[0.85rem] text-muted">— {dateLabel}</span>
+                </div>
+                <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                    {lines.map((ln, i) => (
+                        <li key={i} className="flex items-center justify-between gap-3 rounded-lg bg-panel px-3 py-2 text-[0.88rem]">
+                            {isFoodWaste ? (
+                                <>
+                                    <span className="text-ink">{ln.item}</span>
+                                    <span className="whitespace-nowrap tabular-nums text-muted">
+                                        {qtyStr(ln.grams)}g{ln.cost !== null ? " · " + moneyStr(ln.cost) : " · uncosted"}
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="text-ink">{ln.who}</span>
+                                    <span className="text-muted">{ln.product}</span>
+                                </>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="mt-4 w-full rounded-lg border-none bg-line px-4 py-[0.6rem] text-[0.9rem] font-semibold text-ink"
+                >
+                    Close
+                </button>
+            </div>
         </div>
     );
 }
@@ -256,6 +319,7 @@ function KioskSubmissionsTable({ res, kioskId }) {
     const yesterdayStr =
         yesterdayD.getFullYear() + "-" + String(yesterdayD.getMonth() + 1).padStart(2, "0") + "-" + String(yesterdayD.getDate()).padStart(2, "0");
     const kioskName = (res.kiosks || []).find((k) => k.id === kioskId)?.name || kioskId;
+    const [openDetail, setOpenDetail] = useState(null); // { dateLabel, formType, lines } | null
 
     if (!days.length) return <p className="text-muted">No days in this range.</p>;
 
@@ -281,13 +345,20 @@ function KioskSubmissionsTable({ res, kioskId }) {
                                 {days.map((day) => {
                                     const status = day.kiosks[kioskId] || {};
                                     const anyMissing = dailyTasks.some((t) => !status[t]);
+                                    const dateLabel = formatDayLabel(day.date, todayStr, yesterdayStr);
                                     return (
                                         <tr key={day.date} className="transition-colors duration-100 hover:bg-panel/70">
                                             <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 font-medium text-ink">
-                                                {formatDayLabel(day.date, todayStr, yesterdayStr)}
+                                                {dateLabel}
                                             </td>
                                             <td className={"border-b border-line px-[0.9rem] py-2.5 " + (anyMissing ? "bg-warn-bg/40" : "")}>
-                                                <DayStatusCell status={status} dailyTasks={dailyTasks} otherTasks={otherTasks} />
+                                                <DayStatusCell
+                                                    status={status}
+                                                    dailyTasks={dailyTasks}
+                                                    otherTasks={otherTasks}
+                                                    detail={day.detail?.[kioskId]}
+                                                    onOpenDetail={(formType, lines) => setOpenDetail({ dateLabel, formType, lines })}
+                                                />
                                             </td>
                                         </tr>
                                     );
@@ -297,6 +368,15 @@ function KioskSubmissionsTable({ res, kioskId }) {
                     </div>
                 </div>
             </SectionCard>
+
+            {openDetail && (
+                <SubmissionDetailModal
+                    dateLabel={openDetail.dateLabel}
+                    formType={openDetail.formType}
+                    lines={openDetail.lines}
+                    onClose={() => setOpenDetail(null)}
+                />
+            )}
         </>
     );
 }
