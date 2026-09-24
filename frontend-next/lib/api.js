@@ -102,6 +102,19 @@ export function readFileForUpload(file, maxDimension, quality) {
     });
 }
 
+/** Hands a base64-encoded file to the browser as a normal download. */
+export function saveBase64File(base64, fileName, mimeType) {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
 /** Reads a File as raw base64 (no image recompression) — for the Upload
  * Data page's workbook upload, where the file must reach the backend
  * byte-for-byte since it's parsed as an xlsx workbook there. */

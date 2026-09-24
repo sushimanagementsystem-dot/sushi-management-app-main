@@ -1,4 +1,5 @@
-import { IsInt, IsOptional, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, Min } from "class-validator";
+import { DATE_RANGE_KEYS, type DateRangeKey } from "../../../common/date-range.util.js";
 
 export class IssuesDto {
     @IsOptional()
@@ -10,4 +11,8 @@ export class IssuesDto {
     @IsInt()
     @Min(1)
     limit?: number;
+
+    @IsOptional()
+    @IsIn(DATE_RANGE_KEYS)
+    range?: DateRangeKey;
 }

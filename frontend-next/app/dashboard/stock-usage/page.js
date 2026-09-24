@@ -127,7 +127,7 @@ export default function StockUsagePage() {
                                             </thead>
                                             <tbody>
                                                 {(res.lines || []).map((line) => (
-                                                    <tr key={line.name} className="transition-colors duration-100 hover:bg-panel/70">
+                                                    <tr key={line.stockItemId} className="transition-colors duration-100 hover:bg-panel/70">
                                                         <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 font-medium text-ink">
                                                             {line.name} <span className="font-normal text-muted">({line.unit})</span>
                                                         </td>

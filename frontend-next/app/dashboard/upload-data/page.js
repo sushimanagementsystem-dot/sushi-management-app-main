@@ -6,22 +6,9 @@ import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
-import { apiCall, readFileAsBase64 } from "@/lib/api";
+import { apiCall, readFileAsBase64, saveBase64File } from "@/lib/api";
 
 const MAX_ERRORS_SHOWN = 5;
-
-/** Hands a base64-encoded file to the browser as a normal download. */
-function saveBase64File(base64, fileName, mimeType) {
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-}
 
 /**
  * Lets an owner re-sync the whole database from an updated copy of the

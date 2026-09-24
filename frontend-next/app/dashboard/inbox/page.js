@@ -26,6 +26,7 @@ import SectionCard from "@/components/dashboard/SectionCard";
 import RefreshButton from "@/components/dashboard/RefreshButton";
 import DashSelect from "@/components/dashboard/DashSelect";
 import EvidencePreview from "@/components/dashboard/EvidencePreview";
+import { confirmModal, noticeModal } from "@/components/ConfirmModal";
 import SearchPick from "@/components/SearchPick";
 
 // Every category value the backend recognizes today — including ones not
@@ -98,14 +99,51 @@ function idFromPath() {
 
 const PAGE_SIZE = 25;
 
+// When the action was created. "All time" (empty key) applies no date condition at all.
+const DATE_RANGES = [
+    { key: "", label: "All time" },
+    { key: "today", label: "Today" },
+    { key: "yesterday", label: "Yesterday" },
+    { key: "week", label: "This week" },
+    { key: "last7", label: "Last 7 days" },
+    { key: "month", label: "This month" },
+    { key: "last30", label: "Last 30 days" },
+];
+
+/** A preset -> the created_at window sent to the backend, as ISO instants. Built from the VIEWER'S
+ * calendar day (local midnight), so "Today" means the owner's today, not the server's UTC day. The
+ * week starts on Monday, matching every other weekly view on the dashboard. */
+function rangeToWindow(key) {
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const daysAgo = (n) => new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() - n);
+    switch (key) {
+        case "today":
+            return { createdFrom: midnight.toISOString() };
+        case "yesterday":
+            return { createdFrom: daysAgo(1).toISOString(), createdTo: midnight.toISOString() };
+        case "week":
+            return { createdFrom: daysAgo((midnight.getDay() + 6) % 7).toISOString() };
+        case "last7":
+            return { createdFrom: daysAgo(6).toISOString() };
+        case "month":
+            return { createdFrom: new Date(midnight.getFullYear(), midnight.getMonth(), 1).toISOString() };
+        case "last30":
+            return { createdFrom: daysAgo(29).toISOString() };
+        default:
+            return {};
+    }
+}
+
 /** Reads status/category/priority/kiosk_id/includeClosed/page straight off
  * the current URL's query string — the source of truth for filter state on
  * mount, so a refresh (or a shared/bookmarked link) lands back where the
  * owner left it instead of resetting to "Any status" on page 1. */
 function filtersFromQuery() {
-    if (typeof window === "undefined") return { status: "", category: "", priority: "", kiosk_id: "", includeClosed: false };
+    if (typeof window === "undefined") return { status: "", category: "", priority: "", kiosk_id: "", includeClosed: false, range: "" };
     const q = new URLSearchParams(window.location.search);
     return {
+        range: DATE_RANGES.some((r) => r.key && r.key === q.get("range")) ? q.get("range") : "",
         status: q.get("status") || "",
         category: q.get("category") || "",
         priority: q.get("priority") || "",
@@ -130,6 +168,7 @@ function writeFiltersToQuery(filters, page) {
     if (filters.priority) q.set("priority", filters.priority);
     if (filters.kiosk_id) q.set("kiosk_id", filters.kiosk_id);
     if (filters.includeClosed) q.set("includeClosed", "1");
+    if (filters.range) q.set("range", filters.range);
     if (page > 1) q.set("page", String(page));
     const qs = q.toString();
     window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
@@ -179,6 +218,7 @@ function InboxBody() {
             priority: filters.priority || undefined,
             kioskId: filters.kiosk_id || undefined,
             includeClosed: filters.includeClosed || undefined,
+            ...rangeToWindow(filters.range),
             page,
             pageSize: PAGE_SIZE,
         }),
@@ -279,6 +319,13 @@ function InboxBody() {
 function InboxFilters({ kiosks, filters, onChange }) {
     return (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <DashSelect value={filters.range} onChange={(e) => onChange((f) => ({ ...f, range: e.target.value }))}>
+                {DATE_RANGES.map((r) => (
+                    <option key={r.key} value={r.key}>
+                        {r.label}
+                    </option>
+                ))}
+            </DashSelect>
             <DashSelect value={filters.status} onChange={(e) => onChange((f) => ({ ...f, status: e.target.value }))}>
                 <option value="">Any status</option>
                 {INBOX_STATUSES.map((s) => (
@@ -507,10 +554,10 @@ function DetailModal({ ownerActionId, kiosks, stockItems, usersById, onClose, on
 
     useEffect(() => {
         if (detail && detail.ok === false) {
-            alert(detail.error || "Failed to load action.");
+            noticeModal(detail.error || "Failed to load action.");
             onClose();
         } else if (detailError) {
-            alert("Failed to load action.");
+            noticeModal("Failed to load action.");
             onClose();
         }
     }, [detail, detailError]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -642,7 +689,7 @@ function TriageEditor({ row, ownerActionId, onSaved }) {
             .then((res) => {
                 setSaving(false);
                 if (!res.ok) {
-                    alert(res.error || "Save failed.");
+                    noticeModal(res.error || "Save failed.");
                     return;
                 }
                 setEditMode(false);
@@ -650,7 +697,7 @@ function TriageEditor({ row, ownerActionId, onSaved }) {
             })
             .catch(() => {
                 setSaving(false);
-                alert("Save failed.");
+                noticeModal("Save failed.");
             });
     }
 
@@ -792,7 +839,7 @@ function HelpIssueSection({ row, onChanged }) {
             .then((res) => {
                 setSaving(false);
                 if (!res.ok) {
-                    alert(res.error || "Save failed.");
+                    noticeModal(res.error || "Save failed.");
                     return;
                 }
                 setEditMode(false);
@@ -800,7 +847,7 @@ function HelpIssueSection({ row, onChanged }) {
             })
             .catch(() => {
                 setSaving(false);
-                alert("Save failed.");
+                noticeModal("Save failed.");
             });
     }
 
@@ -880,7 +927,7 @@ function StocktakeSection({ row, stockItems, onChanged }) {
         setBusy(true);
         apiCall("confirm_stocktake", { stocktakeHeaderId: header.stocktake_header_id }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Confirm failed.");
+            if (!res.ok) return noticeModal(res.error || "Confirm failed.", "Can't confirm yet");
             onChanged();
         });
     }
@@ -888,7 +935,7 @@ function StocktakeSection({ row, stockItems, onChanged }) {
         setBusy(true);
         apiCall("decline_stocktake", { stocktakeHeaderId: header.stocktake_header_id }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Decline failed.");
+            if (!res.ok) return noticeModal(res.error || "Decline failed.");
             onChanged();
         });
     }
@@ -998,7 +1045,7 @@ function StocktakeLinesEditor({ header, lines, stockItems, onCancel, onSaved }) 
         (tasks.length ? runSequential(tasks) : Promise.resolve({ ok: true })).then((res) => {
             setSaving(false);
             if (!res || res.ok === false) {
-                alert((res && res.error) || "Save failed.");
+                noticeModal((res && res.error) || "Save failed.");
                 return;
             }
             onSaved();
@@ -1100,7 +1147,7 @@ function TransferView({ transfers, kiosks, onChanged }) {
         setBusy(true);
         apiCall("approve_stock_transfers", { transferIds: pendingIds }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Approve failed.");
+            if (!res.ok) return noticeModal(res.error || "Approve failed.");
             onChanged();
         });
     }
@@ -1108,17 +1155,17 @@ function TransferView({ transfers, kiosks, onChanged }) {
         setBusy(true);
         apiCall("decline_stock_transfers", { transferIds: pendingIds }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Decline failed.");
+            if (!res.ok) return noticeModal(res.error || "Decline failed.");
             onChanged();
         });
     }
     function applySelected() {
         const ids = approvedIds.filter((id) => applyChecked[id]);
-        if (!ids.length) return alert("Select at least one transfer to apply.");
+        if (!ids.length) return noticeModal("Select at least one transfer to apply.");
         setBusy(true);
         apiCall("apply_stock_transfers", { transferIds: ids }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Apply failed.");
+            if (!res.ok) return noticeModal(res.error || "Apply failed.");
             onChanged();
         });
     }
@@ -1209,7 +1256,7 @@ function TransferEditor({ transfers, kiosks, onCancel, onSaved }) {
         (tasks.length ? runSequential(tasks) : Promise.resolve({ ok: true })).then((res) => {
             setSaving(false);
             if (!res || res.ok === false) {
-                alert((res && res.error) || "Save failed.");
+                noticeModal((res && res.error) || "Save failed.");
                 return;
             }
             onSaved();
@@ -1280,18 +1327,80 @@ function TransferEditor({ transfers, kiosks, onCancel, onSaved }) {
 
 // --- Delivery Invoice -------------------------------------------------------
 
+/** What still stops a DRAFT invoice line from being confirmed — same rules the server enforces on Confirm
+ * (stock item picked, quantity above 0, unit cost entered). "" when the line is fine. */
+function invoiceLineProblem({ stockItemId, qty, cost }) {
+    const fixes = [];
+    if (!stockItemId) fixes.push("pick the stock item");
+    const q = Number(qty);
+    if (qty === "" || qty === null || qty === undefined || !Number.isFinite(q) || q <= 0) fixes.push("enter a quantity above 0");
+    const c = Number(cost);
+    if (cost === "" || cost === null || cost === undefined || !Number.isFinite(c) || c < 0) fixes.push("enter the unit cost");
+    return fixes.join(", ");
+}
+
+const PROBLEM_ROW = "bg-danger-bg/40";
+
 function InvoiceSection({ row, stockItems, onChanged }) {
     const header = row.deliveryHeader;
     const [editMode, setEditMode] = useState(false);
+    // Set once Confirm has been refused: from then on the lines that still need fixing are marked in red.
+    const [flagged, setFlagged] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [aiRunning, setAiRunning] = useState(false);
+    const [aiMessage, setAiMessage] = useState("");
     if (!header) return <p className="text-muted">Linked delivery not found.</p>;
     const inReview = header.status === "IN_REVIEW";
+    const files = row.deliveryFiles || [];
+    // The AI's own words about why it couldn't read the invoice (plain sentence, see InvoiceAiService).
+    const aiError = (files.find((f) => f.ai_status === "FAILED" && f.ai_error) || {}).ai_error || "";
+    const aiNeedsRun = files.some((f) => f.ai_status !== "SUCCESS") || !(row.invoiceLines || []).length;
 
-    function confirm() {
+    // Nothing is posted until the owner says yes here: Confirm writes stock movements, so it never fires on one stray click.
+    async function confirm() {
+        const draft = (row.invoiceLines || []).filter((l) => l.status === "DRAFT");
+        const total = draft.reduce((sum, l) => sum + (Number(l.line_total) || Number(l.qty) * Number(l.unit_cost) || 0), 0);
+        const ok = await confirmModal(
+            `Confirm this invoice? ${draft.length} line${draft.length === 1 ? "" : "s"}, about €${total.toFixed(2)}. This adds them to the kiosk's stock as deliveries and updates stock and costs. You can undo it afterwards from this card.`,
+            "Confirm invoice",
+        );
+        if (!ok) return;
         setBusy(true);
         apiCall("confirm_invoice_review", { deliveryHeaderId: header.delivery_header_id }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Confirm failed.");
+            if (!res.ok) {
+                setFlagged(true);
+                return noticeModal(res.error || "Confirm failed.", "Can't confirm yet", { actionLabel: "Edit lines" }).then((goEdit) => goEdit && setEditMode(true));
+            }
+            onChanged();
+        });
+    }
+    // Reads the stored photos with the AI again — the fix for invoices whose first attempt failed (e.g. while
+    // the AI key was wrong). Replaces only untouched AI draft lines; anything typed or corrected is kept.
+    function rerunAi() {
+        setAiRunning(true);
+        setAiMessage("");
+        apiCall("rerun_invoice_ai", { deliveryHeaderId: header.delivery_header_id })
+            .catch(() => ({ ok: false, error: "Could not reach the server — check your connection and try again." }))
+            .then((res) => {
+                setAiRunning(false);
+                if (!res.ok) return setAiMessage(res.error || "Could not re-run AI extraction.");
+                setAiMessage(res.aiOk ? (res.lineCount ? res.lineCount + " line(s) extracted — check them, then confirm." : "AI read the invoice but found no lines — enter them manually.") : res.aiError);
+                onChanged();
+            });
+    }
+    async function undoReview() {
+        const ok = await confirmModal(
+            "Undo this review? Any stock movements it posted are removed and the invoice goes back to 'in review', so you can fix it and confirm again.",
+            "Undo review",
+            true,
+        );
+        if (!ok) return;
+        setBusy(true);
+        apiCall("undo_invoice_review", { deliveryHeaderId: header.delivery_header_id }).then((res) => {
+            setBusy(false);
+            if (!res.ok) return noticeModal(res.error || "Undo failed.", "Can't undo");
+            setFlagged(false);
             onChanged();
         });
     }
@@ -1299,7 +1408,7 @@ function InvoiceSection({ row, stockItems, onChanged }) {
         setBusy(true);
         apiCall("decline_invoice_review", { deliveryHeaderId: header.delivery_header_id }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Decline failed.");
+            if (!res.ok) return noticeModal(res.error || "Decline failed.");
             onChanged();
         });
     }
@@ -1309,13 +1418,30 @@ function InvoiceSection({ row, stockItems, onChanged }) {
             <p className="mb-2 text-muted">
                 {row.supplierName || ""} — {header.document_type} — {header.delivery_date} — status: {header.status}
             </p>
-            {(row.deliveryFiles || []).map((f, i) => (
-                <DrivePreview key={i} url={f.file_url} label={f.file_name + " — AI: " + f.ai_status + (f.ai_error ? " (" + f.ai_error + ")" : "")} />
+            {files.map((f, i) => (
+                <DrivePreview key={i} url={f.file_url} label={f.file_name || "Page " + (i + 1)} />
             ))}
+
+            {aiNeedsRun && (
+                <div className="my-2 rounded-card border border-line bg-panel px-3 py-2.5 text-[0.85rem]">
+                    <div className="font-semibold text-ink">{files.some((f) => f.ai_status === "FAILED")
+                            ? "AI couldn't read this invoice"
+                            : files.some((f) => f.ai_status !== "SUCCESS")
+                              ? "AI has not read this invoice yet"
+                              : "AI found no lines on this invoice"}</div>
+                    {aiError && <div className="mt-0.5 text-muted">{aiError}</div>}
+                    {aiMessage && <div className="mt-1 font-medium text-ink">{aiMessage}</div>}
+                    {inReview && (
+                        <button type="button" disabled={aiRunning || busy} className={DASH_BTN + " mt-2"} onClick={rerunAi}>
+                            {aiRunning ? "Reading invoice… (can take up to a minute)" : "Re-run AI extraction"}
+                        </button>
+                    )}
+                </div>
+            )}
 
             {!editMode ? (
                 <div>
-                    <InvoiceLinesView lines={row.invoiceLines || []} />
+                    <InvoiceLinesView lines={row.invoiceLines || []} showProblems={flagged} />
                     {inReview && (
                         <button type="button" className={DASH_BTN + " mt-2"} onClick={() => setEditMode(true)}>
                             Edit
@@ -1327,12 +1453,21 @@ function InvoiceSection({ row, stockItems, onChanged }) {
                     header={header}
                     lines={row.invoiceLines || []}
                     stockItems={stockItems}
+                    showProblems={flagged}
                     onCancel={() => setEditMode(false)}
                     onSaved={() => {
                         setEditMode(false);
                         onChanged();
                     }}
                 />
+            )}
+
+            {header.status === "REVIEWED" && (
+                <div className="mt-3 flex justify-end">
+                    <button type="button" disabled={busy} className={DASH_BTN_SECONDARY} onClick={undoReview}>
+                        Undo — put back in review
+                    </button>
+                </div>
             )}
 
             {inReview && !editMode && (
@@ -1349,7 +1484,7 @@ function InvoiceSection({ row, stockItems, onChanged }) {
     );
 }
 
-function InvoiceLinesView({ lines }) {
+function InvoiceLinesView({ lines, showProblems }) {
     return (
         <RequestTableWrap>
             <table className="w-full border-collapse text-[0.85rem]">
@@ -1364,23 +1499,29 @@ function InvoiceLinesView({ lines }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {lines.map((line) => (
-                        <tr key={line.invoice_line_id}>
-                            <td className={TD}>{line.description_raw || ""}</td>
-                            <td className={TD}>{line.stockItemName || ""}</td>
-                            <td className={TD}>{String(line.qty)}</td>
-                            <td className={TD}>{String(line.unit_cost)}</td>
-                            <td className={TD}>{line.source}</td>
-                            <td className={TD}>{line.status}</td>
-                        </tr>
-                    ))}
+                    {lines.map((line) => {
+                        const problem = showProblems && line.status === "DRAFT" ? invoiceLineProblem({ stockItemId: line.stock_item_id, qty: line.qty, cost: line.unit_cost }) : "";
+                        return (
+                            <tr key={line.invoice_line_id} className={problem ? PROBLEM_ROW : ""}>
+                                <td className={TD}>{line.description_raw || ""}</td>
+                                <td className={TD}>
+                                    {line.stockItemName || ""}
+                                    {problem && <div className="text-[0.75rem] font-semibold text-danger-ink">Needs attention: {problem}</div>}
+                                </td>
+                                <td className={TD}>{String(line.qty)}</td>
+                                <td className={TD}>{String(line.unit_cost)}</td>
+                                <td className={TD}>{line.source}</td>
+                                <td className={TD}>{line.status}</td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </RequestTableWrap>
     );
 }
 
-function InvoiceLinesEditor({ header, lines, stockItems, onCancel, onSaved }) {
+function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel, onSaved }) {
     const [rows, setRows] = useState(() =>
         lines.map((l) => ({
             line: l,
@@ -1444,7 +1585,7 @@ function InvoiceLinesEditor({ header, lines, stockItems, onCancel, onSaved }) {
         (tasks.length ? runSequential(tasks) : Promise.resolve({ ok: true })).then((res) => {
             setSaving(false);
             if (!res || res.ok === false) {
-                alert((res && res.error) || "Save failed.");
+                noticeModal((res && res.error) || "Save failed.");
                 return;
             }
             onSaved();
@@ -1482,8 +1623,9 @@ function InvoiceLinesEditor({ header, lines, stockItems, onCancel, onSaved }) {
                                     </tr>
                                 );
                             }
+                            const problem = showProblems && !r._remove ? invoiceLineProblem({ stockItemId: r._stockItemId, qty: r._qty, cost: r._cost }) : "";
                             return (
-                                <tr key={line.invoice_line_id}>
+                                <tr key={line.invoice_line_id} className={problem ? PROBLEM_ROW : ""}>
                                     <td className={TD}>
                                         <input type="text" value={r._desc} onChange={(e) => updateRow(idx, { _desc: e.target.value })} />
                                     </td>
@@ -1493,6 +1635,7 @@ function InvoiceLinesEditor({ header, lines, stockItems, onCancel, onSaved }) {
                                             value={r._stockItemId}
                                             onChange={(v) => updateRow(idx, { _stockItemId: v })}
                                         />
+                                        {problem && <div className="mt-1 text-[0.75rem] font-semibold text-danger-ink">Needs attention: {problem}</div>}
                                     </td>
                                     <td className={TD}>
                                         <input type="number" step="0.01" value={r._qty} onChange={(e) => updateRow(idx, { _qty: e.target.value })} />
@@ -1580,7 +1723,7 @@ function AuditAnswerCard({ a, onChanged }) {
         setBusy(true);
         apiCall("review_audit_answer", { auditAnswerId: a.audit_answer_id, decision, note }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Save failed.");
+            if (!res.ok) return noticeModal(res.error || "Save failed.");
             onChanged();
         });
     }
@@ -1642,7 +1785,7 @@ function AuditCorrectionSection({ row, onChanged }) {
         setBusy(true);
         apiCall("review_audit_correction", { auditCorrectionId: correction.audit_correction_id, decision }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Save failed.");
+            if (!res.ok) return noticeModal(res.error || "Save failed.");
             onChanged();
         });
     }
@@ -1681,7 +1824,7 @@ function DamageSection({ row, onChanged }) {
         setBusy(true);
         apiCall("update_owner_action", { ownerActionId: row.owner_action_id, changes: { status: "RESOLVED" } }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Save failed.");
+            if (!res.ok) return noticeModal(res.error || "Save failed.");
             onChanged();
         });
     }
@@ -1719,7 +1862,7 @@ function PurchasingRecommendationSection({ row, onChanged }) {
         setBusy(true);
         apiCall("update_owner_action", { ownerActionId: row.owner_action_id, changes: { status: "RESOLVED" } }).then((res) => {
             setBusy(false);
-            if (!res.ok) return alert(res.error || "Save failed.");
+            if (!res.ok) return noticeModal(res.error || "Save failed.");
             onChanged();
         });
     }

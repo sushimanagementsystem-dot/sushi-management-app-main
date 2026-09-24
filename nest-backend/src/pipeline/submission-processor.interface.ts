@@ -67,6 +67,17 @@ export interface SubmissionProcessor<TPayload = unknown> {
     clearExtra?(tx: Prisma.TransactionClient, oldSubmissionIds: string[]): Promise<void>;
 
     /**
+     * Runs BEFORE the transaction opens, for slow network I/O whose result
+     * process() needs (e.g. an AI vision call) — Prisma's interactive
+     * transactions expire after 5s by default, so anything that can take
+     * longer than a database query must never run inside process(). Stash
+     * the result in ctx.extra; process() then only writes it. May throw —
+     * the submission is marked ERROR for manual retry, same as process().
+     * Must be safe to run again on a retry (nothing is written here).
+     */
+    prepare?(ctx: ProcessingContext<TPayload>): Promise<void>;
+
+    /**
      * Does the real work. Runs inside the sweep's transaction — a thrown
      * error rolls back cleanly and the submission is marked ERROR for
      * manual retry. May return a processing_status override (e.g.

@@ -8,7 +8,7 @@ import DashSelect from "./DashSelect";
  * Comparison, and Stock Usage View. `filters` is { kioskId, startDate,
  * endDate }; `activePreset` (or null once a custom date is picked)
  * highlights the matching button. */
-export default function KpiFilters({ kiosks, filters, activePreset, onKioskChange, onPreset, onStartDate, onEndDate }) {
+export default function KpiFilters({ kiosks, filters, activePreset, onKioskChange, onPreset, onStartDate, onEndDate, presets = KPI_PRESETS }) {
     const scrollRef = useRef(null);
 
     // Presets live in one horizontally-scrolling row (never wrap to a
@@ -44,7 +44,7 @@ export default function KpiFilters({ kiosks, filters, activePreset, onKioskChang
                 ref={scrollRef}
                 className="flex flex-nowrap gap-1 overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] max-[720px]:w-full [&::-webkit-scrollbar]:hidden"
             >
-                {KPI_PRESETS.map((p) => (
+                {presets.map((p) => (
                     <PillButton key={p.key} active={activePreset === p.key} onClick={() => onPreset(p.key)}>
                         {p.label}
                     </PillButton>

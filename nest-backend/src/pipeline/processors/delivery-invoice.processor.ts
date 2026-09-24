@@ -1,8 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import type { Kiosk, Prisma } from "@prisma/client";
 import type { KeyContext, ProcessingContext, SubmissionProcessor, ValidationResult } from "../submission-processor.interface.js";
+import { PrismaService } from "../../prisma/prisma.service.js";
 import { UploadService } from "../../upload/upload.service.js";
-import { InvoiceAiService } from "../../production-engine/invoice-ai.service.js";
+import { InvoiceAiService, invoiceReviewTitle, type ExtractionResult } from "../../production-engine/invoice-ai.service.js";
 
 type UploadedFile = { base64: string; mimeType: string; name: string };
 type UploadedFileRef = { id: string; url: string; name: string; page: number };
@@ -20,9 +21,10 @@ type DeliveryInvoicePayload = {
 /**
  * Delivery Invoices — port of backend/forms/FormDeliveryInvoice.js. One
  * response = one supplier document; every page belongs to the same
- * delivery_header. Runs AI extraction inline (see InvoiceAiService)
- * before returning — draft invoice_line rows come from that, never
- * written directly here. Owner approval is still required before any
+ * delivery_header. AI extraction runs in prepare() — before the
+ * transaction opens, because a vision call can take far longer than
+ * Prisma's 5s transaction limit (see InvoiceAiService) — and process()
+ * only writes its result as draft invoice_line rows. Owner approval is still required before any
  * line or stock_movement becomes real.
  */
 @Injectable()
@@ -33,6 +35,7 @@ export class DeliveryInvoiceProcessor implements SubmissionProcessor<DeliveryInv
     constructor(
         private readonly upload: UploadService,
         private readonly invoiceAi: InvoiceAiService,
+        private readonly prisma: PrismaService,
     ) {}
 
     validate(payload: unknown): ValidationResult {
@@ -76,6 +79,15 @@ export class DeliveryInvoiceProcessor implements SubmissionProcessor<DeliveryInv
         await tx.deliveryFile.deleteMany({ where: { delivery_header_id: { in: oldHeaderIds } } });
     }
 
+    /** Slow AI call, outside the transaction. Never throws — a failure comes back as { ok: false } and
+     * becomes a "manual entry needed" invoice review, not a failed submission. */
+    async prepare(ctx: ProcessingContext<DeliveryInvoicePayload>): Promise<void> {
+        const p = ctx.payload;
+        const supplier = p.supplier_id ? await this.prisma.supplier.findUnique({ where: { supplier_id: p.supplier_id } }) : null;
+        const files = (p.uploadedFiles ?? []).map((f) => ({ url: f.id, page: f.page }));
+        ctx.extra.extraction = await this.invoiceAi.extract(files, supplier?.supplier_id ?? null);
+    }
+
     async process(tx: Prisma.TransactionClient, ctx: ProcessingContext<DeliveryInvoicePayload>): Promise<string> {
         const p = ctx.payload;
         const supplier = await tx.supplier.findUnique({ where: { supplier_id: p.supplier_id } });
@@ -102,7 +114,9 @@ export class DeliveryInvoiceProcessor implements SubmissionProcessor<DeliveryInv
             fileRows.push(row);
         }
 
-        const ai = await this.invoiceAi.runExtraction(tx, header.delivery_header_id, fileRows, supplier?.supplier_id ?? null);
+        // prepare() always runs first; the fallback only guards a processor invoked without it.
+        const extraction = (ctx.extra.extraction as ExtractionResult | undefined) ?? { ok: false as const, error: "AI extraction did not run. Enter this invoice manually." };
+        const ai = await this.invoiceAi.persist(tx, header.delivery_header_id, fileRows.map((f) => f.delivery_file_id), extraction);
 
         await tx.deliveryHeader.update({ where: { delivery_header_id: header.delivery_header_id }, data: { status: "IN_REVIEW" } });
         await tx.ownerAction.create({
@@ -110,13 +124,10 @@ export class DeliveryInvoiceProcessor implements SubmissionProcessor<DeliveryInv
                 source_submission_id: ctx.submission.submission_id,
                 kiosk_id: ctx.kiosk.kiosk_id,
                 category: "INVOICE_REVIEW",
-                title:
-                    ai.ranOk && ai.lineCount > 0
-                        ? `Invoice review: ${ai.lineCount} line(s) extracted, ready for review`
-                        : ai.ranOk
-                          ? "Invoice review: AI found no lines — manual entry needed"
-                          : "Invoice review: AI extraction failed — manual entry needed",
-                owner_note: ai.ranOk ? null : ai.errorSummary,
+                title: invoiceReviewTitle(ai.ranOk, ai.lineCount),
+                // Deliberately NO owner_note: it is the owner's own field. The AI error (in plain words) lives on
+                // each delivery_file.ai_error and is shown next to the file — it used to be pasted here as raw
+                // JSON, which the owner saw as an "error" sitting in an empty Owner Note.
                 status: "OPEN",
                 priority: "NORMAL",
             },

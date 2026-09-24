@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { OwnerActionStateService } from "./owner-action-state.service.js";
 import { stockBalanceAsOf } from "../../common/stock-balance.util.js";
+import { endOfDay } from "../../common/date.util.js";
 
 @Injectable()
 export class StocktakeReviewService {
@@ -48,9 +49,12 @@ export class StocktakeReviewService {
 
     /**
      * Confirms a stocktake: for each current line, compares counted_qty
-     * against that stock item's full stock_movement ledger balance to
-     * date — self-correcting regardless of history depth. Any non-zero
-     * delta posts one STOCKTAKE_ADJUSTMENT movement.
+     * against that stock item's stock_movement ledger balance AS OF THE END
+     * OF THE STOCKTAKE'S DAY — self-correcting regardless of history depth,
+     * and correct however long after the count the owner confirms it. (Against
+     * the whole ledger to date, a delivery or transfer dated AFTER the count
+     * was folded into the adjustment, leaving the balance on the count day
+     * wrong.) Any non-zero delta posts one STOCKTAKE_ADJUSTMENT movement.
      */
     async confirm(stocktakeHeaderId: string, confirmedBy: string): Promise<void> {
         const header = await this.prisma.stocktakeHeader.findUnique({ where: { stocktake_header_id: stocktakeHeaderId } });
@@ -70,9 +74,10 @@ export class StocktakeReviewService {
         // transaction blew past Prisma's 5s interactive-transaction
         // timeout (confirmed live: 119 lines failed at ~5.4s in, the same
         // root cause as weekly-stocktake.processor.ts's submit-side bug).
+        const countDayEnd = endOfDay(header.stocktake_date);
         const movementRows = lines
             .map((line) => {
-                const balance = stockBalanceAsOf(movements, line.stock_item_id);
+                const balance = stockBalanceAsOf(movements, line.stock_item_id, countDayEnd);
                 const delta = Number(line.counted_qty) - balance;
                 if (delta === 0) return null;
                 const item = itemById.get(line.stock_item_id);

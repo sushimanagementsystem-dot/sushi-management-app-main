@@ -7,6 +7,14 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import RefreshButton from "@/components/dashboard/RefreshButton";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
+import { confirmModal } from "@/components/ConfirmModal";
+
+// Sonnet is what invoice reading has always used (fast, cheapest); Opus reads
+// messy/tilted photos more reliably at a higher price per invoice.
+const AI_MODELS = [
+    { value: "claude-sonnet-5", label: "Claude Sonnet 5 — fast and cheapest (recommended)" },
+    { value: "claude-opus-5", label: "Claude Opus 5 — most accurate, for messy photos" },
+];
 
 const inputCls = "w-full";
 const saveBtnCls =
@@ -72,9 +80,19 @@ export default function SiteConfigPage() {
     const [testError, setTestError] = useState("");
     const [testOk, setTestOk] = useState(false);
 
+    // The key field is write-only: it starts empty, is cleared after every
+    // save/test, and the server never sends the saved key back — only its
+    // last 4 characters (res.ai.keyHint).
+    const [ai, setAi] = useState({ apiKey: "", model: "claude-sonnet-5" });
+    const [aiSaved, setAiSaved] = useState(false);
+    const [aiError, setAiError] = useState("");
+    const [aiTestOk, setAiTestOk] = useState("");
+    const [aiTestError, setAiTestError] = useState("");
+
     useEffect(() => {
         if (hydrated.current || !res?.ok) return;
         hydrated.current = true;
+        setAi((a) => ({ ...a, model: configByCategory.ANTHROPIC?.config?.model || res.ai?.model || a.model }));
         setAdminEmail(configByCategory.ADMIN?.config?.email || "");
         setSmtp({
             host: configByCategory.SMTP?.config?.host || "",
@@ -178,7 +196,63 @@ export default function SiteConfigPage() {
         });
     }
 
+    const saveAiMutation = useApiMutation("save_site_config", {
+        onSuccess: (out) => {
+            if (!out.ok) {
+                setAiError(out.error || "Save failed.");
+                return;
+            }
+            setAiError("");
+            setAiTestOk("");
+            setAiTestError("");
+            setAiSaved(true);
+            setTimeout(() => setAiSaved(false), 2500);
+            setAi((a) => ({ ...a, apiKey: "" })); // the key never stays in the browser after it is saved
+            refetch();
+        },
+        onError: () => setAiError("Save failed."),
+    });
+
+    function saveAi() {
+        setAiError("");
+        // Blank key = leave the saved one as it is — omit it, or Save would wipe it.
+        saveAiMutation.mutate({ category: "ANTHROPIC", config: { model: ai.model }, secrets: ai.apiKey.trim() ? { apiKey: ai.apiKey.trim() } : {} });
+    }
+
+    async function removeAiKey() {
+        const ok = await confirmModal("Remove the saved Anthropic key? AI invoice reading stops working (unless the server has its own key) until you add a new one.", "Remove key", true);
+        if (!ok) return;
+        setAiError("");
+        saveAiMutation.mutate({ category: "ANTHROPIC", secrets: { apiKey: null } });
+    }
+
+    const testAiMutation = useApiMutation("test_anthropic_connection", {
+        onSuccess: (out) => {
+            refetch(); // the backend records the result either way, so the "Last test" badge should show this one
+            if (!out.ok) {
+                setAiTestError(out.error || "Test failed.");
+                setAiTestOk("");
+                return;
+            }
+            setAiTestError("");
+            setAiTestOk("Anthropic accepted this key for " + (out.model || "the selected model") + ".");
+        },
+        onError: (err) => {
+            setAiTestError(err?.message || "Test failed.");
+            setAiTestOk("");
+        },
+    });
+
+    function testAi() {
+        setAiTestError("");
+        setAiTestOk("");
+        testAiMutation.mutate({ apiKey: ai.apiKey.trim() || undefined, model: ai.model });
+    }
+
     const error = (res && res.ok === false && (res.error || "Failed to load.")) || (bootError && "Failed to load.");
+    const aiRow = configByCategory.ANTHROPIC;
+    const aiStatus = res?.ai || { source: "none", keyHint: null, model: "claude-sonnet-5" };
+    const aiModelOptions = AI_MODELS.some((m) => m.value === ai.model) ? AI_MODELS : [...AI_MODELS, { value: ai.model, label: ai.model }];
     const adminRow = configByCategory.ADMIN;
     const smtpRow = configByCategory.SMTP;
     const smtpConfigured = Boolean(smtpRow?.config?.host) && Boolean(smtpRow?.secretsSet?.password);
@@ -231,6 +305,100 @@ export default function SiteConfigPage() {
                                         {adminSaved && <span className="text-[0.8rem] font-semibold text-success-ink">Saved</span>}
                                     </div>
                                 </div>
+                            </SectionCard>
+
+                            <SectionCard
+                                title="AI — Claude (invoice reading)"
+                                description="The Anthropic API key used to read delivery invoices and turn them into purchases. Stored encrypted on the server and never shown again after saving."
+                                actions={
+                                    <div className="flex items-center gap-2">
+                                        {aiStatus.source === "none" ? (
+                                            <span className="rounded-full bg-line px-2.5 py-1 text-[0.72rem] font-semibold text-muted">Not configured</span>
+                                        ) : (
+                                            <span className="rounded-full bg-success-bg px-2.5 py-1 text-[0.72rem] font-semibold text-success-ink">Configured</span>
+                                        )}
+                                        <ConfigToggle
+                                            active={aiRow ? aiRow.isActive : true}
+                                            pending={toggleActiveMutation.isPending}
+                                            onToggle={() => toggleActive("ANTHROPIC", aiRow ? aiRow.isActive : true)}
+                                        />
+                                    </div>
+                                }
+                            >
+                                <div className="mb-4 text-[0.85rem]">
+                                    {aiStatus.source === "dashboard" && (
+                                        <span>
+                                            Using the key saved here (ends in <span className="font-mono font-semibold">{aiStatus.keyHint}</span>).
+                                        </span>
+                                    )}
+                                    {aiStatus.source === "environment" && (
+                                        <span>
+                                            Using the key set on the server (ends in <span className="font-mono font-semibold">{aiStatus.keyHint}</span>). A key saved below takes over from it.
+                                        </span>
+                                    )}
+                                    {aiStatus.source === "none" && (
+                                        <span className="text-danger-ink">No key yet, so invoices can&apos;t be read by AI. Paste one below.</span>
+                                    )}
+                                    {aiRow && !aiRow.isActive && aiRow.secretsSet?.apiKey && (
+                                        <div className="mt-1 text-[0.78rem] text-muted">The saved key is switched off (Inactive), so it is being ignored.</div>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-8 gap-y-[1.1rem] max-[720px]:grid-cols-1">
+                                    <div>
+                                        <label className="mb-[0.15rem] block text-[0.95rem] font-semibold">Anthropic API Key</label>
+                                        <input
+                                            type="password"
+                                            className={inputCls}
+                                            autoComplete="new-password"
+                                            spellCheck={false}
+                                            placeholder={aiRow?.secretsSet?.apiKey ? "•••••••• (saved — leave blank to keep)" : "sk-ant-..."}
+                                            value={ai.apiKey}
+                                            onChange={(e) => setAi((a) => ({ ...a, apiKey: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-[0.15rem] block text-[0.95rem] font-semibold">Model</label>
+                                        <select className={inputCls} value={ai.model} onChange={(e) => setAi((a) => ({ ...a, model: e.target.value }))}>
+                                            {aiModelOptions.map((m) => (
+                                                <option key={m.value} value={m.value}>
+                                                    {m.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                {aiError && <div className="mt-2 text-[0.8rem] text-danger-ink">{aiError}</div>}
+                                <div className="mt-4 flex flex-wrap items-center gap-3">
+                                    <button disabled={saveAiMutation.isPending} className={saveBtnCls} onClick={saveAi}>
+                                        {saveAiMutation.isPending ? "Saving…" : "Save"}
+                                    </button>
+                                    <button disabled={testAiMutation.isPending} className={saveBtnCls} onClick={testAi}>
+                                        {testAiMutation.isPending ? "Testing…" : ai.apiKey.trim() ? "Test this key" : "Test saved key"}
+                                    </button>
+                                    {aiRow?.secretsSet?.apiKey && (
+                                        <button
+                                            disabled={saveAiMutation.isPending}
+                                            className="rounded-lg border border-line bg-transparent px-4 py-[0.6rem] text-[0.9rem] font-semibold text-danger-ink disabled:opacity-50"
+                                            onClick={removeAiKey}
+                                        >
+                                            Remove saved key
+                                        </button>
+                                    )}
+                                    {aiSaved && <span className="text-[0.8rem] font-semibold text-success-ink">Saved</span>}
+                                </div>
+                                {aiTestError && <div className="mt-2 text-[0.8rem] text-danger-ink">{aiTestError}</div>}
+                                {!aiTestError && !aiTestOk && aiRow?.lastTestResult === "failed" && aiRow.lastTestError && (
+                                    <div className="mt-2 text-[0.8rem] text-danger-ink">Last test failed: {aiRow.lastTestError}</div>
+                                )}
+                                {aiTestOk && <div className="mt-2 text-[0.8rem] font-semibold text-success-ink">{aiTestOk}</div>}
+                                {aiRow?.lastTestedAt && (
+                                    <div className="mt-2 text-[0.72rem] text-muted">
+                                        Last test: {new Date(aiRow.lastTestedAt).toLocaleString()} —{" "}
+                                        <span className={aiRow.lastTestResult === "success" ? "font-semibold text-success-ink" : "font-semibold text-danger-ink"}>
+                                            {aiRow.lastTestResult === "success" ? "Success" : "Failed"}
+                                        </span>
+                                    </div>
+                                )}
                             </SectionCard>
 
                             <SectionCard

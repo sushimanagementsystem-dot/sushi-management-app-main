@@ -10,6 +10,6 @@ export class IssuesController {
 
     @Post("bootstrap_issues")
     bootstrap(@Body() dto: IssuesDto) {
-        return this.service.bootstrap(dto.offset, dto.limit);
+        return this.service.bootstrap(dto.offset, dto.limit, dto.range);
     }
 }

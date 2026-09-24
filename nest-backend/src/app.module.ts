@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { KioskModule } from './kiosk/kiosk.module.js';
 import { ReferenceDataModule } from './reference-data/reference-data.module.js';
 import { MailerModule } from './mailer/mailer.module.js';
+import { SecretsModule } from './secrets/secrets.module.js';
 import { PipelineModule } from './pipeline/pipeline.module.js';
 import { FormsModule } from './forms/forms.module.js';
 import { UploadModule } from './upload/upload.module.js';
@@ -25,6 +26,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    SecretsModule,
     ReferenceDataModule,
     MailerModule,
     UploadModule,

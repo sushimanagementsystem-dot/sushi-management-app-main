@@ -9,7 +9,9 @@ import SectionCard from "@/components/dashboard/SectionCard";
 import KpiFilters from "@/components/dashboard/KpiFilters";
 import RefreshButton from "@/components/dashboard/RefreshButton";
 import { useBootstrap } from "@/lib/queries";
-import { dateFiltersFromQuery, moneyStr, presetRange, qtyStr, writeDateFiltersToQuery } from "@/lib/kpiUtils";
+import PillButton from "@/components/dashboard/PillButton";
+import { LayoutGrid, Store } from "lucide-react";
+import { LOOKBACK_PRESETS, dateFiltersFromQuery, moneyStr, presetRange, qtyStr, writeDateFiltersToQuery } from "@/lib/kpiUtils";
 
 /**
  * Staff Food — kiosk-wise and date-wise breakdown of comped staff meals,
@@ -21,7 +23,7 @@ import { dateFiltersFromQuery, moneyStr, presetRange, qtyStr, writeDateFiltersTo
  * that same number, not a second figure to keep in sync by hand.
  */
 export default function StaffFoodPage() {
-    const initial = dateFiltersFromQuery("last30");
+    const initial = dateFiltersFromQuery("last30", LOOKBACK_PRESETS);
     const [filters, setFilters] = useState({ startDate: initial.startDate, endDate: initial.endDate });
     const [activePreset, setActivePreset] = useState(initial.preset);
 
@@ -51,10 +53,11 @@ export default function StaffFoodPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Staff Food"
-                        description="Kiosk-wise and date-wise staff meal costs — this same figure feeds the Profit tab's net profit calculation."
+                        description="Which products staff are taking, per kiosk, with quantity and cost — plus kiosk-wise and date-wise totals. The same cost feeds the Profit tab's net profit."
                         actions={<RefreshButton onRefetch={refetch} />}
                     >
                         <KpiFilters
+                            presets={LOOKBACK_PRESETS}
                             filters={filters}
                             activePreset={activePreset}
                             onPreset={applyPreset}
@@ -108,6 +111,150 @@ function OverallTotals({ res }) {
                 </div>
             ))}
         </div>
+    );
+}
+
+const ALL_KIOSKS = "__all__";
+const TH = "whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted";
+const TD = "whitespace-nowrap border-b border-line px-[0.9rem] py-2.5";
+
+/** A product's cost cell: the priced cost, plus a plain note for units that could not be priced. */
+function CostCell({ cost, qty, uncostedQty }) {
+    if (uncostedQty >= qty && qty > 0) return <span className="text-[0.75rem] text-muted">not costed</span>;
+    return (
+        <>
+            {moneyStr(cost)}
+            {uncostedQty > 0 && <div className="text-[0.68rem] font-normal text-muted">+ {qtyStr(uncostedQty)} not costed</div>}
+        </>
+    );
+}
+
+/**
+ * What is actually being taken as staff food: per kiosk (or all kiosks side by side), every product with its quantity
+ * and cost over the chosen range. Built from the same rows as the totals, so the columns add up to them.
+ */
+function ProductBreakdown({ res }) {
+    const [kioskId, setKioskId] = useState(ALL_KIOSKS);
+    const kiosks = res.kiosks || [];
+    const products = res.products || { byKiosk: {}, all: [] };
+    const single = kioskId !== ALL_KIOSKS;
+    const rows = single ? products.byKiosk[kioskId] || [] : products.all;
+    const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+    const totalCost = rows.reduce((s, r) => s + r.cost, 0);
+    const qtyByKiosk = (productId, kId) => (products.byKiosk[kId] || []).find((r) => r.productId === productId)?.qty || 0;
+
+    return (
+        <SectionCard title="Products taken" className="mb-5">
+            <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                <PillButton active={!single} onClick={() => setKioskId(ALL_KIOSKS)} icon={LayoutGrid}>
+                    All kiosks
+                </PillButton>
+                {kiosks.map((k) => (
+                    <PillButton key={k.id} active={kioskId === k.id} onClick={() => setKioskId(k.id)} icon={Store}>
+                        {k.name}
+                    </PillButton>
+                ))}
+                <span className="ml-1 text-[0.78rem] text-muted">
+                    {res.startDate} to {res.endDate}
+                </span>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-line">
+                <div className="overflow-x-auto">
+                    <table className="w-full border-collapse bg-card text-[0.85rem]">
+                        <thead>
+                            <tr>
+                                <th className={TH + " text-left"}>Product</th>
+                                {single ? (
+                                    <>
+                                        <th className={TH + " text-right"}>Units</th>
+                                        <th className={TH + " text-right"}>Unit cost</th>
+                                        <th className={TH + " text-right"}>Cost</th>
+                                        <th className={TH + " text-right"}>Share</th>
+                                        <th className={TH + " text-right"}>Last taken</th>
+                                    </>
+                                ) : (
+                                    <>
+                                        {kiosks.map((k) => (
+                                            <th key={k.id} className={TH + " text-right"}>
+                                                {k.name}
+                                            </th>
+                                        ))}
+                                        <th className={TH + " text-right"}>Total units</th>
+                                        <th className={TH + " text-right"}>Cost</th>
+                                    </>
+                                )}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((r) => (
+                                <tr key={r.productId} className="transition-colors duration-100 hover:bg-panel/70">
+                                    <td className={TD + " font-medium text-ink"}>{r.name}</td>
+                                    {single ? (
+                                        <>
+                                            <td className={TD + " text-right tabular-nums"}>{qtyStr(r.qty)}</td>
+                                            <td className={TD + " text-right tabular-nums text-muted"}>{r.unitCost === null ? "not set" : moneyStr(r.unitCost)}</td>
+                                            <td className={TD + " text-right tabular-nums"}>
+                                                <CostCell cost={r.cost} qty={r.qty} uncostedQty={r.uncostedQty} />
+                                            </td>
+                                            <td className={TD + " text-right tabular-nums text-muted"}>{totalQty ? Math.round((r.qty / totalQty) * 100) + "%" : ""}</td>
+                                            <td className={TD + " text-right text-muted"}>{r.lastTaken}</td>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {kiosks.map((k) => {
+                                                const q = qtyByKiosk(r.productId, k.id);
+                                                return (
+                                                    <td key={k.id} className={TD + " text-right tabular-nums " + (q ? "text-ink" : "text-muted")}>
+                                                        {q ? qtyStr(q) : "–"}
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className={TD + " text-right font-semibold tabular-nums text-ink"}>{qtyStr(r.qty)}</td>
+                                            <td className={TD + " text-right tabular-nums"}>
+                                                <CostCell cost={r.cost} qty={r.qty} uncostedQty={r.uncostedQty} />
+                                            </td>
+                                        </>
+                                    )}
+                                </tr>
+                            ))}
+                            {!rows.length && (
+                                <tr>
+                                    <td colSpan={single ? 6 : kiosks.length + 3} className="px-[0.9rem] py-6 text-center text-muted">
+                                        No staff food logged in this range.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                        {rows.length > 0 && (
+                            <tfoot>
+                                <tr>
+                                    <td className={TD + " font-semibold text-ink"}>Total</td>
+                                    {single ? (
+                                        <>
+                                            <td className={TD + " text-right font-semibold tabular-nums text-ink"}>{qtyStr(totalQty)}</td>
+                                            <td className={TD}></td>
+                                            <td className={TD + " text-right font-semibold tabular-nums text-ink"}>{moneyStr(totalCost)}</td>
+                                            <td className={TD}></td>
+                                            <td className={TD}></td>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {kiosks.map((k) => (
+                                                <td key={k.id} className={TD + " text-right font-semibold tabular-nums text-ink"}>
+                                                    {qtyStr((products.byKiosk[k.id] || []).reduce((s, r) => s + r.qty, 0))}
+                                                </td>
+                                            ))}
+                                            <td className={TD + " text-right font-semibold tabular-nums text-ink"}>{qtyStr(totalQty)}</td>
+                                            <td className={TD + " text-right font-semibold tabular-nums text-ink"}>{moneyStr(totalCost)}</td>
+                                        </>
+                                    )}
+                                </tr>
+                            </tfoot>
+                        )}
+                    </table>
+                </div>
+            </div>
+        </SectionCard>
     );
 }
 
@@ -185,6 +332,15 @@ function StaffFoodReport({ res }) {
     return (
         <>
             <OverallTotals res={res} />
+
+            {res.grandTotal.uncostedQty > 0 && (
+                <p className="-mt-1 mb-4 text-[0.78rem] text-muted">
+                    {qtyStr(res.grandTotal.uncostedQty)} unit(s) are of products that have no cost set yet, so they are counted in the units but not in the costs. Set the
+                    unit cost in Product Prices and they are priced automatically.
+                </p>
+            )}
+
+            <ProductBreakdown res={res} />
 
             <KioskCostTable
                 title="Weekly totals"

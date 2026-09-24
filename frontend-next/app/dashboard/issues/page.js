@@ -7,7 +7,18 @@ import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import RefreshButton from "@/components/dashboard/RefreshButton";
+import DashSelect from "@/components/dashboard/DashSelect";
 import { useBootstrap } from "@/lib/queries";
+
+// Keys match the backend's DATE_RANGE_KEYS. "This week" is the default because
+// it is what this page always showed: this week's stock variances, and today's
+// missing tasks / waste alerts.
+const DATE_RANGES = [
+    { key: "today", label: "Today", empty: "today" },
+    { key: "yesterday", label: "Yesterday", empty: "yesterday" },
+    { key: "week", label: "This week", empty: "this week" },
+    { key: "all", label: "All time", empty: "on record" },
+];
 
 const CATEGORY_ICON = {
     MISSING_TASK: ClipboardX,
@@ -20,9 +31,9 @@ const PAGE_SIZE = 15;
 
 /** "Today" / "Yesterday" / a short date — same day-label convention the
  * All Submissions page uses, so a date reads the same way everywhere on
- * the dashboard. Most issues are dated today (missing tasks, rate
- * outliers are always evaluated as of today); a stock variance can be
- * dated earlier in the week, which is exactly what this label surfaces. */
+ * the dashboard. Missing tasks and rate outliers are dated to the day
+ * they were evaluated as of; a stock variance keeps its own stocktake
+ * date, which is exactly what this label surfaces. */
 function formatIssueDate(dateStr) {
     const d = new Date(dateStr + "T00:00:00Z");
     const today = new Date();
@@ -40,11 +51,12 @@ function formatIssueDate(dateStr) {
  * the dashboard and see kiosk + problem in one glance instead of checking
  * Task Completion, Stock Variances, and Kiosk Comparison separately to
  * notice the same three things. Every row is computed by bootstrap_issues
- * from those same underlying services (today's missing daily tasks, this
- * week's stock variances, and waste/damage rates well above the other
- * kiosks' average) — nothing here is a second, independently-tracked
- * signal, so an issue closing itself out (task submitted, variance
- * resolved) just means it stops appearing on the next refresh.
+ * from the same underlying services (missing daily tasks, stock variances,
+ * and waste/damage rates clearly above a kiosk's own usual level) —
+ * nothing here is a second, independently-tracked signal, so an issue
+ * closing itself out (task submitted, variance resolved) just means it
+ * stops appearing on the next refresh. The date dropdown picks the range:
+ * variances inside it, and the missing-task / waste checks as of its last day.
  */
 export default function IssuesPage() {
     // limit grows 15 at a time on "Load more" — the backend does the
@@ -53,6 +65,7 @@ export default function IssuesPage() {
     // ships the 15 rows actually shown instead of every issue that
     // exists, and that only grows as more issues accumulate.
     const [limit, setLimit] = useState(PAGE_SIZE);
+    const [range, setRange] = useState("week");
     // placeholderData keeps the current page's rows on screen while the
     // next (bigger) page loads, instead of the whole list flashing back
     // to a spinner on every "Load more" click — isPending below still
@@ -62,7 +75,7 @@ export default function IssuesPage() {
         isPending: loading,
         error: bootError,
         refetch,
-    } = useBootstrap("bootstrap_issues", { limit }, { placeholderData: (prev) => prev });
+    } = useBootstrap("bootstrap_issues", { limit, range }, { placeholderData: (prev) => prev });
     const error = (res && res.ok === false && (res.error || "Failed to load.")) || (bootError && "Failed to load.");
 
     async function handleRefresh() {
@@ -86,14 +99,24 @@ export default function IssuesPage() {
                     )}
                     {error && <div className="text-danger-ink">{error}</div>}
 
-                    {!loading && res && !error && <IssuesList res={res} onLoadMore={() => setLimit((l) => l + PAGE_SIZE)} />}
+                    {!loading && res && !error && (
+                        <IssuesList
+                            res={res}
+                            range={range}
+                            onRangeChange={(next) => {
+                                setLimit(PAGE_SIZE); // a different range is a different list, so back to page one
+                                setRange(next);
+                            }}
+                            onLoadMore={() => setLimit((l) => l + PAGE_SIZE)}
+                        />
+                    )}
                 </div>
             </DashboardShell>
         </>
     );
 }
 
-function IssuesList({ res, onLoadMore }) {
+function IssuesList({ res, range, onRangeChange, onLoadMore }) {
     // Already sorted most-urgent-first by the backend (severity desc, then
     // kiosk name), and already paginated server-side to `limit` rows.
     const issues = res.issues || [];
@@ -103,6 +126,13 @@ function IssuesList({ res, onLoadMore }) {
     return (
         <>
             <div className="mb-4 flex flex-wrap items-center gap-2.5">
+                <DashSelect value={range} onChange={(e) => onRangeChange(e.target.value)} aria-label="Date range">
+                    {DATE_RANGES.map((r) => (
+                        <option key={r.key} value={r.key}>
+                            {r.label}
+                        </option>
+                    ))}
+                </DashSelect>
                 <div
                     className={
                         "flex items-center gap-2 rounded-full px-[0.65rem] py-[0.2rem] text-[0.78rem] font-semibold " +
@@ -122,7 +152,7 @@ function IssuesList({ res, onLoadMore }) {
             <SectionCard title="Open issues" className="mb-0">
                 {!issues.length ? (
                     <p className="py-6 text-center text-[0.9rem] text-muted">
-                        No open issues — every kiosk is up to date on today's tasks, stock counts, and waste rates.
+                        No issues {DATE_RANGES.find((r) => r.key === range)?.empty}: every kiosk is up to date on tasks, stock counts, and waste rates.
                     </p>
                 ) : (
                     <>

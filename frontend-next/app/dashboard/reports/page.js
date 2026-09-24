@@ -357,7 +357,11 @@ function ProfitReport({ filters }) {
         col("waste", "Waste Cost", (r) => moneyStr(r.wasteCost), "right"),
         col("damage", "Damage Cost", (r) => moneyStr(r.damageCost), "right"),
         col("staffFood", "Staff Food Cost", (r) => moneyStr(r.staffFoodCost), "right"),
-        col("net", "Net Profit", (r) => (r.netProfit === null ? "—" : moneyStr(r.netProfit)), "right"),
+        col("fixed", "Fixed Costs", (r) => (r.fixedCosts === null ? "—" : moneyStr(r.fixedCosts)), "right"),
+        col("misc", "Misc Costs", (r) => (r.miscCosts === null ? "—" : moneyStr(r.miscCosts)), "right"),
+        col("gross", "Gross Profit", (r) => (r.grossProfit === null ? "—" : moneyStr(r.grossProfit)), "right"),
+        col("labour", "Labour", (r) => (r.labourCost === null ? (r.labourHours === null ? "—" : "rate not set") : moneyStr(r.labourCost)), "right"),
+        col("ebitda", "EBITDA Profit", (r) => (r.ebitda === null ? "—" : moneyStr(r.ebitda)), "right"),
     ];
     return (
         <ReportShell

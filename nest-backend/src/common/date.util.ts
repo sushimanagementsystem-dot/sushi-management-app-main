@@ -34,3 +34,8 @@ export function startOfWeekUtc(date: Date): Date {
     const diffToMonday = day === 0 ? -6 : 1 - day;
     return addDays(date, diffToMonday);
 }
+
+/** The last millisecond of `date`'s UTC calendar day — for "as of the end of that day" balances when rows carry a time of day. */
+export function endOfDay(date: Date): Date {
+    return new Date(new Date(`${toDateStr(date)}T00:00:00Z`).getTime() + 86_400_000 - 1);
+}

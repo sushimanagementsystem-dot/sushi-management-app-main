@@ -18,19 +18,33 @@ const MODAL_BOX =
     "max-h-[calc(100vh-4rem)] w-[32rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-card bg-card p-[1.4rem] shadow-elevate-3 " +
     "max-[720px]:w-full max-[720px]:max-w-full max-[720px]:max-h-[88vh] max-[720px]:rounded-b-none max-[720px]:rounded-t-[1.2rem] max-[720px]:p-[1.1rem]";
 
+// `help` is the column's plain-English definition, shown on hover and in the
+// key under the table — the waste columns in particular are easy to misread.
 const COLUMNS = [
-    "Kiosk",
-    "Waste Cost",
-    "Waste Rate %",
-    "Damage Cost",
-    "Damage Rate /100",
-    "Staff Food Cost",
-    "Stocktake",
-    "Deliveries",
-    "Unmapped Lines",
-    "Approved Value",
-    "Coverage",
+    { label: "Kiosk" },
+    {
+        label: "Morning Waste Cost",
+        help: "Cost of the expired finished products binned in the Morning Waste form during the period: units x product unit cost. A product with no unit cost yet cannot be valued (counted in the note under the figure). Does not include Food Waste.",
+    },
+    {
+        label: "Morning Waste Rate %",
+        help: "Morning-waste units divided by the units planned for the batches they came from (the production plan of the day each was made, not of the day it was binned). Waste with no plan behind it is left out.",
+    },
+    { label: "Food Waste", help: "Raw stock items thrown away in the Food Waste form, in grams. Costed only where the item has a cost per 100g set; not part of Morning Waste Cost." },
+    { label: "Damage Cost" },
+    { label: "Damage Rate /100" },
+    { label: "Staff Food Cost" },
+    { label: "Stocktake" },
+    { label: "Deliveries" },
+    { label: "Unmapped Lines" },
+    { label: "Approved Value" },
+    { label: "Coverage" },
 ];
+
+/** Grams as g under a kilo, kg above — Food Waste is logged in grams. */
+function gramsStr(g) {
+    return g >= 1000 ? qtyStr(g / 1000) + " kg" : qtyStr(g) + " g";
+}
 
 export default function KioskComparisonPage() {
     const initial = dateFiltersFromQuery("last7");
@@ -100,10 +114,12 @@ export default function KioskComparisonPage() {
                                             <tr>
                                                 {COLUMNS.map((c) => (
                                                     <th
-                                                        key={c}
+                                                        key={c.label}
+                                                        title={c.help}
                                                         className="whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
                                                     >
-                                                        {c}
+                                                        {c.label}
+                                                        {c.help && <span className="ml-1 cursor-help normal-case text-muted/70">ⓘ</span>}
                                                     </th>
                                                 ))}
                                             </tr>
@@ -116,6 +132,13 @@ export default function KioskComparisonPage() {
                                     </table>
                                 </div>
                             </div>
+                            <ul className="mt-3 flex list-none flex-col gap-1 p-0 text-[0.75rem] text-muted">
+                                {COLUMNS.filter((c) => c.help).map((c) => (
+                                    <li key={c.label}>
+                                        <span className="font-semibold text-ink">{c.label}:</span> {c.help}
+                                    </li>
+                                ))}
+                            </ul>
                         </SectionCard>
                     )}
                 </div>
@@ -132,10 +155,16 @@ function Td({ children, rate }) {
     );
 }
 
+/** The small grey line under a figure — the units/denominator it came from. */
+function Sub({ children }) {
+    return <div className="text-[0.68rem] font-normal text-muted">{children}</div>;
+}
+
 function CompareRow({ kiosk, res }) {
     const kioskId = kiosk.id;
     const waste = (res.movementStats[kioskId] || {}).EXPIRED_WASTE || { qty: 0, cost: 0, uncostedCount: 0 };
     const damage = (res.movementStats[kioskId] || {}).DAMAGE || { qty: 0, cost: 0, uncostedCount: 0 };
+    const foodWaste = (res.foodWaste || {})[kioskId] || { qty: 0, cost: 0, count: 0, uncostedCount: 0 };
     const staffFood = (res.staffFood[kioskId] || {}).total || { cost: 0 };
     const rates = res.damageWasteRates[kioskId] || { plannedQty: 0, damage: { ratePer100: null }, waste: { ratePct: null } };
     const stocktake = res.stocktakeStatus[kioskId] || { status: "MISSING" };
@@ -149,8 +178,21 @@ function CompareRow({ kiosk, res }) {
     return (
         <tr className="transition-colors duration-100 hover:bg-panel/70">
             <Td>{kiosk.name}</Td>
-            <Td>{moneyStr(waste.cost)}</Td>
-            <Td rate>{rates.waste.ratePct === null ? "n/a" : rates.waste.ratePct + "%"}</Td>
+            <Td>
+                {moneyStr(waste.cost)}
+                <Sub>
+                    {waste.qty} unit{waste.qty === 1 ? "" : "s"}
+                    {waste.uncostedCount > 0 && ` · ${waste.uncostedCount} not costed`}
+                </Sub>
+            </Td>
+            <Td rate>
+                {rates.waste.ratePct === null ? "n/a" : rates.waste.ratePct + "%"}
+                {rates.waste.rateBase > 0 && <Sub>{`${qtyStr(rates.waste.rateUnits)} of ${qtyStr(rates.waste.rateBase)} planned`}</Sub>}
+            </Td>
+            <Td>
+                {foodWaste.count === 0 ? "—" : gramsStr(foodWaste.qty)}
+                {foodWaste.count > 0 && <Sub>{foodWaste.uncostedCount === foodWaste.count ? "not costed" : moneyStr(foodWaste.cost) + (foodWaste.uncostedCount ? ` · ${foodWaste.uncostedCount} not costed` : "")}</Sub>}
+            </Td>
             <Td>{moneyStr(damage.cost)}</Td>
             <Td rate>{rates.damage.ratePer100 === null ? "n/a" : rates.damage.ratePer100}</Td>
             <Td>{moneyStr(staffFood.cost)}</Td>

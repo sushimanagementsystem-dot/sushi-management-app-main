@@ -80,6 +80,14 @@ export class PipelineService {
                 extra: {},
             };
 
+            // Slow network work (AI extraction) happens here, outside the
+            // transaction below — see SubmissionProcessor.prepare.
+            if (processor.prepare) {
+                stage = "prepare";
+                ctx.stage = stage;
+                await processor.prepare(ctx);
+            }
+
             let status = await this.prisma.$transaction(async (tx) => {
                 stage = "clear previous rows";
                 ctx.stage = stage;

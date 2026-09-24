@@ -2,10 +2,13 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { SettingsService } from "../../reference-data/settings.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
-import { addDays, startOfTodayUtc, toDateStr } from "../../common/date.util.js";
+import { addDays, endOfDay, startOfTodayUtc, toDateStr } from "../../common/date.util.js";
+import { movementCost, productCostMap } from "../../common/movement-cost.util.js";
 import { stockBalanceAsOf } from "../../common/stock-balance.util.js";
 import { emptyStats, type StatTotals } from "./kpi.types.js";
-import type { Kiosk, StockItem, StockMovement } from "@prisma/client";
+import type { Kiosk, Product, StockItem, StockMovement } from "@prisma/client";
+import { WasteRateService } from "./waste-rate.service.js";
+import { ratePct, type RateSample } from "./waste-cohort.js";
 
 /**
  * Owner-facing KPI Dashboard, Kiosk Comparison, and Stock Usage View —
@@ -21,6 +24,7 @@ export class KpiService {
         private readonly prisma: PrismaService,
         private readonly settings: SettingsService,
         private readonly tableCache: TableCacheService,
+        private readonly wasteRate: WasteRateService,
     ) {}
 
     private async activeKiosks(): Promise<Kiosk[]> {
@@ -38,7 +42,7 @@ export class KpiService {
         const kiosks = await this.activeKiosks();
         const kioskIds = kioskId ? [kioskId] : kiosks.map((k) => k.kiosk_id);
 
-        const [movement, staffFood, stocktakeStatus, deliveryInvoice, ownerActionCounts, plannedByKiosk, previousMovement] = await Promise.all([
+        const [movement, staffFood, stocktakeStatus, deliveryInvoice, ownerActionCounts, plannedByKiosk, previousMovement, wasteSamples] = await Promise.all([
             this.computeProductMovementStats(kioskIds, range.startDate, range.endDate),
             this.computeStaffFoodBreakdown(kioskIds, range.startDate, range.endDate),
             this.computeStocktakeStatus(kioskIds),
@@ -46,8 +50,9 @@ export class KpiService {
             this.computeOwnerActionCounts(),
             this.fetchPlannedQtyByKiosk(kioskIds, range.startDate, range.endDate),
             this.computeProductMovementStats(kioskIds, prevRange.startDate, prevRange.endDate),
+            this.fetchWasteSamples(kioskIds, range.startDate, range.endDate),
         ]);
-        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movement.stats, plannedByKiosk);
+        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movement.stats, plannedByKiosk, wasteSamples);
 
         return {
             startDate: toDateStr(range.startDate),
@@ -72,27 +77,31 @@ export class KpiService {
         const kiosks = await this.activeKiosks();
         const kioskIds = kiosks.map((k) => k.kiosk_id);
 
-        const [movement, staffFood, stocktakeStatus, deliveryInvoice, plannedByKiosk] = await Promise.all([
+        const [movement, staffFood, stocktakeStatus, deliveryInvoice, plannedByKiosk, wasteSamples, foodWaste] = await Promise.all([
             this.computeProductMovementStats(kioskIds, range.startDate, range.endDate),
             this.computeStaffFoodBreakdown(kioskIds, range.startDate, range.endDate),
             this.computeStocktakeStatus(kioskIds),
             this.computeDeliveryInvoiceStats(kioskIds, range.startDate, range.endDate),
             this.fetchPlannedQtyByKiosk(kioskIds, range.startDate, range.endDate),
+            this.fetchWasteSamples(kioskIds, range.startDate, range.endDate),
+            this.computeFoodWasteStats(kioskIds, range.startDate, range.endDate),
         ]);
-        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movement.stats, plannedByKiosk);
+        const damageWasteRates = this.computeDamageWasteRates(kioskIds, movement.stats, plannedByKiosk, wasteSamples);
 
-        return { startDate: toDateStr(range.startDate), endDate: toDateStr(range.endDate), kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })), movementStats: movement.stats, damageWasteRates, staffFood, stocktakeStatus, deliveryInvoice };
+        return { startDate: toDateStr(range.startDate), endDate: toDateStr(range.endDate), kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })), movementStats: movement.stats, damageWasteRates, foodWaste, staffFood, stocktakeStatus, deliveryInvoice };
     }
 
-    /** Bounded by two COMPLETE stocktake_header rows, not a free date range —
-     * the formula is anchored to stocktake events. */
+    /** Bounded by two stocktakes, not a free date range — the formula is anchored to stocktake events. Only
+     * COMPLETE stocktakes the owner has CONFIRMED count: confirming is what posts the correcting movements that
+     * make the ledger balance on that day equal what was counted, so before that (or after a decline) the
+     * "opening" and "closing" here would be the raw ledger, not the count. */
     async bootstrapStockUsage(kioskId: string | undefined, openingHeaderId: string | undefined, closingHeaderId: string | undefined) {
         const kiosks = (await this.activeKiosks()).map((k) => ({ id: k.kiosk_id, name: k.name }));
 
         if (!kioskId) return { kiosks, kioskId: "", available: false, reason: "Pick a kiosk." };
 
         const completeHeaders = await this.prisma.stocktakeHeader.findMany({
-            where: { kiosk_id: kioskId, completion_status: "COMPLETE" },
+            where: { kiosk_id: kioskId, completion_status: "COMPLETE", reconciliation_status: "CONFIRMED" },
             orderBy: { stocktake_date: "desc" },
         });
 
@@ -101,7 +110,7 @@ export class KpiService {
                 kiosks,
                 kioskId,
                 available: false,
-                reason: "Need at least two complete stocktakes for this kiosk.",
+                reason: "Need at least two confirmed stocktakes for this kiosk. A weekly stocktake counts here once the owner has confirmed it in the Action Inbox.",
                 completeStocktakes: completeHeaders.map((h) => ({ id: h.stocktake_header_id, date: toDateStr(h.stocktake_date) })),
             };
         }
@@ -150,7 +159,12 @@ export class KpiService {
         startDate: Date,
         endDate: Date,
     ): Promise<{ stats: Record<string, Record<string, StatTotals>>; byDate: Record<string, Record<string, Record<string, number>>> }> {
-        const rows = await this.prisma.productMovement.findMany({ where: { kiosk_id: { in: kioskIds }, movement_date: { gte: startDate, lte: endDate } } });
+        const [rows, products] = await Promise.all([
+            // "before the next midnight", not "<= midnight": movement_date can carry a time of day.
+            this.prisma.productMovement.findMany({ where: { kiosk_id: { in: kioskIds }, movement_date: { gte: startDate, lt: addDays(endDate, 1) } } }),
+            this.tableCache.getAll<Product>("product"),
+        ]);
+        const productCost = productCostMap(products);
         const stats: Record<string, Record<string, StatTotals>> = {};
         const byDate: Record<string, Record<string, Record<string, number>>> = {};
         for (const k of kioskIds) {
@@ -160,16 +174,16 @@ export class KpiService {
         for (const r of rows) {
             const bucket = stats[r.kiosk_id]?.[r.movement_type];
             if (!bucket) continue;
-            const uncosted = r.cost === null;
-            const cost = uncosted ? 0 : Number(r.cost);
-            bucket.qty += Number(r.qty) || 0;
-            bucket.cost += cost;
+            const qty = Number(r.qty) || 0;
+            const cost = movementCost(r, qty, productCost);
+            bucket.qty += qty;
+            bucket.cost += cost ?? 0;
             bucket.count += 1;
-            if (uncosted) bucket.uncostedCount += 1;
+            if (cost === null) bucket.uncostedCount += 1;
             const dateBucket = byDate[r.kiosk_id]?.[r.movement_type];
             if (dateBucket) {
                 const d = toDateStr(r.movement_date);
-                dateBucket[d] = (dateBucket[d] ?? 0) + cost;
+                dateBucket[d] = (dateBucket[d] ?? 0) + (cost ?? 0);
             }
         }
         return { stats, byDate };
@@ -187,20 +201,25 @@ export class KpiService {
     }
 
     private async computeStaffFoodBreakdown(kioskIds: string[], startDate: Date, endDate: Date) {
-        const rows = await this.prisma.productMovement.findMany({
-            where: { kiosk_id: { in: kioskIds }, movement_type: "STAFF_FOOD", movement_date: { gte: startDate, lte: endDate } },
-        });
+        const [rows, products] = await Promise.all([
+            this.prisma.productMovement.findMany({
+                where: { kiosk_id: { in: kioskIds }, movement_type: "STAFF_FOOD", movement_date: { gte: startDate, lt: addDays(endDate, 1) } },
+            }),
+            this.tableCache.getAll<Product>("product"),
+        ]);
+        const productCost = productCostMap(products);
         const out: Record<string, { total: StatTotals; byDate: Record<string, number> }> = {};
         for (const k of kioskIds) out[k] = { total: emptyStats(), byDate: {} };
         for (const r of rows) {
             const bucket = out[r.kiosk_id];
             if (!bucket) continue;
-            const uncosted = r.cost === null;
-            const cost = uncosted ? 0 : Number(r.cost);
-            bucket.total.qty += Number(r.qty) || 0;
+            const qty = Number(r.qty) || 0;
+            const priced = movementCost(r, qty, productCost);
+            const cost = priced ?? 0;
+            bucket.total.qty += qty;
             bucket.total.cost += cost;
             bucket.total.count += 1;
-            if (uncosted) bucket.total.uncostedCount += 1;
+            if (priced === null) bucket.total.uncostedCount += 1;
             const d = toDateStr(r.movement_date);
             bucket.byDate[d] = (bucket.byDate[d] ?? 0) + cost;
         }
@@ -228,22 +247,50 @@ export class KpiService {
         return plannedByKiosk;
     }
 
+    /** Morning-waste samples for the period, per kiosk — what the Waste Rate % is worked out from. */
+    private async fetchWasteSamples(kioskIds: string[], startDate: Date, endDate: Date): Promise<Map<string, RateSample>> {
+        const samples = await this.wasteRate.samples("EXPIRED_WASTE", kioskIds, [{ from: toDateStr(startDate), to: toDateStr(endDate) }]);
+        return new Map([...samples].map(([kiosk, [sample]]) => [kiosk, sample!]));
+    }
+
+    /** Food Waste is a different thing from Morning Waste: raw stock items thrown away, in grams, costed only where the
+     * item has a cost per 100g (rows without one stay UNCOSTED, see FoodWasteProcessor). Never mixed into the waste cost. */
+    private async computeFoodWasteStats(kioskIds: string[], startDate: Date, endDate: Date): Promise<Record<string, StatTotals>> {
+        const rows = await this.prisma.stockMovement.findMany({
+            where: { kiosk_id: { in: kioskIds }, movement_type: "FOOD_WASTE", movement_date: { gte: startDate, lt: addDays(endDate, 1) } },
+            select: { kiosk_id: true, qty: true, cost: true },
+        });
+        const out: Record<string, StatTotals> = Object.fromEntries(kioskIds.map((k) => [k, emptyStats()]));
+        for (const r of rows) {
+            const bucket = out[r.kiosk_id];
+            if (!bucket) continue;
+            bucket.qty += Number(r.qty) || 0;
+            bucket.count += 1;
+            if (r.cost === null) bucket.uncostedCount += 1;
+            else bucket.cost += Number(r.cost);
+        }
+        return out;
+    }
+
     /** Damage/waste rates use production_plan.planned_qty as the volume
      * denominator (the same proxy the Damaged Product threshold check
      * already commits to). Rates are null (not 0) when there's no planned_qty.
      * Takes movementStats/plannedByKiosk already fetched by the caller —
      * both are shared with sibling computations in the same bootstrap call,
      * so this never re-queries them itself. */
-    private computeDamageWasteRates(kioskIds: string[], movementStats: Record<string, Record<string, StatTotals>>, plannedByKiosk: Record<string, number>) {
+    private computeDamageWasteRates(kioskIds: string[], movementStats: Record<string, Record<string, StatTotals>>, plannedByKiosk: Record<string, number>, wasteSamples: Map<string, RateSample>) {
         const out: Record<string, unknown> = {};
         for (const k of kioskIds) {
             const planned = plannedByKiosk[k] ?? 0;
+            const sample = wasteSamples.get(k) ?? { events: 0, base: 0 };
             const damage = movementStats[k]!.DAMAGE;
             const waste = movementStats[k]!.EXPIRED_WASTE;
             out[k] = {
                 plannedQty: planned,
                 damage: { ...damage, ratePer100: planned > 0 ? Math.round((damage.qty / planned) * 10000) / 100 : null },
-                waste: { ...waste, ratePct: planned > 0 ? Math.round((waste.qty / planned) * 10000) / 100 : null },
+                // Waste rate = morning-waste units matched to their batch (rateUnits) out of the units planned
+                // for those batches (rateBase), not all waste over all planned units, see waste-cohort.ts.
+                waste: { ...waste, ratePct: ratePct(sample), rateUnits: sample.events, rateBase: sample.base },
             };
         }
         return out;
@@ -319,11 +366,15 @@ export class KpiService {
      * Spec also lists "− Returns," but stock_movement has no RETURNS
      * movement_type in this schema — a known spec/schema gap, not invented here. */
     private computeStockUsageLedger(movements: StockMovement[], stockItemId: string, openingDate: Date, closingDate: Date) {
-        const opening = stockBalanceAsOf(movements, stockItemId, openingDate);
-        const closing = stockBalanceAsOf(movements, stockItemId, closingDate);
+        // A stocktake is a calendar day, but movements can carry a time of day (a Move Stock transfer is stamped
+        // when it is applied). Cut both ends at the END of their day, so a movement on the opening day is in the
+        // opening balance and one on the closing day is in the closing balance, and none falls between the two.
+        const openingEnd = endOfDay(openingDate);
+        const closingEnd = endOfDay(closingDate);
+        const opening = stockBalanceAsOf(movements, stockItemId, openingEnd);
+        const closing = stockBalanceAsOf(movements, stockItemId, closingEnd);
 
-        const dayAfterOpening = addDays(openingDate, 1);
-        const between = movements.filter((m) => m.stock_item_id === stockItemId && m.movement_date >= dayAfterOpening && m.movement_date <= closingDate);
+        const between = movements.filter((m) => m.stock_item_id === stockItemId && m.movement_date > openingEnd && m.movement_date <= closingEnd);
 
         let deliveriesIn = 0;
         let transfersIn = 0;

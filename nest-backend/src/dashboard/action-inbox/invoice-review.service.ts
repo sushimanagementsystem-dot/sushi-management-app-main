@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { OwnerActionStateService } from "./owner-action-state.service.js";
+import { invoiceConfirmMessage, invoiceConfirmProblems } from "./invoice-confirm-problems.js";
+
+/** Prisma's default interactive-transaction limit is 5 s. Every statement here is a round trip to a remote database
+ * (~0.25 s each), so a 13-line invoice done line by line overran it and Confirm failed with "Something went wrong".
+ * The statements are now batched; this is the safety margin on top. */
+const TX_TIMEOUT_MS = 30_000;
 
 @Injectable()
 export class InvoiceReviewService {
@@ -77,37 +83,40 @@ export class InvoiceReviewService {
         const lines = await this.prisma.invoiceLine.findMany({ where: { delivery_header_id: deliveryHeaderId, status: "DRAFT" } });
         if (!lines.length) throw new BadRequestException("No lines to confirm — add at least one, or Decline instead.");
 
-        for (const l of lines) {
-            if (!l.stock_item_id) throw new BadRequestException(`"${l.description_raw}" needs a stock item picked.`);
+        const problems = invoiceConfirmProblems(lines);
+        if (problems.length) throw new BadRequestException(invoiceConfirmMessage(problems));
+
+        // Everything that can be worked out is worked out here, so the transaction below is a handful of statements
+        // (one createMany, one updateMany, plus one update per line that had no total) instead of two per line.
+        const approvedAt = new Date();
+        const priced = lines.map((l) => {
             const qty = Number(l.qty);
-            if (!Number.isFinite(qty) || qty <= 0) throw new BadRequestException(`"${l.description_raw}" needs a quantity greater than 0.`);
-            const unitCost = l.unit_cost === null ? NaN : Number(l.unit_cost);
-            if (!Number.isFinite(unitCost) || unitCost < 0) throw new BadRequestException(`"${l.description_raw}" needs a unit cost.`);
-        }
+            const unitCost = Number(l.unit_cost);
+            const lineTotal = l.line_total !== null ? Number(l.line_total) : Math.round(qty * unitCost * 100) / 100;
+            return { line: l, qty, unitCost, lineTotal };
+        });
 
         await this.prisma.$transaction(async (tx) => {
-            for (const l of lines) {
-                const qty = Number(l.qty);
-                const unitCost = Number(l.unit_cost);
-                const lineTotal = l.line_total !== null ? Number(l.line_total) : Math.round(qty * unitCost * 100) / 100;
-                await tx.invoiceLine.update({
-                    where: { invoice_line_id: l.invoice_line_id },
-                    data: { line_total: lineTotal, status: "APPROVED", approved_at: new Date(), approved_by: confirmedBy },
-                });
-                await tx.stockMovement.create({
-                    data: {
-                        kiosk_id: header.kiosk_id,
-                        stock_item_id: l.stock_item_id as string,
-                        movement_type: "DELIVERY_IN",
-                        direction: "IN",
-                        movement_date: header.delivery_date,
-                        qty,
-                        unit_cost: unitCost,
-                        cost: lineTotal,
-                        reference_id: l.invoice_line_id,
-                    },
-                });
+            await tx.invoiceLine.updateMany({
+                where: { delivery_header_id: deliveryHeaderId, status: "DRAFT", invoice_line_id: { in: lines.map((l) => l.invoice_line_id) } },
+                data: { status: "APPROVED", approved_at: approvedAt, approved_by: confirmedBy },
+            });
+            for (const p of priced.filter((p) => p.line.line_total === null)) {
+                await tx.invoiceLine.update({ where: { invoice_line_id: p.line.invoice_line_id }, data: { line_total: p.lineTotal } });
             }
+            await tx.stockMovement.createMany({
+                data: priced.map((p) => ({
+                    kiosk_id: header.kiosk_id,
+                    stock_item_id: p.line.stock_item_id as string,
+                    movement_type: "DELIVERY_IN",
+                    direction: "IN",
+                    movement_date: header.delivery_date,
+                    qty: p.qty,
+                    unit_cost: p.unitCost,
+                    cost: p.lineTotal,
+                    reference_id: p.line.invoice_line_id,
+                })),
+            });
 
             await tx.deliveryHeader.update({ where: { delivery_header_id: deliveryHeaderId }, data: { status: "REVIEWED" } });
 
@@ -116,7 +125,59 @@ export class InvoiceReviewService {
                 await this.ownerActionState.logActivity(tx, action.owner_action_id, confirmedBy, "delivery_header.status", "IN_REVIEW", "REVIEWED (confirmed)");
                 await this.ownerActionState.advanceOwnerActionOnAction(tx, action.owner_action_id, { complete: true, note: "invoice confirmed" });
             }
-        });
+        }, { timeout: TX_TIMEOUT_MS });
+    }
+
+    /**
+     * Undoes a Confirm or a Decline: the invoice goes back to IN_REVIEW with all its lines DRAFT again, the DELIVERY_IN
+     * stock movements the confirm posted are removed, and the Action Inbox card is reopened — exactly the state before the click.
+     *
+     * Works from any device, however long ago the invoice was confirmed — it acts on what is stored, not on a session.
+     * Refused only when a stocktake has been confirmed since the delivery for one of the SAME stock items at this
+     * kiosk: that stocktake's correcting adjustment was computed with these movements in the ledger, so removing them
+     * now would throw its count off. Anything else (later deliveries, transfers, waste) is untouched by an undo.
+     */
+    async undo(deliveryHeaderId: string, undoneBy: string): Promise<{ movementsRemoved: number }> {
+        const header = await this.prisma.deliveryHeader.findUnique({ where: { delivery_header_id: deliveryHeaderId } });
+        if (!header) throw new NotFoundException("Delivery not found.");
+        if (header.status !== "REVIEWED") throw new BadRequestException("This invoice has not been confirmed or declined, so there is nothing to undo.");
+
+        const lines = await this.prisma.invoiceLine.findMany({ where: { delivery_header_id: deliveryHeaderId, status: { in: ["APPROVED", "REJECTED"] } } });
+        const approved = lines.filter((l) => l.status === "APPROVED");
+        const approvedIds = approved.map((l) => l.invoice_line_id);
+
+        if (approvedIds.length) {
+            const laterCount = await this.prisma.stockMovement.count({
+                where: {
+                    kiosk_id: header.kiosk_id,
+                    movement_type: "STOCKTAKE_ADJUSTMENT",
+                    movement_date: { gte: header.delivery_date },
+                    stock_item_id: { in: approved.map((l) => l.stock_item_id).filter((id): id is string => !!id) },
+                },
+            });
+            if (laterCount > 0) {
+                throw new BadRequestException(
+                    "A stocktake that includes some of these items has been confirmed at this kiosk since this delivery, so the stock movements can't be removed without throwing that stocktake's count off. " +
+                        "Leave it as it is, or add a correcting line on a new invoice instead.",
+                );
+            }
+        }
+
+        return this.prisma.$transaction(async (tx) => {
+            const removed = approvedIds.length ? await tx.stockMovement.deleteMany({ where: { movement_type: "DELIVERY_IN", reference_id: { in: approvedIds } } }) : { count: 0 };
+            await tx.invoiceLine.updateMany({ where: { delivery_header_id: deliveryHeaderId, status: { in: ["APPROVED", "REJECTED"] } }, data: { status: "DRAFT", approved_at: null, approved_by: null } });
+            await tx.deliveryHeader.update({ where: { delivery_header_id: deliveryHeaderId }, data: { status: "IN_REVIEW" } });
+
+            const action = await this.ownerActionState.findOwnerAction(tx, header.submission_id, "INVOICE_REVIEW");
+            if (action) {
+                await this.ownerActionState.logActivity(tx, action.owner_action_id, undoneBy, "delivery_header.status", "REVIEWED", "IN_REVIEW (undone)");
+                if (action.status === "RESOLVED") {
+                    await tx.ownerAction.update({ where: { owner_action_id: action.owner_action_id }, data: { status: "OPEN", resolved_at: null } });
+                    await this.ownerActionState.logActivity(tx, action.owner_action_id, undoneBy, "status", action.status, "OPEN", "invoice review undone");
+                }
+            }
+            return { movementsRemoved: removed.count };
+        }, { timeout: TX_TIMEOUT_MS });
     }
 
     /** Whole-invoice Decline: every remaining DRAFT line is REJECTED, nothing posted. */
@@ -134,6 +195,6 @@ export class InvoiceReviewService {
                 await this.ownerActionState.logActivity(tx, action.owner_action_id, declinedBy, "delivery_header.status", "IN_REVIEW", "REVIEWED (declined)");
                 await this.ownerActionState.advanceOwnerActionOnAction(tx, action.owner_action_id, { complete: true, note: "invoice declined" });
             }
-        });
+        }, { timeout: TX_TIMEOUT_MS });
     }
 }

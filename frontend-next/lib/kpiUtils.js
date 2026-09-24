@@ -27,9 +27,34 @@ export const KPI_PRESETS = [
     { key: "thisMonth", label: "This month" },
 ];
 
+/** Presets for pages that look back over whole weeks/months (Staff Food): the previous full Mon–Sun week, the
+ * previous calendar month, and everything on record. Keys are understood by presetRange below. */
+export const LOOKBACK_PRESETS = [
+    { key: "last7", label: "Last 7 days" },
+    { key: "lastWeek", label: "Last week" },
+    { key: "last30", label: "Last 30 days" },
+    { key: "lastMonth", label: "Last month" },
+    { key: "thisMonth", label: "This month" },
+    { key: "all", label: "All time" },
+];
+
 export function presetRange(presetKey) {
     const end = todayStr();
     let start;
+    if (presetKey === "lastWeek") {
+        const [y, m, d] = end.split("-").map(Number);
+        const dow = (new Date(y, m - 1, d).getDay() + 6) % 7; // Monday = 0
+        const thisMonday = addDaysStr(end, -dow);
+        return { start: addDaysStr(thisMonday, -7), end: addDaysStr(thisMonday, -1) };
+    }
+    if (presetKey === "lastMonth") {
+        const [y, m] = end.split("-").map(Number);
+        const first = new Date(y, m - 2, 1);
+        const last = new Date(y, m - 1, 0);
+        const fmt = (dt) => dt.getFullYear() + "-" + pad2(dt.getMonth() + 1) + "-" + pad2(dt.getDate());
+        return { start: fmt(first), end: fmt(last) };
+    }
+    if (presetKey === "all") return { start: "2000-01-01", end };
     if (presetKey === "today") start = end;
     else if (presetKey === "last30") start = addDaysStr(end, -29);
     else if (presetKey === "thisMonth") start = end.slice(0, 8) + "01";
@@ -47,7 +72,8 @@ const KPI_PRESET_KEYS = KPI_PRESETS.map((p) => p.key);
  * an explicit start+end pair (from a custom date pick) is used only when
  * there's no preset; otherwise falls back to `defaultPreset`.
  */
-export function dateFiltersFromQuery(defaultPreset) {
+export function dateFiltersFromQuery(defaultPreset, presets = KPI_PRESETS) {
+    const validKeys = presets === KPI_PRESETS ? KPI_PRESET_KEYS : presets.map((p) => p.key);
     if (typeof window === "undefined") {
         const r = presetRange(defaultPreset);
         return { kioskId: "", startDate: r.start, endDate: r.end, preset: defaultPreset };
@@ -55,7 +81,7 @@ export function dateFiltersFromQuery(defaultPreset) {
     const q = new URLSearchParams(window.location.search);
     const kioskId = q.get("kiosk_id") || "";
     const range = q.get("range");
-    if (range && KPI_PRESET_KEYS.includes(range)) {
+    if (range && validKeys.includes(range)) {
         const r = presetRange(range);
         return { kioskId, startDate: r.start, endDate: r.end, preset: range };
     }

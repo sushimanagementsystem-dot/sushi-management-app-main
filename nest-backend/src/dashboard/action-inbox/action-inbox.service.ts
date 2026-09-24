@@ -13,6 +13,8 @@ export type BootstrapActionInboxFilters = {
     priority?: string;
     kioskId?: string;
     includeClosed?: boolean;
+    createdFrom?: string;
+    createdTo?: string;
     page?: number;
     pageSize?: number;
 };
@@ -57,6 +59,12 @@ export class ActionInboxService {
         if (filters.category) where.category = filters.category;
         if (filters.priority) where.priority = filters.priority;
         if (filters.kioskId) where.kiosk_id = filters.kioskId;
+        if (filters.createdFrom || filters.createdTo) {
+            where.created_at = {
+                ...(filters.createdFrom ? { gte: new Date(filters.createdFrom) } : {}),
+                ...(filters.createdTo ? { lt: new Date(filters.createdTo) } : {}),
+            };
+        }
 
         // Urgent count is scoped to OPEN items only (never includes
         // resolved/closed ones, regardless of includeClosed) — it's meant
@@ -337,7 +345,9 @@ export class ActionInboxService {
         for (const f of editable) {
             if (!(f in changes)) continue;
             const oldVal = existing[f as keyof typeof existing];
-            const newVal = changes[f];
+            // A cleared field arrives as "" — store it as empty (null), never as "": Prisma rejects "" for the
+            // due_date DateTime, which is what made clearing a due date (or saving with an empty note) error out.
+            const newVal = typeof changes[f] === "string" && (changes[f] as string).trim() === "" ? null : changes[f];
             if (String(oldVal ?? "") === String(newVal ?? "")) continue;
             patch[f] = newVal;
             logEntries.push({ field: f, old: oldVal, new: newVal });
@@ -374,7 +384,8 @@ export class ActionInboxService {
         for (const f of editable) {
             if (!(f in changes)) continue;
             const oldVal = existing[f as keyof typeof existing];
-            const newVal = changes[f];
+            // Cleared field arrives as "" — store null (see updateOwnerAction).
+            const newVal = typeof changes[f] === "string" && (changes[f] as string).trim() === "" ? null : changes[f];
             if (String(oldVal ?? "") === String(newVal ?? "")) continue;
             patch[f] = newVal;
             logEntries.push({ field: f, old: oldVal, new: newVal });

@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
+import { IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsObject, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
 
 export class BootstrapActionInboxDto {
     @IsOptional()
@@ -20,6 +20,16 @@ export class BootstrapActionInboxDto {
     @IsOptional()
     @IsBoolean()
     includeClosed?: boolean;
+
+    /** Only actions created at or after this instant / before this instant (ISO 8601). The browser computes
+     * them from its own calendar day, so "Today" means the viewer's today, not the server's (UTC). */
+    @IsOptional()
+    @IsISO8601()
+    createdFrom?: string;
+
+    @IsOptional()
+    @IsISO8601()
+    createdTo?: string;
 
     @IsOptional()
     @IsInt()

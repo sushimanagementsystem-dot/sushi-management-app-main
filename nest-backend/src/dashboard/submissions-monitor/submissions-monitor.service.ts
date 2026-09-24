@@ -3,6 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { addDays, startOfTodayUtc, toDateStr } from "../../common/date.util.js";
 import type { Kiosk, Product, StockItem, User } from "@prisma/client";
+import { summarizeDailyTasks } from "./daily-task-summary.js";
 
 /** One staff member taking one item ("qty" is always 1 by the form's own
  * rule — see StaffFoodProcessor — so it's shown, not summed). */
@@ -65,20 +66,24 @@ export class SubmissionsMonitorService {
         const kiosks = (await this.tableCache.getAll<Kiosk>("kiosk")).filter((k) => k.active);
         const kioskIds = kiosks.map((k) => k.kiosk_id);
 
-        const end = endDate ?? startOfTodayUtc();
+        const today = startOfTodayUtc();
+        const end = endDate ?? today;
         const start = startDate ?? addDays(end, -13); // default: last 14 days
+        // These dates are stored with whatever time of day the submission happened at (see
+        // KioskTaskStatusService), so the last day must be "before the next midnight", not "<= midnight".
+        const endExclusive = addDays(end, 1);
 
         const [rows, staffFoodRows, foodWasteRows, products, stockItems, users] = await Promise.all([
             this.prisma.submission.findMany({
-                where: { kiosk_id: { in: kioskIds }, form_type: { in: [...ALL_FORM_TYPES] }, business_date: { gte: start, lte: end } },
+                where: { kiosk_id: { in: kioskIds }, form_type: { in: [...ALL_FORM_TYPES] }, business_date: { gte: start, lt: endExclusive } },
                 select: { kiosk_id: true, form_type: true, business_date: true },
             }),
             this.prisma.staffFood.findMany({
-                where: { kiosk_id: { in: kioskIds }, food_date: { gte: start, lte: end } },
+                where: { kiosk_id: { in: kioskIds }, food_date: { gte: start, lt: endExclusive } },
                 select: { kiosk_id: true, food_date: true, user_id: true, product_id: true },
             }),
             this.prisma.stockMovement.findMany({
-                where: { kiosk_id: { in: kioskIds }, movement_type: "FOOD_WASTE", movement_date: { gte: start, lte: end } },
+                where: { kiosk_id: { in: kioskIds }, movement_type: "FOOD_WASTE", movement_date: { gte: start, lt: endExclusive } },
                 select: { kiosk_id: true, movement_date: true, stock_item_id: true, qty: true, cost: true },
             }),
             this.tableCache.getAll<Product>("product"),
@@ -126,12 +131,16 @@ export class SubmissionsMonitorService {
             days.push({ date: dateStr, kiosks: kioskStatus, detail });
         }
 
+        const todayStr = toDateStr(today);
+        const summary = Object.fromEntries(kioskIds.map((k) => [k, summarizeDailyTasks(days, k, DAILY_FORM_TYPES, todayStr)]));
+
         return {
             startDate: toDateStr(start),
             endDate: toDateStr(end),
             kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })),
             tasks: ALL_FORM_TYPES,
             dailyTasks: DAILY_FORM_TYPES,
+            summary,
             days,
         };
     }

@@ -75,6 +75,8 @@ model Kiosk {
   weekly_sales          WeeklySales[]
 
   @@map("kiosk")
+  weekly_costs  WeeklyCosts[]
+  weekly_labour WeeklyLabour[]
 }
 
 model User {
@@ -941,4 +943,57 @@ model ActivityLog {
 
   @@index([owner_action_id])
   @@map("activity_log")
+}
+
+/// Uploaded photos/PDFs/videos (kiosk evidence, invoices) kept in Postgres, so they survive redeploys on hosts with a
+/// throw-away disk (e.g. a Docker container). The public URL is still /uploads/<file_id>.
+model StoredFile {
+  file_id    String   @id
+  mime_type  String
+  name       String?
+  size_bytes Int
+  data       Bytes
+  created_at DateTime @default(now())
+
+  @@map("stored_file")
+}
+
+/// Costs the owner types in per kiosk per week (Profit tab): fixed costs (rent, utilities...) and misc costs. Either can be
+/// left empty until it is known — null means "not entered", 0 means "entered as nothing".
+model WeeklyCosts {
+  weekly_costs_id String   @id @default(uuid())
+  kiosk_id        String
+  week_start      DateTime // Monday of the week, date-only
+  fixed_costs     Decimal? @db.Decimal(12, 2)
+  misc_costs      Decimal? @db.Decimal(12, 2)
+  note            String?
+  entered_by      String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  kiosk Kiosk @relation(fields: [kiosk_id], references: [kiosk_id])
+
+  @@unique([kiosk_id, week_start])
+  @@map("weekly_costs")
+}
+
+/// One row of the weekly labour report (total hours per kiosk per week). labour_cost is the euro amount the Profit tab
+/// deducts: taken from the report when it has a cost column, otherwise hours x hourly_rate (the rate typed at upload,
+/// kept on the row so a later rate change never rewrites past weeks). Both null = hours only, not deducted.
+model WeeklyLabour {
+  weekly_labour_id String   @id @default(uuid())
+  kiosk_id         String
+  week_start       DateTime // Monday of the week, date-only
+  hours            Decimal  @db.Decimal(8, 2)
+  hourly_rate      Decimal? @db.Decimal(8, 2)
+  labour_cost      Decimal? @db.Decimal(12, 2)
+  source_file      String?
+  uploaded_by      String?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  kiosk Kiosk @relation(fields: [kiosk_id], references: [kiosk_id])
+
+  @@unique([kiosk_id, week_start])
+  @@map("weekly_labour")
 }

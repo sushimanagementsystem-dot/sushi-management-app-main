@@ -5,6 +5,7 @@ import { DashboardSettingsController } from "./settings/dashboard-settings.contr
 import { DashboardSettingsService } from "./settings/dashboard-settings.service.js";
 import { KpiController } from "./kpi/kpi.controller.js";
 import { KpiService } from "./kpi/kpi.service.js";
+import { WasteRateService } from "./kpi/waste-rate.service.js";
 import { ProfitController } from "./profit/profit.controller.js";
 import { ProfitService } from "./profit/profit.service.js";
 import { SubmissionsMonitorController } from "./submissions-monitor/submissions-monitor.controller.js";
@@ -17,6 +18,7 @@ import { KioskTaskStatusController } from "./kiosk-task-status/kiosk-task-status
 import { KioskTaskStatusService } from "./kiosk-task-status/kiosk-task-status.service.js";
 import { IssuesController } from "./issues/issues.controller.js";
 import { IssuesService } from "./issues/issues.service.js";
+import { RateAlertsService } from "./issues/rate-alerts.service.js";
 import { ReportsController } from "./reports/reports.controller.js";
 import { ReportsService } from "./reports/reports.service.js";
 import { ActionInboxController } from "./action-inbox/action-inbox.controller.js";
@@ -51,12 +53,14 @@ import { SiteConfigService } from "./site-config/site-config.service.js";
         DataTablesService,
         DashboardSettingsService,
         KpiService,
+        WasteRateService,
         ProfitService,
         SubmissionsMonitorService,
         StaffFoodReportService,
         StockVariancesService,
         KioskTaskStatusService,
         IssuesService,
+        RateAlertsService,
         ReportsService,
         ActionInboxService,
         OwnerActionStateService,

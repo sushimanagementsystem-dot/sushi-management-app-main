@@ -7,6 +7,7 @@ import { SaveSiteConfigDto } from "./dto/save-site-config.dto.js";
 import { SetSiteConfigActiveDto } from "./dto/set-site-config-active.dto.js";
 import { DeleteSiteConfigDto } from "./dto/delete-site-config.dto.js";
 import { TestMailConnectionDto } from "./dto/test-mail-connection.dto.js";
+import { TestAnthropicConnectionDto } from "./dto/test-anthropic-connection.dto.js";
 
 // Owner-role gated, same as every other dashboard-only action.
 @Roles("ADMIN", "DEVELOPER")
@@ -41,5 +42,10 @@ export class SiteConfigController {
     async testMailConnection(@Body() dto: TestMailConnectionDto, @CurrentUser() user: AuthenticatedUser) {
         await this.service.testMailConnection(dto, user.user_id);
         return {};
+    }
+
+    @Post("test_anthropic_connection")
+    testAnthropicConnection(@Body() dto: TestAnthropicConnectionDto, @CurrentUser() user: AuthenticatedUser) {
+        return this.service.testAnthropicConnection(dto, user.user_id);
     }
 }

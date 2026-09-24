@@ -6,6 +6,7 @@ import { ActionInboxService } from "./action-inbox.service.js";
 import { StocktakeReviewService } from "./stocktake-review.service.js";
 import { StockTransferReviewService } from "./stock-transfer-review.service.js";
 import { InvoiceReviewService } from "./invoice-review.service.js";
+import { InvoiceAiService } from "../../production-engine/invoice-ai.service.js";
 import { AuditReviewService } from "./audit-review.service.js";
 import {
     BootstrapActionInboxDto,
@@ -33,6 +34,7 @@ export class ActionInboxController {
         private readonly transfers: StockTransferReviewService,
         private readonly invoices: InvoiceReviewService,
         private readonly audits: AuditReviewService,
+        private readonly invoiceAi: InvoiceAiService,
     ) {}
 
     @Post("bootstrap_action_inbox")
@@ -109,10 +111,21 @@ export class ActionInboxController {
         return {};
     }
 
+    /** Runs the AI on an invoice's stored files again — for invoices whose first attempt failed (see InvoiceAiService.reextract). */
+    @Post("rerun_invoice_ai")
+    rerunInvoiceAi(@Body() dto: DeliveryHeaderIdDto) {
+        return this.invoiceAi.reextract(dto.deliveryHeaderId);
+    }
+
     @Post("confirm_invoice_review")
     async confirmInvoiceReview(@Body() dto: DeliveryHeaderIdDto, @CurrentUser() user: AuthenticatedUser) {
         await this.invoices.confirm(dto.deliveryHeaderId, user.user_id);
         return {};
+    }
+
+    @Post("undo_invoice_review")
+    async undoInvoiceReview(@Body() dto: DeliveryHeaderIdDto, @CurrentUser() user: AuthenticatedUser) {
+        return this.invoices.undo(dto.deliveryHeaderId, user.user_id);
     }
 
     @Post("decline_invoice_review")

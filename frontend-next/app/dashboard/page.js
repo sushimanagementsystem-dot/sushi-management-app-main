@@ -29,18 +29,23 @@ import {
 function combinedDamageWasteRates(res, kioskIds) {
     let plannedTotal = 0,
         damageQty = 0,
-        wasteQty = 0;
+        wasteUnits = 0,
+        wasteBase = 0;
     kioskIds.forEach((k) => {
         const r = res.damageWasteRates[k];
         if (!r) return;
         plannedTotal += r.plannedQty;
         damageQty += r.damage.qty;
-        wasteQty += r.waste.qty;
+        // Waste rate: units matched to their batch out of the units planned for
+        // those batches — the backend's own numerator/denominator, not waste.qty
+        // over plannedQty (see waste-cohort.ts).
+        wasteUnits += r.waste.rateUnits;
+        wasteBase += r.waste.rateBase;
     });
     return {
         plannedQty: plannedTotal,
         damageRatePer100: plannedTotal > 0 ? Math.round((damageQty / plannedTotal) * 10000) / 100 : null,
-        wasteRatePct: plannedTotal > 0 ? Math.round((wasteQty / plannedTotal) * 10000) / 100 : null,
+        wasteRatePct: wasteBase > 0 ? Math.round((wasteUnits / wasteBase) * 10000) / 100 : null,
     };
 }
 

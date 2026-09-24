@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import nodemailer, { type Transporter } from "nodemailer";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SecretsService } from "../secrets/secrets.service.js";
 
 export type MailMessage = {
     to: string;
@@ -51,7 +52,10 @@ export class MailerService {
     private config: SmtpConfig | null = null;
     private loaded = false;
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly secrets: SecretsService,
+    ) {}
 
     /** Call after any write to the SMTP `site_config` row. */
     invalidate(): void {
@@ -106,7 +110,14 @@ export class MailerService {
         const host = config.host as string | undefined;
         const port = config.port as number | undefined;
         const username = config.username as string | undefined;
-        const password = secrets.password as string | undefined;
+        let password: string | undefined;
+        try {
+            // Stored encrypted (see SecretsService); a password saved before that existed is plaintext and passes through.
+            password = typeof secrets.password === "string" && secrets.password ? this.secrets.decrypt(secrets.password) : undefined;
+        } catch (err) {
+            this.logger.warn(`${err instanceof Error ? err.message : err} Outbound email is disabled until the SMTP password is entered again.`);
+            return;
+        }
         const fromEmail = (config.fromEmail as string | undefined) || username;
         const fromName = (config.fromName as string | undefined) || "Sushi Kiosk System";
         const secure = Boolean(config.secure);

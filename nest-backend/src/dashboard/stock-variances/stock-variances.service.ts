@@ -3,7 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { SettingsService } from "../../reference-data/settings.service.js";
 import { stockBalanceAsOf } from "../../common/stock-balance.util.js";
-import { addDays, startOfTodayUtc, toDateStr } from "../../common/date.util.js";
+import { addDays, endOfDay, startOfTodayUtc, toDateStr } from "../../common/date.util.js";
 import type { Kiosk, StockItem } from "@prisma/client";
 
 export type StockVariance = {
@@ -28,16 +28,14 @@ export type StockVariance = {
  * movement — which is precisely what an unlogged waste/theft/miscount
  * looks like.
  *
- * This is not new math — StocktakeReviewService.confirm() already computes
- * this exact same expected-vs-actual delta (via the same stockBalanceAsOf
- * helper) to post a correcting movement when the owner confirms a
- * stocktake. The gap this closes is that that number was never actually
- * shown to anyone — it was computed and immediately consumed into a
- * silent correction. This surfaces it as the "Kiosk – Item: Expected X,
- * Actual Y, Difference Z" report the request asked for, filtered to the
- * same variance thresholds (STOCKTAKE_VARIANCE_PCT / _MIN_UNITS) already
- * owner-configurable on the Settings page, so "significant" means the same
- * thing here as it does everywhere else in the app.
+ * This is the same expected-vs-actual delta StocktakeReviewService.confirm()
+ * turns into a correcting STOCKTAKE_ADJUSTMENT movement — surfaced as the
+ * "Kiosk – Item: Expected X, Actual Y, Difference Z" report instead of
+ * being consumed silently. Expected is the ledger at the end of the count
+ * day WITHOUT that adjustment (it is the gap itself), so a variance stays
+ * visible after the owner confirms the stocktake. Filtered to the same
+ * thresholds (STOCKTAKE_VARIANCE_PCT / _MIN_UNITS) owner-configurable on
+ * the Settings page, so "significant" means the same thing everywhere.
  */
 @Injectable()
 export class StockVariancesService {
@@ -90,7 +88,10 @@ export class StockVariancesService {
             if (!header || !item) continue;
 
             const kioskMovements = movementsByKiosk.get(header.kiosk_id) ?? [];
-            const expected = stockBalanceAsOf(kioskMovements, line.stock_item_id, header.stocktake_date);
+            // What the ledger said at the end of the count day, EXCLUDING the correction this very stocktake posted when the
+            // owner confirmed it (STOCKTAKE_ADJUSTMENT, reference_id = this line). That correction is the gap itself: left in,
+            // expected would equal the count and every variance would vanish the moment the stocktake is confirmed.
+            const expected = stockBalanceAsOf(kioskMovements, line.stock_item_id, endOfDay(header.stocktake_date), (m) => m.reference_id === line.stocktake_line_id);
             const actual = Number(line.counted_qty);
             const difference = Math.round((actual - expected) * 100) / 100;
             const absDifference = Math.abs(difference);
