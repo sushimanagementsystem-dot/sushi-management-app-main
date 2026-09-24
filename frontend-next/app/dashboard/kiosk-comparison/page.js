@@ -269,7 +269,12 @@ function TaskCompletionSection() {
                                                             // build (height unaffected, a main-axis-only flex-basis bug);
                                                             // grid sizes the icon by its own box instead of a flex-basis
                                                             // computation, which doesn't hit it.
-                                                            "grid h-6 w-6 place-items-center rounded-full border-none " +
+                                                            //
+                                                            // p-0 overrides globals.css's base `button { padding: 0.7rem }`
+                                                            // — left in place, that padding alone (11.2px a side) ate
+                                                            // almost the entire 24px box, leaving ~1.6px for the 13px
+                                                            // icon to center inside and pushing it to one corner instead.
+                                                            "grid h-6 w-6 place-items-center rounded-full border-none p-0 " +
                                                             (done ? "bg-success-bg text-success-ink hover:opacity-80" : "bg-danger-bg text-danger-ink hover:opacity-80")
                                                         }
                                                     >
