@@ -77,9 +77,13 @@ export class ActionInboxService {
         for (const g of statusGroups) counts.byStatus[g.status] = g._count._all;
         for (const g of categoryGroups) counts.byCategory[g.category] = g._count._all;
 
+        // Priority tier first (URGENT above NORMAL above LOW — the whole
+        // point of a triage inbox), newest-created first within a tier —
+        // this was ascending (oldest first) before, which buried today's
+        // new items under whatever had been sitting open the longest.
         const sorted = [...filteredRows].sort(
             (a: OwnerAction, b: OwnerAction) =>
-                (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1) || a.created_at.getTime() - b.created_at.getTime(),
+                (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1) || b.created_at.getTime() - a.created_at.getTime(),
         );
         const totalRows = sorted.length;
         const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);

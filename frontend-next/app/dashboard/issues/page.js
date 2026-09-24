@@ -18,6 +18,23 @@ const CATEGORY_ICON = {
 
 const PAGE_SIZE = 15;
 
+/** "Today" / "Yesterday" / a short date — same day-label convention the
+ * All Submissions page uses, so a date reads the same way everywhere on
+ * the dashboard. Most issues are dated today (missing tasks, rate
+ * outliers are always evaluated as of today); a stock variance can be
+ * dated earlier in the week, which is exactly what this label surfaces. */
+function formatIssueDate(dateStr) {
+    const d = new Date(dateStr + "T00:00:00Z");
+    const today = new Date();
+    const todayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+    if (dateStr === todayStr) return "Today";
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.getFullYear() + "-" + String(yesterday.getMonth() + 1).padStart(2, "0") + "-" + String(yesterday.getDate()).padStart(2, "0");
+    if (dateStr === yesterdayStr) return "Yesterday";
+    return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
 /**
  * Issues — the "what's wrong right now, across every kiosk" digest: open
  * the dashboard and see kiosk + problem in one glance instead of checking
@@ -154,6 +171,7 @@ function IssueCard({ issue }) {
                     <Icon size={12} strokeWidth={2.5} />
                     {high ? "Needs attention" : "Worth a look"}
                 </span>
+                {issue.date && <span className="whitespace-nowrap text-[0.75rem] text-muted">{formatIssueDate(issue.date)}</span>}
             </div>
 
             <div className="mb-1.5 text-[0.95rem] font-semibold leading-snug text-ink">{issue.title}</div>

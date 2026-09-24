@@ -11,6 +11,10 @@ export type Issue = {
     category: "MISSING_TASK" | "STOCK_VARIANCE" | "WASTE_HIGH" | "DAMAGE_HIGH";
     severity: "high" | "warn";
     title: string;
+    /** YYYY-MM-DD this issue is dated to — today for a missing task or a
+     * rate outlier (both evaluated as of today), or the specific day a
+     * stock variance actually happened. Drives the newest-first sort below. */
+    date: string;
 };
 
 /**
@@ -34,6 +38,7 @@ export class IssuesService {
 
     async bootstrap(offset = 0, limit = 15) {
         const today = startOfTodayUtc();
+        const todayStr = toDateStr(today);
         const weekAgo = addDays(today, -6);
 
         const [taskStatus, variances, comparison] = await Promise.all([
@@ -57,6 +62,7 @@ export class IssuesService {
                         category: "MISSING_TASK",
                         severity: "high",
                         title: `${kiosk.name} – ${task.label} not submitted`,
+                        date: todayStr,
                     });
                 }
             }
@@ -73,6 +79,7 @@ export class IssuesService {
                 category: "STOCK_VARIANCE",
                 severity: "high",
                 title: `${v.kioskName} – ${v.stockItemName}: expected ${v.expected}, actual ${v.actual} (${sign}${v.difference} ${v.unit})`,
+                date: v.date,
             });
         }
 
@@ -80,11 +87,15 @@ export class IssuesService {
         // the same week — "unusually high" only means something relative
         // to the rest of the kiosks, so this needs at least two kiosks
         // with a computable rate to be meaningful.
-        this.pushRateOutliers(issues, comparison.kiosks, comparison.damageWasteRates, "waste", "ratePct", "WASTE_HIGH", "Waste", "%");
-        this.pushRateOutliers(issues, comparison.kiosks, comparison.damageWasteRates, "damage", "ratePer100", "DAMAGE_HIGH", "Damage", " per 100 planned units");
+        this.pushRateOutliers(issues, comparison.kiosks, comparison.damageWasteRates, "waste", "ratePct", "WASTE_HIGH", "Waste", "%", todayStr);
+        this.pushRateOutliers(issues, comparison.kiosks, comparison.damageWasteRates, "damage", "ratePer100", "DAMAGE_HIGH", "Damage", " per 100 planned units", todayStr);
 
+        // Newest-dated issue first (a stock variance from today outranks
+        // one from three days ago); severity, then kiosk name, break ties
+        // within the same date — same order this list always had before
+        // date was introduced, just no longer the top-level sort.
         const severityRank = { high: 0, warn: 1 } as const;
-        issues.sort((a, b) => severityRank[a.severity] - severityRank[b.severity] || a.kioskName.localeCompare(b.kioskName));
+        issues.sort((a, b) => b.date.localeCompare(a.date) || severityRank[a.severity] - severityRank[b.severity] || a.kioskName.localeCompare(b.kioskName));
 
         // counts/total are over the FULL list — "17 issues, 16 need
         // attention" has to stay accurate even when the page below only
@@ -118,6 +129,7 @@ export class IssuesService {
         category: Issue["category"],
         label: string,
         unitSuffix: string,
+        todayStr: string,
     ) {
         const rates = kiosks
             .map((k) => ({ kiosk: k, rate: damageWasteRates[k.id]?.[rateGroup]?.[rateField] }))
@@ -141,6 +153,7 @@ export class IssuesService {
                     category,
                     severity: "warn",
                     title: `${r.kiosk.name} – ${label} unusually high (${r.rate}${unitSuffix} vs ${Math.round(avg * 100) / 100}${unitSuffix} average)`,
+                    date: todayStr,
                 });
             }
         }
