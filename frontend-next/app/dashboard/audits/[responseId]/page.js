@@ -42,6 +42,7 @@ export default function AuditResultPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Audit Result"
+                        help="auditResult.page"
                         description={res ? `${res.kioskName} — ${res.auditDate}` : ""}
                         actions={
                             <button

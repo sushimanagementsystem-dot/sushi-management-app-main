@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
+import HelpTip from "@/components/dashboard/HelpTip";
 import SectionCard from "@/components/dashboard/SectionCard";
 import RefreshButton from "@/components/dashboard/RefreshButton";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
@@ -267,6 +268,7 @@ export default function SiteConfigPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Site Configuration"
+                        help="site.page"
                         description="Site-wide admin config — separate from the production/audit Settings tab."
                         actions={<RefreshButton onRefetch={refetch} />}
                     />
@@ -280,6 +282,7 @@ export default function SiteConfigPage() {
                         <>
                             <SectionCard
                                 title="Admin"
+                                help="site.admin"
                                 actions={
                                     <ConfigToggle
                                         active={adminRow ? adminRow.isActive : true}
@@ -309,6 +312,7 @@ export default function SiteConfigPage() {
 
                             <SectionCard
                                 title="AI — Claude (invoice reading)"
+                                help="site.ai"
                                 description="The Anthropic API key used to read delivery invoices and turn them into purchases. Stored encrypted on the server and never shown again after saving."
                                 actions={
                                     <div className="flex items-center gap-2">
@@ -403,6 +407,7 @@ export default function SiteConfigPage() {
 
                             <SectionCard
                                 title="SMTP Connection"
+                                help="site.smtp"
                                 description="The email account outbound system mail (reports, alerts) is sent from — not hardcoded in code, set it here."
                                 actions={
                                     <div className="flex items-center gap-2">

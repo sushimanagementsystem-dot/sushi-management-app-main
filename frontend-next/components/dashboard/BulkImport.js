@@ -6,6 +6,7 @@ import { Download, FileSpreadsheet, Upload, X } from "lucide-react";
 import { apiCall, readFileAsBase64, saveBase64File } from "@/lib/api";
 import { useBootstrap } from "@/lib/queries";
 import { noticeModal } from "@/components/ConfirmModal";
+import HelpTip from "@/components/dashboard/HelpTip";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const NETWORK_ERROR = { ok: false, error: "Could not reach the server. Try again." };
@@ -130,7 +131,10 @@ function BulkImportWindow({ dataset, onApplied, onClose }) {
             <div className="flex max-h-[92vh] w-full max-w-[64rem] flex-col rounded-card border border-line bg-bg shadow-elevate-2">
                 <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
                     <div>
-                        <div className="text-[1.05rem] font-semibold text-ink">Bulk update: {dataset.label}</div>
+                        <div className="text-[1.05rem] font-semibold text-ink">
+                            Bulk update: {dataset.label}
+                            <HelpTip id="tables.bulk" />
+                        </div>
                         <div className="mt-0.5 text-[0.8rem] text-muted">{dataset.description}</div>
                     </div>
                     <button type="button" onClick={done ? () => window.location.reload() : onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-card p-0 text-muted hover:text-ink">

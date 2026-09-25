@@ -23,6 +23,8 @@ import { TabulatorFull as Tabulator } from "tabulator-tables";
 import { apiCall } from "@/lib/api";
 import { confirmModal } from "@/components/ConfirmModal";
 import { makeSearchPick } from "./vanillaSearchPick";
+import { createHelpButton } from "@/lib/help/popover";
+import { columnHelpId, tableHelpId } from "@/lib/help/content";
 
 // --- Session-lifetime caches (module-level — shared across every mount of
 // this page within the browser tab, matching the original's "cleared only
@@ -1332,6 +1334,7 @@ class DataGrid {
             .then(() => {
                 this.attachColumnFilterIcons();
                 this.attachColumnManageIcons();
+                this.attachColumnHelpIcons();
                 this.updateToolbarButtons();
             });
     }
@@ -1612,6 +1615,20 @@ class DataGrid {
         });
     }
 
+    /** The shared "?" Help icon (lib/help) on any column heading that has an explanation in lib/help/content.js. */
+    attachColumnHelpIcons() {
+        this.schema.forEach((f) => {
+            const id = columnHelpId(this.tableName, f.column_name);
+            if (!id) return;
+            const col = this.tabulator.getColumn(f.column_name);
+            if (!col) return;
+            const titleEl = col.getElement().querySelector(".tabulator-col-title");
+            if (!titleEl || titleEl.querySelector("[data-help]")) return;
+            const btn = createHelpButton(id);
+            if (btn) titleEl.appendChild(btn);
+        });
+    }
+
     attachColumnManageIcons() {
         if (!this.editMode) return;
         const manageable = this.schema.filter((f) => (f.type === "enum" || f.type === "enum_list") && f.manage_options === true);
@@ -1654,6 +1671,11 @@ class DataGrid {
             } else if (isNumeric) {
                 width = 100;
                 minWidth = 80;
+            }
+            if (columnHelpId(this.tableName, f.column_name)) {
+                const need = Math.min(260, (f.label || f.column_name).length * 8 + 70);
+                width = Math.max(width, need);
+                minWidth = Math.max(minWidth, Math.min(need, 150));
             }
             const col = {
                 title: f.label || f.column_name,
@@ -2029,6 +2051,7 @@ class DataGrid {
                 this.tabulator.setFilter((row) => this.rowMatchesFilters(row));
                 this.attachColumnFilterIcons();
                 this.attachColumnManageIcons();
+                this.attachColumnHelpIcons();
                 resolve();
             });
         });
@@ -2222,6 +2245,16 @@ export function createTablesPageController(container, opts) {
     titleEl.className = "text-[1.4rem] font-semibold tracking-[-0.015em] text-ink";
     const descEl = document.createElement("p");
     descEl.className = "mt-1 text-[0.875rem] leading-relaxed text-muted";
+    // Title + the "?" Help icon (the table's own explanation, else the general Data Tables one) + description.
+    function setPageHeading(meta, name) {
+        titleEl.textContent = meta.label || name;
+        const help = createHelpButton(tableHelpId(name));
+        if (help) {
+            help.classList.add("ml-2");
+            titleEl.appendChild(help);
+        }
+        descEl.textContent = meta.description || "";
+    }
     const toolbarHostEl = document.createElement("div");
     toolbarHostEl.className = "mt-3";
     // Title + description + table-switcher pills + the active table's own
@@ -2283,8 +2316,7 @@ export function createTablesPageController(container, opts) {
         const meta = tablesList.find((t) => t.table_name === tableName) || {};
         opts.onTitleChange("Dashboard — " + (meta.label || tableName));
         if (opts.onTableChange) opts.onTableChange(tableName);
-        titleEl.textContent = meta.label || tableName;
-        descEl.textContent = meta.description || "";
+        setPageHeading(meta, tableName);
 
         if (pageGrid) pageGrid.destroy();
         pageGrid = new DataGrid({
@@ -2367,8 +2399,7 @@ export function createTablesPageController(container, opts) {
             history.replaceState(null, "", "/dashboard/tables/" + activeTable + (initialDetailId ? "/detail/" + initialDetailId : ""));
             opts.onTitleChange("Dashboard — " + (meta.label || activeTable));
             if (opts.onTableChange) opts.onTableChange(activeTable);
-            titleEl.textContent = meta.label || activeTable;
-            descEl.textContent = meta.description || "";
+            setPageHeading(meta, activeTable);
 
             buildTableTabs();
             pageGrid = new DataGrid({

@@ -164,6 +164,7 @@ export default function UploadDataPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Upload Data"
+                        help="upload.page"
                         description="Upload a new or updated database workbook (the same format as the handover file) to sync it into the system — much faster than re-entering changes by hand in Data Tables."
                     />
 

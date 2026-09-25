@@ -145,3 +145,13 @@ export class ReviewAuditCorrectionDto {
     @IsIn(["ACCEPT", "REJECT"])
     decision!: string;
 }
+
+export class ReuploadInvoiceFileDto extends DeliveryHeaderIdDto {
+    @IsString()
+    @MinLength(1)
+    deliveryFileId!: string;
+
+    // { base64, mimeType, name } — same shape every kiosk photo upload sends; checked in InvoiceFileService.
+    @IsObject()
+    file!: { base64: string; mimeType: string; name: string };
+}

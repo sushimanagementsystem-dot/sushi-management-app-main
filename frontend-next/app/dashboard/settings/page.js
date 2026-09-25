@@ -7,6 +7,8 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import SearchPick from "@/components/SearchPick";
 import RefreshButton from "@/components/dashboard/RefreshButton";
+import HelpTip from "@/components/dashboard/HelpTip";
+import { getHelp } from "@/lib/help/content";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
 
 // Hand-built, not schema-driven like Data Tables — several of these settings
@@ -16,7 +18,7 @@ import { useApiMutation, useBootstrap } from "@/lib/queries";
 // from anything.
 const SETTINGS_SECTIONS = [
     {
-        title: "Rice & Batching",
+        title: "Rice & Batching", help: "settings.rice",
         keys: [
             "RICE_BATCH_DRY_G", "RICE_BATCH_SEASONED_YIELD_G", "RICE_BATCH_COOKED_PLAIN_G",
             "RICE_BATCH_VINEGAR_G", "RICE_NO_COOK_THRESHOLD_G", "RICE_PER_FULL_ROLL_G",
@@ -25,21 +27,21 @@ const SETTINGS_SECTIONS = [
             "PLAIN_RICE_MIN_PORTIONS", "PLAIN_RICE_REMAINDER_MIN_G", "LOW_VOLUME_COMBINED_TARGET",
         ],
     },
-    { title: "Component Batching", keys: ["PRAWN_KATSU_ROLLS_PER_BAG", "PRAWN_KATSU_COMPONENT_ID"] },
-    { title: "Secondary Item Allocation", keys: ["SECONDARY_HISTORY_LOOKBACK_DAYS", "SANDO_STEP_PRODUCT_IDS", "SANDO_UNITS_PER_PREP"] },
+    { title: "Component Batching", help: "settings.componentBatching", keys: ["PRAWN_KATSU_ROLLS_PER_BAG", "PRAWN_KATSU_COMPONENT_ID"] },
+    { title: "Secondary Item Allocation", help: "settings.secondary", keys: ["SECONDARY_HISTORY_LOOKBACK_DAYS", "SANDO_STEP_PRODUCT_IDS", "SANDO_UNITS_PER_PREP"] },
     // Only "Packaging" needs a pick list now — the Food Waste item list is
     // the Stock Take list (see stocktake-items.util.ts), toggled per item via
     // Stock Item → "Available for Food Waste"; anything not picked here as
     // Packaging shows as Food. No separate "Food categories" setting to keep
     // in sync with Stock Take any more.
-    { title: "Food Waste — Packaging Category", keys: ["FOOD_WASTE_PACKAGING_CATEGORIES"] },
-    { title: "Sampling", keys: ["SAMPLING_DAYS", "SAMPLING_SUSHI", "SAMPLING_KARAAGE_PER_FLAVOUR"] },
-    { title: "Defrost & Waste Attribution", keys: ["DEFROST_MEDIAN_WEEKS", "WASTE_ATTRIBUTION_DAYS_DEFAULT", "WASTE_ATTRIBUTION_DAYS_KCRB"] },
-    { title: "Damage Review Thresholds", keys: ["DAMAGE_REVIEW_UNITS_PER_100", "DAMAGE_REVIEW_PRODUCT_WEEK_UNITS", "DAMAGE_REVIEW_SUBMITTER_WEEK"] },
-    { title: "Stocktake", keys: ["STOCKTAKE_STALE_DAYS", "STOCKTAKE_VARIANCE_PCT", "STOCKTAKE_VARIANCE_MIN_UNITS"] },
-    { title: "Monthly Audit", keys: ["AUDIT_PASS_PCT", "AUDIT_ATTENTION_PCT", "AUDIT_CORRECTION_DAYS", "AUDIT_CRITICAL_CORRECTION_DAYS"] },
-    { title: "Help / Issue Deadlines", keys: ["REQUEST_DEADLINE_KIOSK_ISSUE_DAYS", "REQUEST_DEADLINE_HELP_DAYS", "REQUEST_DEADLINE_FEEDBACK_DAYS"] },
-    { title: "Purchasing & Products", keys: ["CASTLEBAY_SALMON_ORDER_BOXES", "KARAAGE_BALANCING_PRODUCT", "RICE_BOWL_SUBSTITUTES"] },
+    { title: "Food Waste — Packaging Category", help: "settings.foodWaste", keys: ["FOOD_WASTE_PACKAGING_CATEGORIES"] },
+    { title: "Sampling", help: "settings.sampling", keys: ["SAMPLING_DAYS", "SAMPLING_SUSHI", "SAMPLING_KARAAGE_PER_FLAVOUR"] },
+    { title: "Defrost & Waste Attribution", help: "settings.defrostWaste", keys: ["DEFROST_MEDIAN_WEEKS", "WASTE_ATTRIBUTION_DAYS_DEFAULT", "WASTE_ATTRIBUTION_DAYS_KCRB"] },
+    { title: "Damage Review Thresholds", help: "settings.damage", keys: ["DAMAGE_REVIEW_UNITS_PER_100", "DAMAGE_REVIEW_PRODUCT_WEEK_UNITS", "DAMAGE_REVIEW_SUBMITTER_WEEK"] },
+    { title: "Stocktake", help: "settings.stocktake", keys: ["STOCKTAKE_STALE_DAYS", "STOCKTAKE_VARIANCE_PCT", "STOCKTAKE_VARIANCE_MIN_UNITS"] },
+    { title: "Monthly Audit", help: "settings.audit", keys: ["AUDIT_PASS_PCT", "AUDIT_ATTENTION_PCT", "AUDIT_CORRECTION_DAYS", "AUDIT_CRITICAL_CORRECTION_DAYS"] },
+    { title: "Help / Issue Deadlines", help: "settings.deadlines", keys: ["REQUEST_DEADLINE_KIOSK_ISSUE_DAYS", "REQUEST_DEADLINE_HELP_DAYS", "REQUEST_DEADLINE_FEEDBACK_DAYS"] },
+    { title: "Purchasing & Products", help: "settings.purchasing", keys: ["CASTLEBAY_SALMON_ORDER_BOXES", "KARAAGE_BALANCING_PRODUCT", "RICE_BOWL_SUBSTITUTES"] },
 ];
 
 // Everything not listed here renders as a plain number input.
@@ -167,6 +169,7 @@ export default function SettingsPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                 <PageHeader
                     title="Settings"
+                    help="settings.page"
                     description="Production-planning constants, batching rules, and sampling/defrost configuration."
                     actions={
                         <>
@@ -213,7 +216,7 @@ export default function SettingsPage() {
                         const knownKeys = section.keys.filter((k) => settingsByKey[k]);
                         if (!knownKeys.length) return null;
                         return (
-                            <SectionCard key={section.title} title={section.title}>
+                            <SectionCard key={section.title} title={section.title} help={section.help}>
                                 <div className="grid grid-cols-2 gap-x-8 gap-y-[1.2rem] max-[720px]:grid-cols-1">
                                     {knownKeys.map((key) => (
                                         <SettingField
@@ -242,7 +245,10 @@ export default function SettingsPage() {
 function SettingField({ settingKey, setting, type, editMode, pendingValue, onChange, components, products, stockCategories }) {
     return (
         <div>
-            <label className="mb-[0.15rem] block text-[0.95rem] font-semibold">{setting.label || settingKey}</label>
+            <label className="mb-[0.15rem] block text-[0.95rem] font-semibold">
+                {setting.label || settingKey}
+                {getHelp("setting." + settingKey) && <HelpTip id={"setting." + settingKey} />}
+            </label>
             {setting.description && <div className="mb-[0.35rem] text-[0.78rem] text-muted">{setting.description}</div>}
             {type === "weekdays" && <WeekdaysControl value={setting.value} editMode={editMode} onChange={onChange} />}
             {type === "component_qty_list" && (

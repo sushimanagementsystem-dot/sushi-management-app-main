@@ -123,7 +123,8 @@ export class InvoiceAiService {
         if (!header) throw new NotFoundException("Delivery not found.");
         if (header.status !== "IN_REVIEW") throw new BadRequestException("This invoice has already been reviewed, so AI can't be re-run on it.");
 
-        const fileRows = await this.prisma.deliveryFile.findMany({ where: { delivery_header_id: deliveryHeaderId } });
+        // Only the current version of each page — replaced (is_active=false) images are kept for recovery but never read again.
+        const fileRows = await this.prisma.deliveryFile.findMany({ where: { delivery_header_id: deliveryHeaderId, is_active: true } });
         const refs = fileRows.filter((f) => f.drive_file_id).map((f) => ({ url: f.drive_file_id!, page: f.page_sequence }));
 
         const result = await this.extract(refs, header.supplier_id);

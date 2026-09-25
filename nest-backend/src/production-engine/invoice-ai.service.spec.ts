@@ -169,3 +169,30 @@ describe("describeError / invoiceReviewTitle", () => {
         expect(invoiceReviewTitle(false, 0)).toContain("failed");
     });
 });
+
+describe("InvoiceAiService.reextract with replaced images", () => {
+    it("reads only the CURRENT version of each page, never a replaced (is_active=false) one, and creates no new invoice", async () => {
+        const create = vi.fn(async () => textReply({ lines: [line("AVOCADO")] }));
+        const svc = build({ create });
+        const findMany = vi.fn(async () => [{ delivery_file_id: "F2", drive_file_id: "/uploads/new", page_sequence: 1 }]);
+        const tx = {
+            invoiceLine: { deleteMany: vi.fn(async () => ({})), create: vi.fn(async () => ({})), count: vi.fn(async () => 1) },
+            deliveryFile: { updateMany: vi.fn(async () => ({})) },
+            ownerAction: { findFirst: vi.fn(async () => null), update: vi.fn(async () => ({})) },
+        };
+        const prisma = {
+            deliveryHeader: { findUnique: vi.fn(async () => ({ delivery_header_id: "H1", status: "IN_REVIEW", supplier_id: null, submission_id: null })), create: vi.fn() },
+            deliveryFile: { findMany },
+            stockItem: { findMany: vi.fn(async () => STOCK) },
+            enumOption: { findMany: vi.fn(async () => [{ value: "SC01", label: "KIOSK" }]) },
+            supplierItemMap: { findMany: vi.fn(async () => []) },
+            $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+        };
+        (svc as unknown as { prisma: unknown }).prisma = prisma;
+        const out = await svc.reextract("H1");
+        expect(findMany).toHaveBeenCalledWith({ where: { delivery_header_id: "H1", is_active: true } });
+        expect(out).toMatchObject({ aiOk: true, lineCount: 1 });
+        expect(tx.deliveryFile.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { delivery_file_id: { in: ["F2"] } } }));
+        expect(prisma.deliveryHeader.create).not.toHaveBeenCalled();
+    });
+});

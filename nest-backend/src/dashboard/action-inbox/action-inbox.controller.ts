@@ -9,11 +9,13 @@ import { InvoiceReviewService } from "./invoice-review.service.js";
 import { PurchasingScanService } from "../../purchasing/purchasing-scan.service.js";
 import { InvoiceAiService } from "../../production-engine/invoice-ai.service.js";
 import { AuditReviewService } from "./audit-review.service.js";
+import { InvoiceFileService } from "./invoice-file.service.js";
 import {
     BootstrapActionInboxDto,
     DeliveryHeaderIdDto,
     InvoiceLineIdDto,
     OwnerActionIdDto,
+    ReuploadInvoiceFileDto,
     ReviewAuditAnswerDto,
     ReviewAuditCorrectionDto,
     SaveInvoiceLineDto,
@@ -36,6 +38,7 @@ export class ActionInboxController {
         private readonly invoices: InvoiceReviewService,
         private readonly audits: AuditReviewService,
         private readonly invoiceAi: InvoiceAiService,
+        private readonly invoiceFiles: InvoiceFileService,
         private readonly purchasing: PurchasingScanService,
     ) {}
 
@@ -123,6 +126,12 @@ export class ActionInboxController {
     @Post("rerun_invoice_ai")
     rerunInvoiceAi(@Body() dto: DeliveryHeaderIdDto) {
         return this.invoiceAi.reextract(dto.deliveryHeaderId);
+    }
+
+    /** Optional: swaps a missing/unreadable invoice page for a new upload. The old page is kept as a previous version; AI is NOT re-run automatically (see InvoiceFileService). */
+    @Post("reupload_invoice_file")
+    reuploadInvoiceFile(@Body() dto: ReuploadInvoiceFileDto, @CurrentUser() user: AuthenticatedUser) {
+        return this.invoiceFiles.replace(dto.deliveryHeaderId, dto.deliveryFileId, dto.file, user.user_id);
     }
 
     @Post("confirm_invoice_review")

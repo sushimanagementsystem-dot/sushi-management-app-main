@@ -59,6 +59,7 @@ export default function ReportsPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Reports"
+                        help="reports.page"
                         description="Every report in one place — daily, weekly, or monthly, downloadable as CSV, emailable on demand."
                     >
                         <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -128,10 +129,11 @@ function ReportBody({ reportKey, filters }) {
 
 // --- Shared report shell -------------------------------------------------
 
-function ReportShell({ title, subtitle, loading, error, refetch, columns, rows, filename, children, note }) {
+function ReportShell({ title, help, subtitle, loading, error, refetch, columns, rows, filename, children, note }) {
     return (
         <SectionCard
             title={title}
+            help={help}
             description={subtitle}
             className="mb-0"
             actions={
@@ -220,6 +222,7 @@ function ComparisonReport({ filters }) {
     return (
         <ReportShell
             title="Store Comparison"
+            help="compare.page"
             subtitle={res ? `${res.startDate} – ${res.endDate}` : ""}
             loading={loading}
             error={error}
@@ -254,6 +257,7 @@ function WasteReport({ filters }) {
     return (
         <ReportShell
             title="Waste"
+            help="compare.wasteRate"
             subtitle={res ? `${res.startDate} – ${res.endDate}` : ""}
             loading={loading}
             error={error}
@@ -298,6 +302,7 @@ function ProductionReport({ filters }) {
     return (
         <ReportShell
             title="Production"
+            help="reports.production"
             subtitle={res ? `Planned quantity per product, by kiosk — ${res.startDate} – ${res.endDate}` : ""}
             loading={loading}
             error={error}
@@ -334,6 +339,7 @@ function UsageReport({ filters }) {
     return (
         <SectionCard
             title="Product Usage"
+            help="stockUsage.page"
             description={res?.available ? `Comparing stocktake on ${res.openingDate} to stocktake on ${res.closingDate}.` : "Pick a kiosk with at least two complete stocktakes."}
             className="mb-0"
             actions={
@@ -389,6 +395,7 @@ function ProfitReport({ filters }) {
     return (
         <ReportShell
             title="Profit"
+            help="profit.page"
             subtitle={res ? `${res.startDate} – ${res.endDate}, by week` : ""}
             loading={loading}
             error={error}
@@ -417,6 +424,7 @@ function VarianceReport({ filters }) {
     return (
         <ReportShell
             title="Stock Variance"
+            help="variances.page"
             subtitle={res ? `${res.startDate} – ${res.endDate}` : ""}
             loading={loading}
             error={error}
@@ -448,6 +456,7 @@ function StaffFoodReport({ filters }) {
     return (
         <ReportShell
             title="Staff Food"
+            help="staffFoodReport.page"
             subtitle={res ? `${res.startDate} – ${res.endDate}` : ""}
             loading={loading}
             error={error}
@@ -481,6 +490,7 @@ function TrendsReport({ filters }) {
     return (
         <ReportShell
             title="Trends"
+            help="reports.trends"
             subtitle={res ? `Day by day, ${res.startDate} – ${res.endDate}` : ""}
             loading={loading}
             error={error}

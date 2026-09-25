@@ -17,13 +17,15 @@ import {
     ArrowRight,
     AlertTriangle,
 } from "lucide-react";
-import { apiCall } from "@/lib/api";
+import { apiCall, readFileForUpload } from "@/lib/api";
 import { useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import RefreshButton from "@/components/dashboard/RefreshButton";
+import HelpTip from "@/components/dashboard/HelpTip";
+import { getHelp } from "@/lib/help/content";
 import DashSelect from "@/components/dashboard/DashSelect";
 import EvidencePreview from "@/components/dashboard/EvidencePreview";
 import { confirmModal, noticeModal } from "@/components/ConfirmModal";
@@ -279,6 +281,7 @@ function InboxBody() {
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             <PageHeader
                 title="Action Inbox"
+                help="inbox.page"
                 description="Transfers, invoice reviews, audit findings and requests waiting on you."
                 actions={
                     <>
@@ -614,6 +617,7 @@ function DetailModal({ ownerActionId, kiosks, stockItems, usersById, onClose, on
             <div className={MODAL_BOX}>
                 <h3 className="mb-4 text-lg font-bold tracking-[-0.01em]">
                     {row.category} — {row.kioskName || ""}
+                    {getHelp(inboxHelpId(row.category)) && <HelpTip id={inboxHelpId(row.category)} />}
                 </h3>
 
                 <TriageEditor row={row} ownerActionId={ownerActionId} onSaved={changed} />
@@ -780,6 +784,11 @@ function TriageEditor({ row, ownerActionId, onSaved }) {
 }
 
 // --- Category-specific sections ------------------------------------------
+
+/** The "?" for a review card: one explanation per kind of review (approve and apply are the two halves of a stock transfer). */
+function inboxHelpId(category) {
+    return "inbox." + (category === "TRANSFER_APPLY" ? "TRANSFER_APPROVAL" : category);
+}
 
 function CategorySection({ row, kiosks, stockItems, onChanged }) {
     switch (row.category) {
@@ -1388,7 +1397,11 @@ function InvoiceSection({ row, stockItems, onChanged }) {
     const [aiMessage, setAiMessage] = useState("");
     if (!header) return <p className="text-muted">Linked delivery not found.</p>;
     const inReview = header.status === "IN_REVIEW";
-    const files = row.deliveryFiles || [];
+    // Every page version. Only the current (is_active) ones are what AI reads and what the review is about; replaced ones are
+    // kept — never deleted — and listed under "Previous versions" so they can be recovered or audited.
+    const allFiles = row.deliveryFiles || [];
+    const files = allFiles.filter((f) => f.is_active !== false);
+    const previousFiles = allFiles.filter((f) => f.is_active === false);
     // The AI's own words about why it couldn't read the invoice (plain sentence, see InvoiceAiService).
     const aiError = (files.find((f) => f.ai_status === "FAILED" && f.ai_error) || {}).ai_error || "";
     const aiNeedsRun = files.some((f) => f.ai_status !== "SUCCESS") || !(row.invoiceLines || []).length;
@@ -1456,7 +1469,18 @@ function InvoiceSection({ row, stockItems, onChanged }) {
                 {row.supplierName || ""} — {header.document_type} — {header.delivery_date} — status: {header.status}
             </p>
             {files.map((f, i) => (
-                <DrivePreview key={i} url={f.file_url} label={f.file_name || "Page " + (i + 1)} />
+                <InvoiceFilePage
+                    key={f.delivery_file_id || i}
+                    file={f}
+                    label={f.file_name || "Page " + (i + 1)}
+                    previous={previousFiles.filter((p) => p.page_sequence === f.page_sequence)}
+                    canReplace={inReview}
+                    disabled={busy || aiRunning}
+                    onReplaced={() => {
+                        setAiMessage("New image uploaded — the previous one is kept below. Re-run AI extraction to read the new image.");
+                        onChanged();
+                    }}
+                />
             ))}
 
             {aiNeedsRun && (
@@ -1516,6 +1540,93 @@ function InvoiceSection({ row, stockItems, onChanged }) {
                         Confirm — approve lines, post stock movements
                     </button>
                 </div>
+            )}
+        </div>
+    );
+}
+
+function fmtWhen(v) {
+    if (!v) return "";
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * One current invoice page: its preview, which version it is, and an optional, low-key "Replace image" link (made more
+ * visible only when the image is missing or the AI couldn't read it). Re-uploading never blocks the normal Confirm/Edit
+ * flow — it is a small inline action. The previous versions stay listed underneath (collapsed) for recovery/audit.
+ */
+function InvoiceFilePage({ file, label, previous, canReplace, disabled, onReplaced }) {
+    const [uploading, setUploading] = useState(false);
+    const [error, setError] = useState("");
+    const inputId = "invoice-file-" + file.delivery_file_id;
+    const broken = file.missing === true || file.ai_status === "FAILED";
+
+    function pick(e) {
+        const chosen = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!chosen) return;
+        setError("");
+        setUploading(true);
+        readFileForUpload(chosen)
+            .then((data) => apiCall("reupload_invoice_file", { deliveryHeaderId: file.delivery_header_id, deliveryFileId: file.delivery_file_id, file: data }))
+            .catch(() => ({ ok: false, error: "Could not reach the server — the invoice still uses its current image." }))
+            .then((res) => {
+                setUploading(false);
+                if (!res || !res.ok) return setError((res && res.error) || "The new image didn't upload — the invoice still uses its current image.");
+                onReplaced();
+            });
+    }
+
+    return (
+        <div className="mb-3">
+            {file.missing === true ? (
+                <div className="my-2 rounded-card border border-line bg-danger-bg/40 px-3 py-2.5 text-[0.85rem] text-ink">
+                    <div className="font-semibold">{label} — image is missing from the server</div>
+                    <div className="mt-0.5 text-muted">The original upload can&apos;t be found, so it can&apos;t be shown or read. You can upload it again below.</div>
+                </div>
+            ) : (
+                <DrivePreview url={file.file_url} label={label} />
+            )}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.75rem] text-muted">
+                <span>
+                    Current image{file.versionNumber > 1 ? " — version " + file.versionNumber : ""}
+                    {fmtWhen(file.uploadedAt) ? " · uploaded " + fmtWhen(file.uploadedAt) : ""}
+                </span>
+                {canReplace && (
+                    <>
+                        <label
+                            htmlFor={inputId}
+                            className={
+                                "cursor-pointer font-semibold hover:underline " +
+                                (broken ? "text-accent" : "text-muted") +
+                                (uploading || disabled ? " pointer-events-none opacity-50" : "")
+                            }
+                        >
+                            {uploading ? "Uploading…" : broken ? "Re-upload image" : "Replace image"}
+                        </label>
+                        <input id={inputId} type="file" accept="image/*,application/pdf" className="hidden" onChange={pick} disabled={uploading || disabled} />
+                    </>
+                )}
+            </div>
+            {error && <div className="mt-1 text-[0.8rem] text-danger-ink">{error}</div>}
+            {previous.length > 0 && (
+                <details className="mt-1 text-[0.8rem]">
+                    <summary className="cursor-pointer text-muted">Previous versions ({previous.length}) — kept for recovery</summary>
+                    <div className="mt-1 border-l-2 border-line pl-3">
+                        {previous.map((p) => (
+                            <div key={p.delivery_file_id} className="mb-2">
+                                <div className="text-muted">
+                                    Version {p.versionNumber} — {p.file_name || "image"}
+                                    {fmtWhen(p.uploadedAt) ? " · uploaded " + fmtWhen(p.uploadedAt) : ""}
+                                    {fmtWhen(p.superseded_at) ? " · replaced " + fmtWhen(p.superseded_at) : ""}
+                                    {p.missing === true ? " · image missing" : ""}
+                                </div>
+                                {p.missing !== true && <DrivePreview url={p.file_url} label="" />}
+                            </div>
+                        ))}
+                    </div>
+                </details>
             )}
         </div>
     );

@@ -18,7 +18,7 @@ function build(rows: ReturnType<typeof row>[], existing?: Record<string, unknown
     };
     const cache = { getAll: vi.fn(async () => []) };
     const state = { logActivity: vi.fn(async () => undefined) };
-    const svc = new ActionInboxService(prisma as never, cache as never, state as never);
+    const svc = new ActionInboxService(prisma as never, cache as never, state as never, { exists: async () => ({ exists: true, createdAt: null, sizeBytes: null }) } as never);
     return { svc, findMany, update, prisma, state };
 }
 

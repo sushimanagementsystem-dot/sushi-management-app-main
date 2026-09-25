@@ -1,4 +1,5 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
+import HelpTip from "./HelpTip";
 import { addDaysStr, moneyStr } from "@/lib/kpiUtils";
 
 /** Ported from dashboard.css's .kpi-tile / .kpi-tile-label / .kpi-tile-value
@@ -9,7 +10,7 @@ import { addDaysStr, moneyStr } from "@/lib/kpiUtils";
  * tailwind.config.js's chip tokens) so each metric can read as its own
  * color at a glance, same convention as the kiosk home menu's task icons
  * and Data Tables' Actions column. */
-export function KpiTile({ label, value, subLines, children, unavailable, icon: Icon, iconClassName }) {
+export function KpiTile({ label, value, subLines, children, unavailable, icon: Icon, iconClassName, help }) {
     return (
         <div
             className={
@@ -34,7 +35,10 @@ export function KpiTile({ label, value, subLines, children, unavailable, icon: I
                     <Icon size={22} strokeWidth={1.9} />
                 </span>
             )}
-            <div className="mb-[0.4rem] text-[0.8rem] font-semibold tracking-[0.01em] text-muted">{label}</div>
+            <div className="mb-[0.4rem] text-[0.8rem] font-semibold tracking-[0.01em] text-muted">
+                {label}
+                {help && <HelpTip id={help} />}
+            </div>
             <div
                 className={
                     unavailable
@@ -86,10 +90,11 @@ export function KpiTileGrid({ children }) {
     return <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-[0.8rem]">{children}</div>;
 }
 
-export function KpiSectionLabel({ children }) {
+export function KpiSectionLabel({ children, help }) {
     return (
         <div className="mb-2 mt-6 text-xs font-bold uppercase tracking-[0.06em] text-muted first:mt-0">
             {children}
+            {help && <HelpTip id={help} />}
         </div>
     );
 }

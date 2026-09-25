@@ -32,6 +32,24 @@ export class UploadService {
         return { url: `/uploads/${id}`, name: file.name };
     }
 
+    /** Whether the file behind an /uploads/<id> URL can actually be served (database row or legacy disk copy). Reads no file data from the database. */
+    async exists(url: string): Promise<{ exists: boolean; createdAt: Date | null; sizeBytes: number | null }> {
+        const id = basename(url);
+        const row = await this.prisma.storedFile.findUnique({ where: { file_id: id }, select: { created_at: true, size_bytes: true } });
+        if (row) return { exists: true, createdAt: row.created_at, sizeBytes: row.size_bytes };
+        try {
+            await readFile(join(this.legacyDir, id));
+            return { exists: true, createdAt: null, sizeBytes: null };
+        } catch {
+            return { exists: false, createdAt: null, sizeBytes: null };
+        }
+    }
+
+    /** Removes a file this process just wrote (used only to undo our own upload if the step after it failed). */
+    async discard(url: string): Promise<void> {
+        await this.prisma.storedFile.deleteMany({ where: { file_id: basename(url) } });
+    }
+
     async read(url: string): Promise<ReadUpload> {
         const id = basename(url);
         const row = await this.prisma.storedFile.findUnique({ where: { file_id: id } });

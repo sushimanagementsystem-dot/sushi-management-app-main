@@ -47,6 +47,7 @@ export default function StockUsagePage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                 <PageHeader
                     title="Stock Usage View"
+                    help="stockUsage.page"
                     description="Compare two stocktakes for one kiosk to see actual ingredient usage between them."
                     actions={<RefreshButton onRefetch={refetch} />}
                 >

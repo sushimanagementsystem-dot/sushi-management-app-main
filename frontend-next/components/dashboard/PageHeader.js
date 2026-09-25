@@ -14,7 +14,9 @@
  * that stays pinned, instead of any individual card getting its own
  * fixed height + internal scrollbar.
  */
-export default function PageHeader({ title, description, icon: Icon, actions, children }) {
+import HelpTip from "./HelpTip";
+
+export default function PageHeader({ title, description, icon: Icon, actions, children, help }) {
     return (
         <div className="sticky top-0 z-20 mb-2 border-b border-line bg-bg pt-0.5">
             {/* No flex-wrap here on purpose — the title/description block
@@ -34,7 +36,10 @@ export default function PageHeader({ title, description, icon: Icon, actions, ch
                         </span>
                     )}
                     <div className="min-w-0 flex-1">
-                        <h1 className="text-[1.4rem] font-semibold tracking-[-0.015em] text-ink">{title}</h1>
+                        <h1 className="text-[1.4rem] font-semibold tracking-[-0.015em] text-ink">
+                            {title}
+                            {help && <HelpTip id={help} />}
+                        </h1>
                         {description && <p className="mt-1 text-[0.875rem] leading-relaxed text-muted">{description}</p>}
                     </div>
                 </div>

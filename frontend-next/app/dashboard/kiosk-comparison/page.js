@@ -8,6 +8,7 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import KpiFilters from "@/components/dashboard/KpiFilters";
 import RefreshButton from "@/components/dashboard/RefreshButton";
+import HelpTip from "@/components/dashboard/HelpTip";
 import { KpiBadge } from "@/components/dashboard/KpiTile";
 import { useBootstrap } from "@/lib/queries";
 import { dateFiltersFromQuery, moneyStr, qtyStr, presetRange, todayStr, addDaysStr, writeDateFiltersToQuery } from "@/lib/kpiUtils";
@@ -18,27 +19,20 @@ const MODAL_BOX =
     "max-h-[calc(100vh-4rem)] w-[32rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-card bg-card p-[1.4rem] shadow-elevate-3 " +
     "max-[720px]:w-full max-[720px]:max-w-full max-[720px]:max-h-[88vh] max-[720px]:rounded-b-none max-[720px]:rounded-t-[1.2rem] max-[720px]:p-[1.1rem]";
 
-// `help` is the column's plain-English definition, shown on hover and in the
-// key under the table — the waste columns in particular are easy to misread.
+// `help` is an id in lib/help/content.js — the same "?" Help icon the rest of the dashboard uses.
 const COLUMNS = [
     { label: "Kiosk" },
-    {
-        label: "Morning Waste Cost",
-        help: "Cost of the expired finished products binned in the Morning Waste form during the period: units x product unit cost. A product with no unit cost yet cannot be valued (counted in the note under the figure). Does not include Food Waste.",
-    },
-    {
-        label: "Morning Waste Rate %",
-        help: "Morning-waste units divided by the units planned for the batches they came from (the production plan of the day each was made, not of the day it was binned). Waste with no plan behind it is left out.",
-    },
-    { label: "Food Waste", help: "Raw stock items thrown away in the Food Waste form, in grams. Costed only where the item has a cost per 100g set; not part of Morning Waste Cost." },
+    { label: "Morning Waste Cost", help: "compare.wasteCost" },
+    { label: "Morning Waste Rate %", help: "compare.wasteRate" },
+    { label: "Food Waste", help: "compare.foodWaste" },
     { label: "Damage Cost" },
-    { label: "Damage Rate /100" },
+    { label: "Damage Rate /100", help: "compare.damageRate" },
     { label: "Staff Food Cost" },
-    { label: "Stocktake" },
+    { label: "Stocktake", help: "kpi.stocktakeStatus" },
     { label: "Deliveries" },
-    { label: "Unmapped Lines" },
-    { label: "Approved Value" },
-    { label: "Coverage" },
+    { label: "Unmapped Lines", help: "kpi.unmappedLines" },
+    { label: "Approved Value", help: "kpi.approvedValue" },
+    { label: "Coverage", help: "compare.coverage" },
 ];
 
 /** Grams as g under a kilo, kg above — Food Waste is logged in grams. */
@@ -80,6 +74,7 @@ export default function KioskComparisonPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Kiosk Comparison"
+                        help="compare.page"
                         description="Waste, damage, stocktake and delivery metrics side by side across every kiosk."
                         actions={<RefreshButton onRefetch={refetch} />}
                     >
@@ -115,11 +110,10 @@ export default function KioskComparisonPage() {
                                                 {COLUMNS.map((c) => (
                                                     <th
                                                         key={c.label}
-                                                        title={c.help}
                                                         className="whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
                                                     >
                                                         {c.label}
-                                                        {c.help && <span className="ml-1 cursor-help normal-case text-muted/70">ⓘ</span>}
+                                                        {c.help && <HelpTip id={c.help} />}
                                                     </th>
                                                 ))}
                                             </tr>
@@ -132,13 +126,6 @@ export default function KioskComparisonPage() {
                                     </table>
                                 </div>
                             </div>
-                            <ul className="mt-3 flex list-none flex-col gap-1 p-0 text-[0.75rem] text-muted">
-                                {COLUMNS.filter((c) => c.help).map((c) => (
-                                    <li key={c.label}>
-                                        <span className="font-semibold text-ink">{c.label}:</span> {c.help}
-                                    </li>
-                                ))}
-                            </ul>
                         </SectionCard>
                     )}
                 </div>
@@ -227,6 +214,7 @@ function TaskCompletionSection() {
     return (
         <SectionCard
             title="Task Completion"
+            help="tasks.completion"
             className="mb-5"
             actions={
                 <div className="flex items-center gap-1.5">

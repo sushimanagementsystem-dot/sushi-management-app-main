@@ -29,6 +29,7 @@ import { OwnerActionStateService } from "./action-inbox/owner-action-state.servi
 import { StocktakeReviewService } from "./action-inbox/stocktake-review.service.js";
 import { StockTransferReviewService } from "./action-inbox/stock-transfer-review.service.js";
 import { InvoiceReviewService } from "./action-inbox/invoice-review.service.js";
+import { InvoiceFileService } from "./action-inbox/invoice-file.service.js";
 import { AuditReviewService } from "./action-inbox/audit-review.service.js";
 import { AuditResultController } from "./audit-result/audit-result.controller.js";
 import { AuditResultService } from "./audit-result/audit-result.service.js";
@@ -77,6 +78,7 @@ import { PurchasingModule } from "../purchasing/purchasing.module.js";
         StocktakeReviewService,
         StockTransferReviewService,
         InvoiceReviewService,
+        InvoiceFileService,
         AuditReviewService,
         AuditResultService,
         SiteConfigService,

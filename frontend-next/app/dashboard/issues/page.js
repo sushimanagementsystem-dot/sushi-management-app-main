@@ -90,6 +90,7 @@ export default function IssuesPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Issues"
+                        help="issues.page"
                         description="Every kiosk's pending problems in one place — what's wrong, which kiosk, and what needs attention."
                         actions={<RefreshButton onRefetch={handleRefresh} />}
                     />

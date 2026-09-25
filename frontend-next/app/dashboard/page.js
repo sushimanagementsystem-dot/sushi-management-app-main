@@ -122,6 +122,7 @@ export default function DashboardOverviewPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="KPI Dashboard"
+                        help="overview.page"
                         description="Waste, damage, stocktake, deliveries and owner actions across your kiosks."
                         icon={LayoutDashboard}
                         actions={<RefreshButton onRefetch={refetch} />}
@@ -159,6 +160,7 @@ export default function DashboardOverviewPage() {
 
                             <SectionCard
                                 title="Stocktake Status"
+                                help="kpi.stocktakeStatus"
                                 actions={<SectionLink href="/dashboard/kiosk-comparison">View all kiosks</SectionLink>}
                             >
                                 <StocktakeTiles res={res} kioskIds={kioskIds} />
@@ -166,6 +168,7 @@ export default function DashboardOverviewPage() {
 
                             <SectionCard
                                 title="Delivery / Invoice Review Queue"
+                                help="kpi.deliveries"
                                 actions={<SectionLink href="/dashboard/inbox">View all</SectionLink>}
                             >
                                 <DeliveryTiles res={res} kioskIds={kioskIds} />
@@ -173,6 +176,7 @@ export default function DashboardOverviewPage() {
 
                             <SectionCard
                                 title="Owner Actions"
+                                help="kpi.ownerActions"
                                 className="mb-0"
                                 actions={<SectionLink href="/dashboard/inbox">View all actions</SectionLink>}
                             >
@@ -218,6 +222,7 @@ function CoreTiles({ res, kioskIds }) {
                 icon={Trash2}
                 iconClassName="bg-chip-rose-bg text-chip-rose-ink"
                 label="Expired / Waste (Finished Product)"
+                help="kpi.waste"
                 value={
                     <ValueWithTrend current={waste.cost} previous={previousWaste.cost}>
                         {moneyStr(waste.cost)}
@@ -237,6 +242,7 @@ function CoreTiles({ res, kioskIds }) {
                 icon={Triangle}
                 iconClassName="bg-chip-orange-bg text-chip-orange-ink"
                 label="Damage"
+                help="kpi.damage"
                 value={
                     <ValueWithTrend current={damage.cost} previous={previousDamage.cost}>
                         {moneyStr(damage.cost)}
@@ -256,6 +262,7 @@ function CoreTiles({ res, kioskIds }) {
                 icon={Utensils}
                 iconClassName="bg-chip-amber-bg text-chip-amber-ink"
                 label="Staff Food"
+                help="kpi.staffFood"
                 value={
                     <ValueWithTrend current={staffFood.cost} previous={previousStaffFood.cost}>
                         {moneyStr(staffFood.cost)}
@@ -269,6 +276,7 @@ function CoreTiles({ res, kioskIds }) {
                 icon={Wallet}
                 iconClassName="bg-chip-indigo-bg text-chip-indigo-ink"
                 label="Total Cost (Waste + Damage + Staff Food)"
+                help="kpi.totalCost"
                 value={
                     <ValueWithTrend
                         current={waste.cost + damage.cost + staffFood.cost}
@@ -371,13 +379,14 @@ function DeliveryTiles({ res, kioskIds }) {
                 value={String(totals.submitted)}
                 subLines={[totals.inReview + " in review", totals.reviewed + " reviewed"]}
             />
-            <KpiTile label="AI Extraction" value={totals.aiPending + " pending"} subLines={[totals.aiFailed + " failed — needs manual entry"]} />
+            <KpiTile label="AI Extraction" help="kpi.aiExtraction" value={totals.aiPending + " pending"} subLines={[totals.aiFailed + " failed — needs manual entry"]} />
             <KpiTile
                 label="Unmapped Invoice Lines"
+                help="kpi.unmappedLines"
                 value={String(totals.unmappedLines)}
                 subLines={[totals.unmappedLines > 0 ? "Needs a stock item picked before confirming" : "All lines mapped"]}
             />
-            <KpiTile label="Approved Invoice Value" value={moneyStr(totals.approvedValue)} subLines={["For the selected period"]} />
+            <KpiTile label="Approved Invoice Value" help="kpi.approvedValue" value={moneyStr(totals.approvedValue)} subLines={["For the selected period"]} />
         </KpiTileGrid>
     );
 }

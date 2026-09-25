@@ -331,7 +331,7 @@ export class KpiService {
         const kioskByHeaderId = new Map(headers.map((h) => [h.delivery_header_id, h.kiosk_id]));
         const headerIds = headers.map((h) => h.delivery_header_id);
         const [files, lines] = await Promise.all([
-            this.prisma.deliveryFile.findMany({ where: { delivery_header_id: { in: headerIds } } }),
+            this.prisma.deliveryFile.findMany({ where: { delivery_header_id: { in: headerIds }, is_active: true } }),
             this.prisma.invoiceLine.findMany({ where: { delivery_header_id: { in: headerIds } } }),
         ]);
 

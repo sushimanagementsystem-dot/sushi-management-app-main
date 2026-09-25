@@ -701,6 +701,13 @@ model DeliveryFile {
   page_sequence      Int?
   ai_status          String? // PENDING | SUCCESS | FAILED
   ai_error           String?
+  // Versioning for owner re-uploads: a replaced page is never deleted or edited — it is switched to is_active=false and kept
+  // (its stored file stays too) so the previous image is recoverable. The new version points back at it via replaces_file_id.
+  // AI and the review screen only use is_active rows.
+  is_active        Boolean   @default(true)
+  replaces_file_id String?
+  superseded_at    DateTime?
+  superseded_by    String?
 
   delivery_header DeliveryHeader @relation(fields: [delivery_header_id], references: [delivery_header_id])
 

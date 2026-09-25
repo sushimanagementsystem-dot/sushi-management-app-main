@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { OwnerActionStateService, RESOLVED_STATUSES } from "./owner-action-state.service.js";
+import { UploadService } from "../../upload/upload.service.js";
 import { computeItemTrigger, loadConfirmedCounts } from "../../common/purchasing-trigger.util.js";
 import type { Kiosk, OwnerAction, Prisma, StockItem, User } from "@prisma/client";
 
@@ -33,6 +34,7 @@ export class ActionInboxService {
         private readonly prisma: PrismaService,
         private readonly tableCache: TableCacheService,
         private readonly ownerActionState: OwnerActionStateService,
+        private readonly upload: UploadService,
     ) {}
 
     /**
@@ -117,6 +119,34 @@ export class ActionInboxService {
      * server-side pagination a deep-linked or just-changed action may not
      * be on whatever page the list last loaded.
      */
+    /**
+     * Every page of an invoice INCLUDING replaced ones (kept for recovery), each with: whether it is the current version, its
+     * version number on that page, when it was uploaded / replaced, and whether the stored image is actually still there.
+     * A legacy Google Drive link can't be checked from here, so `missing` is null for those.
+     */
+    private async describeInvoiceFiles<T extends { delivery_file_id: string; page_sequence: number | null; file_url: string | null; drive_file_id: string | null; replaces_file_id: string | null; is_active: boolean }>(files: T[]) {
+        const byId = new Map(files.map((f) => [f.delivery_file_id, f]));
+        const depth = (f: T): number => {
+            let n = 1;
+            let cur: T | undefined = f;
+            const seen = new Set<string>();
+            while (cur?.replaces_file_id && !seen.has(cur.delivery_file_id)) {
+                seen.add(cur.delivery_file_id);
+                cur = byId.get(cur.replaces_file_id);
+                if (cur) n += 1;
+            }
+            return n;
+        };
+        const described = await Promise.all(
+            files.map(async (f) => {
+                const url = f.file_url || f.drive_file_id || "";
+                const check = url.startsWith("/uploads/") ? await this.upload.exists(url) : null;
+                return { ...f, versionNumber: depth(f), uploadedAt: check?.createdAt ?? null, missing: check ? !check.exists : url ? null : true };
+            }),
+        );
+        return described.sort((a, b) => (a.page_sequence ?? 0) - (b.page_sequence ?? 0) || a.versionNumber - b.versionNumber);
+    }
+
     async getActionDetail(ownerActionId: string) {
         const [action, activity, allKiosks] = await Promise.all([
             this.prisma.ownerAction.findUnique({ where: { owner_action_id: ownerActionId } }),
@@ -173,7 +203,7 @@ export class ActionInboxService {
                     const items = await this.tableCache.getAll<StockItem>("stock_item");
                     const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
                     out.supplierName = supplier?.name ?? "";
-                    out.deliveryFiles = files;
+                    out.deliveryFiles = await this.describeInvoiceFiles(files);
                     out.invoiceLines = lines.map((l) => ({ ...l, stockItemName: l.stock_item_id ? (itemById.get(l.stock_item_id)?.name ?? "") : "" }));
                 } else {
                     out.supplierName = "";

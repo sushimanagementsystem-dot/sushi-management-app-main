@@ -53,6 +53,7 @@ export default function StaffFoodPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Staff Food"
+                        help="staffFoodReport.page"
                         description="Which products staff are taking, per kiosk, with quantity and cost — plus kiosk-wise and date-wise totals. The same cost feeds the Profit tab's net profit."
                         actions={<RefreshButton onRefetch={refetch} />}
                     >

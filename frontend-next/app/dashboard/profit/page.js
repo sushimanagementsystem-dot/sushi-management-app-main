@@ -5,6 +5,7 @@ import { Pencil, Check, X, Upload, Download } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
+import HelpTip from "@/components/dashboard/HelpTip";
 import SectionCard from "@/components/dashboard/SectionCard";
 import KpiFilters from "@/components/dashboard/KpiFilters";
 import RefreshButton from "@/components/dashboard/RefreshButton";
@@ -52,6 +53,7 @@ export default function ProfitPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Profit"
+                        help="profit.page"
                         description="Gross Profit and EBITDA per kiosk, per week — sales, fixed costs and misc costs are typed in; COGS, waste, damage, staff food and labour come in automatically."
                         actions={<RefreshButton onRefetch={refetch} />}
                     >
@@ -93,6 +95,8 @@ export default function ProfitPage() {
 }
 
 const COLUMNS = ["Kiosk", "Sales", "COGS", "Waste", "Damage", "Staff Food", "Fixed Costs", "Misc Costs", "Gross Profit", "Labour", "EBITDA Profit"];
+// Column headings that need an explanation get the shared "?" Help icon (ids in lib/help/content.js).
+const COLUMN_HELP = { COGS: "profit.cogs", "Gross Profit": "profit.grossProfit", Labour: "profit.labour", "EBITDA Profit": "profit.ebitda" };
 const CELL = "whitespace-nowrap border-b border-line px-[0.9rem] py-2.5";
 const TOTAL_CELL = "whitespace-nowrap border-t border-line px-[0.9rem] py-2.5";
 
@@ -134,6 +138,7 @@ function WeekBlock({ week, onSaved }) {
                                         className="whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
                                     >
                                         {c}
+                                        {COLUMN_HELP[c] && <HelpTip id={COLUMN_HELP[c]} />}
                                     </th>
                                 ))}
                             </tr>
@@ -407,6 +412,7 @@ function LabourReportCard({ lastHourlyRate, onSaved }) {
     return (
         <SectionCard
             title="Weekly labour report"
+            help="profit.labourReport"
             description="Upload the weekly labour sheet (Excel or CSV — a Google Sheet can be downloaded as either) with total hours per kiosk. Each kiosk's hours go into the Labour column for that week."
             className="mb-0"
         >

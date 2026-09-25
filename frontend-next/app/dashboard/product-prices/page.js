@@ -5,6 +5,7 @@ import { Tag, Package, Check, X, Pencil, Search } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
+import HelpTip from "@/components/dashboard/HelpTip";
 import SectionCard from "@/components/dashboard/SectionCard";
 import PillButton from "@/components/dashboard/PillButton";
 import { useBootstrap, useApiMutation } from "@/lib/queries";
@@ -75,6 +76,7 @@ export default function ProductPricesPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Product Prices"
+                        help="prices.page"
                         description="Set the cost, selling price, recipe cost and packaging cost for every product — royalty (30% of the selling price) and margin are worked out from them, and the costs feed Waste, Damage, Staff Food and Profit automatically. Stock items are the ones on the Weekly Stocktake."
                     />
 
@@ -151,7 +153,7 @@ function PriceTable({ table, idField, fields, showMargin, label, brandId, brandB
     ).length;
 
     return (
-        <SectionCard title={label} className="mb-0">
+        <SectionCard title={label} help={table === "stock_item" ? "prices.stockItems" : undefined} className="mb-0">
             {table === "stock_item" && (
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                     <BulkImportButton dataset={PRICE_DATASET} />
@@ -196,21 +198,22 @@ function PriceTable({ table, idField, fields, showMargin, label, brandId, brandB
                                             className="w-32 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
                                         >
                                             {f.label}
+                                            {f.key === "current_unit_cost" && <HelpTip id="prices.cost" />}
                                         </th>
                                     ))}
                                     {showMargin && (
                                         <>
                                             <th
-                                                title={`Royalty = ${Math.round(ROYALTY_RATE * 100)}% of the selling price (the franchisor's share)`}
                                                 className="w-28 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
                                             >
                                                 Royalty
+                                                <HelpTip id="prices.royalty" />
                                             </th>
                                             <th
-                                                title="Margin = Selling Price − Recipe Cost − Packaging Cost − Royalty"
                                                 className="w-28 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
                                             >
                                                 Margin
+                                                <HelpTip id="prices.margin" />
                                             </th>
                                         </>
                                     )}

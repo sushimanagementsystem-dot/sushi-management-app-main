@@ -54,6 +54,7 @@ export default function StockVariancesPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Stock Variances"
+                        help="variances.page"
                         description="Automatically detected gaps between what the stock ledger expects and what staff actually counted — usually a sign something was never logged."
                         actions={<RefreshButton onRefetch={refetch} />}
                     >
