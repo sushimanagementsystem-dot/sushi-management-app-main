@@ -577,6 +577,7 @@ model StockTransfer {
   note                 String?
   user_id              String?
   status               String  @default("PENDING") // PENDING | APPLIED | DECLINED
+  photo_reference      String? // mandatory evidence photo for the whole request — same UploadService pattern as product_movement.photo_reference; every line from one submission shares the one photo taken for that transfer
 
   submission        Submission? @relation(fields: [submission_id], references: [submission_id])
   source_kiosk      Kiosk?      @relation("TransferSource", fields: [source_kiosk_id], references: [kiosk_id])
@@ -793,12 +794,15 @@ model StocktakeLine {
 model PurchasingBatch {
   purchasing_batch_id String   @id @default(uuid())
   owner_action_id     String?
-  supplier_id         String
+  supplier_id         String? // null = the "setup needed" batch (items with no par / supplier yet), not tied to one supplier
   order_output_method String?
   generated_at        DateTime @default(now())
+  emailed_at          DateTime? // when the drafted order was emailed to the owner (null = not sent; see email_error)
+  emailed_to          String?
+  email_error         String?
 
   owner_action OwnerAction? @relation(fields: [owner_action_id], references: [owner_action_id])
-  supplier     Supplier     @relation(fields: [supplier_id], references: [supplier_id])
+  supplier     Supplier?    @relation(fields: [supplier_id], references: [supplier_id])
 
   purchasing_batch_lines PurchasingBatchLine[]
 

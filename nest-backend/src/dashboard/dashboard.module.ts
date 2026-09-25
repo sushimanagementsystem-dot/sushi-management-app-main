@@ -8,6 +8,8 @@ import { KpiService } from "./kpi/kpi.service.js";
 import { WasteRateService } from "./kpi/waste-rate.service.js";
 import { ProfitController } from "./profit/profit.controller.js";
 import { ProfitService } from "./profit/profit.service.js";
+import { ProductPricesController } from "./product-prices/product-prices.controller.js";
+import { ProductPricesService } from "./product-prices/product-prices.service.js";
 import { SubmissionsMonitorController } from "./submissions-monitor/submissions-monitor.controller.js";
 import { SubmissionsMonitorService } from "./submissions-monitor/submissions-monitor.service.js";
 import { StaffFoodReportController } from "./staff-food-report/staff-food-report.controller.js";
@@ -32,14 +34,19 @@ import { AuditResultController } from "./audit-result/audit-result.controller.js
 import { AuditResultService } from "./audit-result/audit-result.service.js";
 import { SiteConfigController } from "./site-config/site-config.controller.js";
 import { SiteConfigService } from "./site-config/site-config.service.js";
+import { BulkImportController } from "./bulk-import/bulk-import.controller.js";
+import { BulkImportService } from "./bulk-import/bulk-import.service.js";
+import { PurchasingModule } from "../purchasing/purchasing.module.js";
 
 @Module({
+    imports: [PurchasingModule],
     controllers: [
         DataTablesController,
         DashboardSettingsController,
         SiteConfigController,
         KpiController,
         ProfitController,
+        ProductPricesController,
         SubmissionsMonitorController,
         StaffFoodReportController,
         StockVariancesController,
@@ -48,13 +55,16 @@ import { SiteConfigService } from "./site-config/site-config.service.js";
         ReportsController,
         AuditResultController,
         ActionInboxController,
+        BulkImportController,
     ],
     providers: [
         DataTablesService,
+        BulkImportService,
         DashboardSettingsService,
         KpiService,
         WasteRateService,
         ProfitService,
+        ProductPricesService,
         SubmissionsMonitorService,
         StaffFoodReportService,
         StockVariancesService,

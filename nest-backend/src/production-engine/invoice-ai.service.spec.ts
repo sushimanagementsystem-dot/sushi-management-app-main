@@ -21,6 +21,7 @@ function build(opts: { create: ReturnType<typeof vi.fn>; apiKey?: string | null;
     };
     const prisma = {
         stockItem: { findMany: vi.fn(async () => STOCK) },
+        enumOption: { findMany: vi.fn(async () => [{ value: "SC01", label: "KIOSK" }]) },
         supplierItemMap: { findMany: vi.fn(async () => opts.maps ?? []) },
     };
     const aiConfig = {

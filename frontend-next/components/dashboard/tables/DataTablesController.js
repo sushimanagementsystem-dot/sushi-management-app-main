@@ -2191,6 +2191,8 @@ function detailRowIdFromUrl() {
  * @param {(title: string) => void} opts.onTitleChange - bridges into
  *   React's <PageTitle> (this module is vanilla DOM, so it can't render
  *   JSX itself).
+ * @param {(tableName: string) => void} [opts.onTableChange] - called with the
+ *   active table whenever it changes (the bulk-update button follows it).
  * @returns {{ destroy(): void, hasUnsavedChanges(): boolean }}
  */
 export function createTablesPageController(container, opts) {
@@ -2280,6 +2282,7 @@ export function createTablesPageController(container, opts) {
 
         const meta = tablesList.find((t) => t.table_name === tableName) || {};
         opts.onTitleChange("Dashboard — " + (meta.label || tableName));
+        if (opts.onTableChange) opts.onTableChange(tableName);
         titleEl.textContent = meta.label || tableName;
         descEl.textContent = meta.description || "";
 
@@ -2363,6 +2366,7 @@ export function createTablesPageController(container, opts) {
             const initialDetailId = detailRowIdFromUrl();
             history.replaceState(null, "", "/dashboard/tables/" + activeTable + (initialDetailId ? "/detail/" + initialDetailId : ""));
             opts.onTitleChange("Dashboard — " + (meta.label || activeTable));
+            if (opts.onTableChange) opts.onTableChange(activeTable);
             titleEl.textContent = meta.label || activeTable;
             descEl.textContent = meta.description || "";
 

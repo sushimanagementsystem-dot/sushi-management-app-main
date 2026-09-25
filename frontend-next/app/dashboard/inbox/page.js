@@ -280,7 +280,12 @@ function InboxBody() {
             <PageHeader
                 title="Action Inbox"
                 description="Transfers, invoice reviews, audit findings and requests waiting on you."
-                actions={<RefreshButton onRefetch={refetch} />}
+                actions={
+                    <>
+                        <DraftOrdersButton onDone={refetch} />
+                        <RefreshButton onRefetch={refetch} />
+                    </>
+                }
             >
                 <InboxFilters kiosks={res?.ok ? res.kiosks || [] : []} filters={filters} onChange={changeFilters} />
                 <CountsRow counts={res?.ok ? res.counts : null} />
@@ -313,6 +318,34 @@ function InboxBody() {
                 />
             )}
         </div>
+    );
+}
+
+/** Runs the ordering scan now: builds each supplier's order from the latest stocktakes and par levels and emails it to the owner to review. */
+function DraftOrdersButton({ onDone }) {
+    const [busy, setBusy] = useState(false);
+    async function run() {
+        const ok = await confirmModal("Draft the supplier orders now? Each order is built from the latest confirmed stocktakes and the par levels, and emailed to you to review. Nothing is sent to a supplier.", "Draft orders");
+        if (!ok) return;
+        setBusy(true);
+        try {
+            const res = await apiCall("run_purchasing_scan", {});
+            if (!res?.ok) throw new Error(res?.error || "Could not draft the orders.");
+            const failed = res.emailFailed ? ` ${res.emailFailed} could not be emailed: see the purchasing card for the reason.` : "";
+            const skipped = res.skipped ? ` ${res.skipped} supplier(s) already had an open order from the last day.` : "";
+            await noticeModal(res.created ? `${res.emailed} order email(s) sent to you.${failed}${skipped}` : `Nothing to order right now.${skipped}`, "Orders drafted");
+            onDone();
+        } catch (e) {
+            await noticeModal(e.message || "Could not draft the orders.", "Orders");
+        } finally {
+            setBusy(false);
+        }
+    }
+    return (
+        <button type="button" onClick={run} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-card px-3 text-[0.78rem] font-semibold text-ink hover:border-accent/40 disabled:opacity-60">
+            <ShoppingCart size={15} strokeWidth={2.25} />
+            {busy ? "Drafting…" : "Draft orders"}
+        </button>
     );
 }
 
@@ -1142,6 +1175,9 @@ function TransferView({ transfers, kiosks, onChanged }) {
 
     const pendingIds = transfers.filter((t) => t.status === "PENDING").map((t) => t.transfer_id);
     const approvedIds = transfers.filter((t) => t.status === "APPROVED").map((t) => t.transfer_id);
+    // One mandatory photo per transfer request, shared by every line in it
+    // (see stock_transfer.photo_reference) — shown once, not per row.
+    const photoReference = transfers.find((t) => t.photo_reference)?.photo_reference;
 
     function approveAll() {
         setBusy(true);
@@ -1172,6 +1208,7 @@ function TransferView({ transfers, kiosks, onChanged }) {
 
     return (
         <div>
+            {photoReference && <DrivePreview url={photoReference} label="Photo of items being transferred" />}
             <RequestTableWrap>
                 <table className="w-full border-collapse text-[0.85rem]">
                     <thead>
@@ -1874,6 +1911,13 @@ function PurchasingRecommendationSection({ row, onChanged }) {
                     ? (row.purchasingSupplierName || batch.supplier_id) + " — " + batch.order_output_method + " — generated " + batch.generated_at
                     : "Items missing par setup or a supplier mapping — generated " + batch.generated_at}
             </p>
+            {batch.supplier_id && (
+                <p className={"mb-2 " + (batch.emailed_at ? "text-muted" : "text-danger-ink")}>
+                    {batch.emailed_at
+                        ? "Order emailed to " + batch.emailed_to + " to review and forward."
+                        : "Not emailed" + (batch.email_error ? ": " + batch.email_error : ". Use Draft orders to send it.")}
+                </p>
+            )}
 
             {!lines.length ? (
                 <p className="text-muted">No line items.</p>

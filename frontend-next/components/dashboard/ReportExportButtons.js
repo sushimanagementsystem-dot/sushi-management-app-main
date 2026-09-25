@@ -14,6 +14,12 @@ const EMAIL_STORAGE_KEY = "report_email_last";
  * which forwards it through the app's existing MailerService). One
  * component instead of repeating this per report type.
  */
+// The same compact size as the Refresh button next to them, so the three sit as one row; the icon-only buttons of
+// the email form drop the global button padding (p-0), otherwise their icon is pushed off-centre.
+const REPORT_BTN =
+    "flex h-8 items-center gap-1.5 rounded-lg border border-line bg-card px-2 py-1 text-[0.72rem] font-medium text-ink shadow-elevate-1 hover:border-accent/40 hover:bg-panel hover:text-accent";
+const ICON_BTN = "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border-none p-0";
+
 export default function ReportExportButtons({ filename, title, subtitle, columns, rows }) {
     const [showEmailForm, setShowEmailForm] = useState(false);
     const [email, setEmail] = useState("");
@@ -64,9 +70,9 @@ export default function ReportExportButtons({ filename, title, subtitle, columns
                 type="button"
                 onClick={() => downloadCsv(filename, columns, rows)}
                 title="Download this report as CSV"
-                className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-2.5 py-1.5 text-[0.78rem] font-medium text-ink hover:border-accent/40 hover:text-accent"
+                className={REPORT_BTN}
             >
-                <Download size={13} strokeWidth={2.25} />
+                <Download size={15} strokeWidth={2.25} />
                 Export CSV
             </button>
 
@@ -75,9 +81,9 @@ export default function ReportExportButtons({ filename, title, subtitle, columns
                     type="button"
                     onClick={openEmailForm}
                     title="Email this report"
-                    className="flex items-center gap-1.5 rounded-lg border border-line bg-card px-2.5 py-1.5 text-[0.78rem] font-medium text-ink hover:border-accent/40 hover:text-accent"
+                    className={REPORT_BTN}
                 >
-                    <Mail size={13} strokeWidth={2.25} />
+                    <Mail size={15} strokeWidth={2.25} />
                     Email report
                 </button>
             ) : (
@@ -89,23 +95,23 @@ export default function ReportExportButtons({ filename, title, subtitle, columns
                         placeholder="owner@email.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="w-48 py-1 px-2 text-[0.75rem]"
+                        className="h-8 w-48 py-1 px-2 text-[0.75rem]"
                     />
                     <button
                         type="submit"
                         disabled={sendMutation.isPending}
                         title="Send"
-                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border-none bg-accent text-accent-ink disabled:opacity-50"
+                        className={ICON_BTN + " bg-accent text-accent-ink disabled:opacity-50"}
                     >
-                        <Check size={13} strokeWidth={2.5} />
+                        <Check size={16} strokeWidth={2.5} />
                     </button>
                     <button
                         type="button"
                         onClick={() => setShowEmailForm(false)}
                         title="Cancel"
-                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border-none bg-line text-muted"
+                        className={ICON_BTN + " bg-line text-muted"}
                     >
-                        <X size={13} strokeWidth={2.5} />
+                        <X size={16} strokeWidth={2.5} />
                     </button>
                 </form>
             )}

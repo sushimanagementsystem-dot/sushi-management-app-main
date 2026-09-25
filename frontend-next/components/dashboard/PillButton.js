@@ -23,7 +23,7 @@ export default function PillButton({ active, onClick, icon: Icon, children, clas
                 className
             }
         >
-            {Icon && <Icon size={13} strokeWidth={2.25} />}
+            {Icon && <Icon size={15} strokeWidth={2.25} />}
             {children}
         </button>
     );

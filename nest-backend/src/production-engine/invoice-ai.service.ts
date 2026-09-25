@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Prisma, StockItem } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { UploadService } from "../upload/upload.service.js";
+import { loadStocktakeItems } from "../common/stocktake-items.util.js";
 import { AnthropicConfigService } from "./anthropic-config.service.js";
 
 /** Non-streaming ceiling that stays under HTTP timeouts. Adaptive thinking spends from the same
@@ -247,7 +248,8 @@ export class InvoiceAiService {
      */
     private async resolveStockItems(lines: ExtractedLine[], supplierId: string | null): Promise<ResolvedLine[]> {
         if (!lines.length) return [];
-        const stockItems = await this.prisma.stockItem.findMany({ where: { active: true } });
+        // Only the Stock Take list: a Food Waste (per 100g) "Salmon" must never win a match for an invoice line.
+        const stockItems = await loadStocktakeItems(this.prisma);
         const maps = supplierId ? await this.prisma.supplierItemMap.findMany({ where: { supplier_id: supplierId, active: true } }) : [];
 
         const resolved: ResolvedLine[] = lines.map((line) => ({ ...line, stock_item_id: this.matchDeterministic(line, maps, stockItems) }));

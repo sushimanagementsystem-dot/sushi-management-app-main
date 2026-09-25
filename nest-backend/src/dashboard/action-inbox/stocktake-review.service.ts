@@ -1,14 +1,18 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { OwnerActionStateService } from "./owner-action-state.service.js";
 import { stockBalanceAsOf } from "../../common/stock-balance.util.js";
 import { endOfDay } from "../../common/date.util.js";
+import { PurchasingScanService } from "../../purchasing/purchasing-scan.service.js";
 
 @Injectable()
 export class StocktakeReviewService {
+    private readonly logger = new Logger(StocktakeReviewService.name);
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly ownerActionState: OwnerActionStateService,
+        private readonly purchasing: PurchasingScanService,
     ) {}
 
     /** Add/edit a stocktake_line while its header is still PENDING review.
@@ -108,6 +112,14 @@ export class StocktakeReviewService {
                 await this.ownerActionState.advanceOwnerActionOnAction(tx, action.owner_action_id, { complete: true, note: "stocktake confirmed" });
             }
         });
+
+        // The stocktake is now in the ledger: draft the orders from it (once the last waiting kiosk is confirmed).
+        // A problem here must never undo or fail the confirmation itself.
+        try {
+            await this.purchasing.runAfterStocktakeConfirmed();
+        } catch (err) {
+            this.logger.error(`Order drafting after stocktake confirmation failed: ${err instanceof Error ? err.message : err}`);
+        }
     }
 
     async decline(stocktakeHeaderId: string, declinedBy: string): Promise<void> {

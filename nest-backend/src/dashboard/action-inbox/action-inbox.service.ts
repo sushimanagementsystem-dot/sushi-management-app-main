@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { OwnerActionStateService, RESOLVED_STATUSES } from "./owner-action-state.service.js";
-import { computeItemTrigger } from "../../common/purchasing-trigger.util.js";
+import { computeItemTrigger, loadConfirmedCounts } from "../../common/purchasing-trigger.util.js";
 import type { Kiosk, OwnerAction, Prisma, StockItem, User } from "@prisma/client";
 
 const PRIORITY_RANK: Record<string, number> = { URGENT: 0, NORMAL: 1, LOW: 2 };
@@ -282,11 +282,12 @@ export class ActionInboxService {
                 const activeKiosks = kiosks.filter((k) => k.active);
                 const activeKioskIds = activeKiosks.map((k) => k.kiosk_id);
 
-                const [batchLines, allParRows, allMovements, items] = await Promise.all([
+                const [batchLines, allParRows, allMovements, items, confirmedCounts] = await Promise.all([
                     this.prisma.purchasingBatchLine.findMany({ where: { purchasing_batch_id: batch.purchasing_batch_id } }),
                     this.prisma.stockItemPar.findMany(),
                     this.prisma.stockMovement.findMany({ where: { kiosk_id: { in: activeKioskIds } } }),
                     this.tableCache.getAll<StockItem>("stock_item"),
+                    loadConfirmedCounts(this.prisma as never, activeKioskIds),
                 ]);
                 const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
                 const movementsByKiosk = new Map<string, typeof allMovements>();
@@ -301,7 +302,7 @@ export class ActionInboxService {
                     const item = itemById.get(line.stock_item_id);
                     const kioskBreakdown = activeKiosks.map((k) => {
                         const parRow = parByItemKiosk.get(`${line.stock_item_id}|${k.kiosk_id}`) ?? null;
-                        const trigger = computeItemTrigger(line.stock_item_id, parRow, movementsByKiosk.get(k.kiosk_id) ?? []);
+                        const trigger = computeItemTrigger(line.stock_item_id, parRow, movementsByKiosk.get(k.kiosk_id) ?? [], confirmedCounts.get(k.kiosk_id)?.has(line.stock_item_id) ?? false);
                         return {
                             kioskId: k.kiosk_id,
                             kioskName: k.name,

@@ -55,14 +55,14 @@ export default function KpiFilters({ kiosks, filters, activePreset, onKioskChang
                     type="date"
                     value={filters.startDate}
                     onChange={(e) => onStartDate(e.target.value)}
-                    className="w-auto py-1 px-2 text-[0.72rem] max-[720px]:min-h-[2.75rem] max-[720px]:flex-1 max-[720px]:py-[0.7rem] max-[720px]:px-[0.7rem] max-[720px]:text-base"
+                    className="h-8 min-h-0 w-auto py-1 px-2 text-[0.72rem] max-[720px]:min-h-[2.75rem] max-[720px]:flex-1 max-[720px]:py-[0.7rem] max-[720px]:px-[0.7rem] max-[720px]:text-base"
                 />
                 <span className="text-[0.72rem] text-muted">to</span>
                 <input
                     type="date"
                     value={filters.endDate}
                     onChange={(e) => onEndDate(e.target.value)}
-                    className="w-auto py-1 px-2 text-[0.72rem] max-[720px]:min-h-[2.75rem] max-[720px]:flex-1 max-[720px]:py-[0.7rem] max-[720px]:px-[0.7rem] max-[720px]:text-base"
+                    className="h-8 min-h-0 w-auto py-1 px-2 text-[0.72rem] max-[720px]:min-h-[2.75rem] max-[720px]:flex-1 max-[720px]:py-[0.7rem] max-[720px]:px-[0.7rem] max-[720px]:text-base"
                 />
             </div>
         </div>

@@ -1,3 +1,4 @@
+import { stocktakeCategoryIds } from "../../common/stocktake-items.util.js";
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type { KeyContext, ProcessingContext, SubmissionProcessor, ValidationResult } from "../submission-processor.interface.js";
@@ -56,7 +57,7 @@ export class WeeklyStocktakeProcessor implements SubmissionProcessor<StocktakePa
         const counts = ctx.payload.counts;
 
         const categories = await this.enumOptions.getOptions("stock_category");
-        const nonWasteCatIds = new Set(categories.filter((c) => !c.label.toLowerCase().includes("per 100g")).map((c) => c.value));
+        const nonWasteCatIds = stocktakeCategoryIds(categories);
         const items = await tx.stockItem.findMany({ where: { active: true, stock_category_id: { in: [...nonWasteCatIds] } } });
         const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
 

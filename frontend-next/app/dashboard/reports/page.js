@@ -128,7 +128,7 @@ function ReportBody({ reportKey, filters }) {
 
 // --- Shared report shell -------------------------------------------------
 
-function ReportShell({ title, subtitle, loading, error, refetch, columns, rows, filename, children }) {
+function ReportShell({ title, subtitle, loading, error, refetch, columns, rows, filename, children, note }) {
     return (
         <SectionCard
             title={title}
@@ -146,6 +146,7 @@ function ReportShell({ title, subtitle, loading, error, refetch, columns, rows, 
             )}
             {error && <div className="text-danger-ink">{error}</div>}
             {!loading && !error && (children ?? <ReportTable columns={columns} rows={rows} />)}
+            {!loading && !error && note && <p className="mb-0 mt-3 text-[0.78rem] leading-snug text-muted">{note}</p>}
         </SectionCard>
     );
 }
@@ -238,15 +239,17 @@ function WasteReport({ filters }) {
     const rows = res?.ok !== false && res
         ? res.kiosks.map((k) => {
               const waste = res.movementStats[k.id]?.EXPIRED_WASTE || { qty: 0, cost: 0 };
-              const rate = res.damageWasteRates[k.id]?.waste?.ratePct;
-              return { kioskName: k.name, qty: waste.qty, cost: waste.cost, ratePct: rate };
+              const rates = res.damageWasteRates[k.id]?.waste;
+              return { kioskName: k.name, qty: waste.qty, cost: waste.cost, uncosted: waste.uncostedCount, ratePct: rates?.ratePct, rateUnits: rates?.rateUnits ?? 0, rateBase: rates?.rateBase ?? 0 };
           })
         : [];
     const columns = [
         col("kiosk", "Kiosk", (r) => r.kioskName),
         col("qty", "Waste Qty", (r) => qtyStr(r.qty), "right"),
-        col("cost", "Waste Cost", (r) => moneyStr(r.cost), "right"),
+        col("cost", "Waste Cost", (r) => moneyStr(r.cost) + (r.uncosted ? ` (+${r.uncosted} not costed)` : ""), "right"),
         col("rate", "Waste Rate %", (r) => (r.ratePct === null || r.ratePct === undefined ? "n/a" : r.ratePct + "%"), "right"),
+        col("rateUnits", "Waste in rate", (r) => qtyStr(r.rateUnits), "right"),
+        col("rateBase", "Planned (rate base)", (r) => qtyStr(r.rateBase), "right"),
     ];
     return (
         <ReportShell
@@ -258,6 +261,16 @@ function WasteReport({ filters }) {
             columns={columns}
             rows={rows}
             filename="waste-report.csv"
+            note={
+                <>
+                    <b>Waste Rate %</b> = morning-waste units ÷ units planned for the batches they came from. Waste is thrown away 2 to 5 days after a batch is made, so
+                    each unit is matched to the production plan of the day it was <i>made</i>, and the base is the plan of the batches that were due to be thrown away in
+                    this period ("Planned (rate base)"). "Waste in rate" is the waste that could be matched to a planned batch; waste with no plan behind it (a day with no
+                    fridge count, a product that was never planned) is left out of the rate, which is why it can be lower than "Waste Qty". Waste Cost is units × product
+                    unit cost; units of products with no cost yet are counted but not priced. Food Waste (raw stock in grams) is a separate thing and is not included. This
+                    is the same figure Kiosk Comparison and Issues use.
+                </>
+            }
         />
     );
 }
@@ -267,22 +280,32 @@ function WasteReport({ filters }) {
 function ProductionReport({ filters }) {
     const { data: res, isPending: loading, error: bootError, refetch } = useBootstrap("bootstrap_production_report", filters);
     const error = (res && res.ok === false && (res.error || "Failed to load.")) || (bootError && "Failed to load.");
-    const rows = res?.rows || [];
+    const kiosks = res?.kiosks || [];
+    const products = res?.products || [];
+    // Products down the left, one column per kiosk, so the same product reads straight across the kiosks; a Total row closes it.
+    const totalRow = {
+        productId: "__total__",
+        productName: "Total",
+        byKiosk: Object.fromEntries(kiosks.map((k) => [k.id, products.reduce((sum, p) => sum + (p.byKiosk[k.id] || 0), 0)])),
+        total: products.reduce((sum, p) => sum + p.total, 0),
+    };
+    const rows = products.length ? [...products, totalRow] : [];
     const columns = [
-        col("kiosk", "Kiosk", (r) => r.kioskName),
         col("product", "Product", (r) => r.productName),
-        col("qty", "Planned Qty", (r) => qtyStr(r.plannedQty), "right"),
+        ...kiosks.map((k) => col(k.id, k.name, (r) => (r.byKiosk[k.id] ? qtyStr(r.byKiosk[k.id]) : "–"), "right")),
+        col("total", "Total", (r) => qtyStr(r.total), "right"),
     ];
     return (
         <ReportShell
             title="Production"
-            subtitle={res ? `${res.startDate} – ${res.endDate}` : ""}
+            subtitle={res ? `Planned quantity per product, by kiosk — ${res.startDate} – ${res.endDate}` : ""}
             loading={loading}
             error={error}
             refetch={refetch}
             columns={columns}
             rows={rows}
             filename="production-report.csv"
+            note="Planned production quantity from the production plan (what each kiosk was told to make), summed over the period. A dash means nothing was planned for that product at that kiosk."
         />
     );
 }

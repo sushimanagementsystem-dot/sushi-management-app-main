@@ -17,10 +17,13 @@ export type ItemTrigger = {
  * ActionInboxService's PURCHASING_RECOMMENDATION detail case, which
  * re-derives the same per-kiosk breakdown live rather than persisting it.
  */
-export function computeItemTrigger(stockItemId: string, parRow: StockItemPar | null, movements: StockMovement[]): ItemTrigger {
+export function computeItemTrigger(stockItemId: string, parRow: StockItemPar | null, movements: StockMovement[], hasConfirmedCount = false): ItemTrigger {
     if (!parRow) return { triggered: false, currentStock: null, shortfall: 0, flag: "SET_PAR" };
 
-    const hasHistory = movements.some((m) => m.stock_item_id === stockItemId);
+    // A confirmed stocktake line counts as history even when it posted no movement: confirming a count that equals the
+    // ledger balance (e.g. counted 0, balance 0) posts nothing, and without this an item counted at zero would wait
+    // for a stocktake forever instead of being ordered.
+    const hasHistory = hasConfirmedCount || movements.some((m) => m.stock_item_id === stockItemId);
     if (!hasHistory) return { triggered: false, currentStock: null, shortfall: 0, flag: "AWAIT_STOCKTAKE" };
 
     const currentStock = stockBalanceAsOf(movements, stockItemId);
@@ -50,10 +53,30 @@ export function castlebayPacksOverride(supplierName: string | undefined | null):
 
 /** Latest date this kiosk+item was physically counted (STOCKTAKE_ADJUSTMENT
  * movement), not just any ledger touch. null if never counted. */
-export function stockCountDate(stockItemId: string, movements: StockMovement[]): Date | null {
+export function stockCountDate(stockItemId: string, movements: StockMovement[], confirmedCountDate: Date | null = null): Date | null {
     const dates = movements
         .filter((m) => m.stock_item_id === stockItemId && m.movement_type === "STOCKTAKE_ADJUSTMENT")
-        .map((m) => m.movement_date)
-        .sort((a, b) => a.getTime() - b.getTime());
+        .map((m) => m.movement_date);
+    if (confirmedCountDate) dates.push(confirmedCountDate);
+    dates.sort((a, b) => a.getTime() - b.getTime());
     return dates.length ? dates[dates.length - 1]! : null;
+}
+
+/** kiosk_id -> stock_item_id -> date of the latest CONFIRMED stocktake that counted the item there. */
+export type ConfirmedCounts = Map<string, Map<string, Date>>;
+
+export async function loadConfirmedCounts(
+    prisma: { stocktakeLine: { findMany: (args: never) => Promise<{ stock_item_id: string; stocktake_header: { kiosk_id: string; stocktake_date: Date } }[]> } },
+    kioskIds?: string[],
+): Promise<ConfirmedCounts> {
+    const where = { stocktake_header: { reconciliation_status: "CONFIRMED", ...(kioskIds ? { kiosk_id: { in: kioskIds } } : {}) } };
+    const lines = await prisma.stocktakeLine.findMany({ where, select: { stock_item_id: true, stocktake_header: { select: { kiosk_id: true, stocktake_date: true } } } } as never);
+    const out: ConfirmedCounts = new Map();
+    for (const l of lines) {
+        const perKiosk = out.get(l.stocktake_header.kiosk_id) ?? new Map<string, Date>();
+        const prev = perKiosk.get(l.stock_item_id);
+        if (!prev || prev < l.stocktake_header.stocktake_date) perKiosk.set(l.stock_item_id, l.stocktake_header.stocktake_date);
+        out.set(l.stocktake_header.kiosk_id, perKiosk);
+    }
+    return out;
 }

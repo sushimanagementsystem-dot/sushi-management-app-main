@@ -2,8 +2,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { SettingsService } from "../reference-data/settings.service.js";
-import { applyPackRounding, castlebayPacksOverride, computeItemTrigger, stockCountDate } from "../common/purchasing-trigger.util.js";
-import { addDays, startOfTodayUtc } from "../common/date.util.js";
+import { MailerService } from "../mailer/mailer.service.js";
+import { applyPackRounding, castlebayPacksOverride, computeItemTrigger, loadConfirmedCounts, stockCountDate } from "../common/purchasing-trigger.util.js";
+import { buildOrderEmail, type OrderItemInfo } from "./purchasing-order-email.js";
+import { loadStocktakeItems } from "../common/stocktake-items.util.js";
+import { addDays, startOfTodayUtc, toDateStr } from "../common/date.util.js";
 import type { Kiosk, StockItemPar, StockMovement, Supplier, SupplierItemMap } from "@prisma/client";
 
 type RecommendationLine = {
@@ -28,12 +31,16 @@ type DiagnosticLine = { stockItemId: string; flags: string[] };
  * per supplier — surfaced in the Action Inbox under the
  * PURCHASING_RECOMMENDATION category (see ActionInboxService).
  *
- * KNOWN GAP vs. the old system: GMAIL_DRAFT suppliers no longer get an
- * actual Gmail draft created (that needs a separate Gmail API OAuth
- * 'compose' scope, distinct from the SMTP credential MailerService uses) —
- * the batch is still created and visible in the Action Inbox exactly the
- * same as for ONLINE_ORDER_LIST/MANUAL suppliers; the owner places the
- * order manually from there for now.
+ * The drafted order is EMAILED TO THE OWNER (never to the supplier) through the
+ * same SMTP the production email uses, so the owner only reviews and forwards:
+ *  - ORDER_SHEET suppliers (Tazaki, Asia Market, Castlebay): an Excel order
+ *    sheet, filled from the par levels, attached;
+ *  - every other non-MANUAL method (EMAIL_ORDER, and the old GMAIL_DRAFT /
+ *    ONLINE_ORDER_LIST): just a message listing what to order;
+ *  - MANUAL suppliers are never ordered automatically.
+ * This replaces the old Gmail-draft step, which needed a Gmail API scope the
+ * SMTP mailer does not have. If email is not set up, the batch is still
+ * created in the Action Inbox and the failure is recorded on it.
  */
 @Injectable()
 export class PurchasingScanService {
@@ -42,6 +49,7 @@ export class PurchasingScanService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly settings: SettingsService,
+        private readonly mailer: MailerService,
     ) {}
 
     @Cron(CronExpression.EVERY_WEEK)
@@ -52,7 +60,19 @@ export class PurchasingScanService {
     /** Skips suppliers with a still-open PURCHASING_RECOMMENDATION batch
      * created within PURCHASING_DUPLICATE_WINDOW_DAYS (spec 20.11). MANUAL
      * suppliers never reach here — buildRecommendations already excludes them. */
-    async runWeeklyScan(): Promise<{ ok: true; created: number; skipped: number }> {
+    /**
+     * "When the stocktake is completed, the orders get drafted": called after the owner confirms a stocktake. The scan
+     * sums every kiosk's shortfall, so it waits until no other active kiosk still has a completed stocktake waiting
+     * for review; the last confirmation of the round triggers it, once, with every kiosk's count in.
+     */
+    async runAfterStocktakeConfirmed(): Promise<{ ran: boolean; created?: number; skipped?: number; emailed?: number }> {
+        const waiting = await this.prisma.stocktakeHeader.count({ where: { reconciliation_status: "PENDING", completion_status: "COMPLETE", kiosk: { active: true } } });
+        if (waiting > 0) return { ran: false };
+        const result = await this.runWeeklyScan();
+        return { ran: true, ...result };
+    }
+
+    async runWeeklyScan(): Promise<{ ok: true; created: number; skipped: number; emailed: number; emailFailed: number }> {
         const rec = await this.buildRecommendations();
 
         const suppliers = await this.prisma.supplier.findMany();
@@ -74,6 +94,10 @@ export class PurchasingScanService {
 
         let created = 0;
         let skipped = 0;
+        let emailed = 0;
+        let emailFailed = 0;
+        const itemInfo = await this.orderItemInfo(rec.supplierBatches);
+        const staleDays = (await this.settings.getNumber("STOCKTAKE_STALE_DAYS")) ?? 7;
 
         for (const [supplierId, lines] of Object.entries(rec.supplierBatches)) {
             if (recentSupplierIds.has(supplierId)) {
@@ -82,8 +106,10 @@ export class PurchasingScanService {
             }
             const supplier = suppliersById.get(supplierId);
             if (!supplier) continue;
-            await this.createPurchasingBatch(supplierId, supplier, lines, false);
+            const batchId = await this.createPurchasingBatch(supplierId, supplier, lines, false);
             created++;
+            if (await this.emailOrder(batchId, supplier, lines, itemInfo.get(supplierId) ?? new Map(), staleDays)) emailed++;
+            else emailFailed++;
         }
 
         if (rec.diagnosticLines.length) {
@@ -95,8 +121,8 @@ export class PurchasingScanService {
             }
         }
 
-        this.logger.log(`Purchasing scan: ${created} batch(es) created, ${skipped} skipped (duplicate window)`);
-        return { ok: true, created, skipped };
+        this.logger.log(`Purchasing scan: ${created} batch(es) created, ${skipped} skipped (duplicate window), ${emailed} order(s) emailed, ${emailFailed} not emailed`);
+        return { ok: true, created, skipped, emailed, emailFailed };
     }
 
     private async createPurchasingBatch(
@@ -104,8 +130,8 @@ export class PurchasingScanService {
         supplier: Supplier | null,
         lines: (RecommendationLine | DiagnosticLine)[],
         isDiagnostic: boolean,
-    ): Promise<void> {
-        await this.prisma.$transaction(async (tx) => {
+    ): Promise<string> {
+        return this.prisma.$transaction(async (tx) => {
             const ownerAction = await tx.ownerAction.create({
                 data: {
                     category: "PURCHASING_RECOMMENDATION",
@@ -117,8 +143,8 @@ export class PurchasingScanService {
             const batch = await tx.purchasingBatch.create({
                 data: {
                     owner_action_id: ownerAction.owner_action_id,
-                    supplier_id: supplierId ?? "",
-                    order_output_method: supplier?.order_output_method ?? "",
+                    supplier_id: supplierId,
+                    order_output_method: supplier?.order_output_method ?? null,
                 },
             });
             const lineRows = lines.map((line) => ({
@@ -132,7 +158,51 @@ export class PurchasingScanService {
                 flags: line.flags.join(","),
             }));
             if (lineRows.length) await tx.purchasingBatchLine.createMany({ data: lineRows });
+            return batch.purchasing_batch_id;
         });
+    }
+
+    /** The owner's address(es): every active ADMIN user (the owners, as set on the Staff table). */
+    async orderRecipients(): Promise<string> {
+        const admins = await this.prisma.user.findMany({ where: { role: "ADMIN", active: true }, select: { email: true } });
+        return admins.map((a) => a.email).join(", ");
+    }
+
+    /** Supplier code / description / case unit for every ordered item, from that supplier's item map. */
+    private async orderItemInfo(supplierBatches: Record<string, RecommendationLine[]>): Promise<Map<string, Map<string, OrderItemInfo>>> {
+        const supplierIds = Object.keys(supplierBatches);
+        if (!supplierIds.length) return new Map();
+        const [items, maps] = await Promise.all([
+            this.prisma.stockItem.findMany({ where: { stock_item_id: { in: Object.values(supplierBatches).flat().map((l) => l.stockItemId) } } }),
+            this.prisma.supplierItemMap.findMany({ where: { supplier_id: { in: supplierIds }, active: true } }),
+        ]);
+        const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
+        const out = new Map<string, Map<string, OrderItemInfo>>();
+        for (const m of maps) {
+            const item = itemById.get(m.stock_item_id);
+            if (!item) continue;
+            const perSupplier = out.get(m.supplier_id) ?? new Map<string, OrderItemInfo>();
+            perSupplier.set(m.stock_item_id, { name: item.name, countUnit: item.count_unit ?? "", supplierCode: m.supplier_code ?? "", supplierDescription: m.supplier_description ?? "", caseUnit: m.case_unit ?? "" });
+            out.set(m.supplier_id, perSupplier);
+        }
+        return out;
+    }
+
+    /** Emails the drafted order to the owner and records the outcome on the batch. Never throws: a mail problem must not lose the batch. */
+    private async emailOrder(batchId: string, supplier: Supplier, lines: RecommendationLine[], items: Map<string, OrderItemInfo>, staleDays: number): Promise<boolean> {
+        try {
+            const to = await this.orderRecipients();
+            if (!to) throw new Error("No owner email to send to: there is no active user with the Admin role on the Staff table.");
+            const mail = buildOrderEmail({ name: supplier.name, contactEmail: supplier.contact_email, orderOutputMethod: supplier.order_output_method ?? "" }, lines, items, toDateStr(new Date()), staleDays);
+            await this.mailer.sendMail({ to, ...mail });
+            await this.prisma.purchasingBatch.update({ where: { purchasing_batch_id: batchId }, data: { emailed_at: new Date(), emailed_to: to, email_error: null } });
+            return true;
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.logger.error(`Purchasing: could not email the ${supplier.name} order: ${message}`);
+            await this.prisma.purchasingBatch.update({ where: { purchasing_batch_id: batchId }, data: { email_error: message.slice(0, 500) } }).catch(() => undefined);
+            return false;
+        }
     }
 
     /**
@@ -146,7 +216,7 @@ export class PurchasingScanService {
     private async buildRecommendations(): Promise<{ supplierBatches: Record<string, RecommendationLine[]>; diagnosticLines: DiagnosticLine[] }> {
         const [kiosks, stockItems, parRows, supplierMaps, suppliers, allMovements] = await Promise.all([
             this.prisma.kiosk.findMany({ where: { active: true } }),
-            this.prisma.stockItem.findMany({ where: { active: true } }),
+            loadStocktakeItems(this.prisma),
             this.prisma.stockItemPar.findMany(),
             this.prisma.supplierItemMap.findMany({ where: { active: true } }),
             this.prisma.supplier.findMany({ where: { active: true } }),
@@ -176,6 +246,7 @@ export class PurchasingScanService {
 
         const staleDays = (await this.settings.getNumber("STOCKTAKE_STALE_DAYS")) ?? 7;
         const today = startOfTodayUtc();
+        const confirmedCounts = await loadConfirmedCounts(this.prisma as never, [...activeKioskIds]);
 
         const lines: RecommendationLine[] = [];
         const diagnosticLines: DiagnosticLine[] = [];
@@ -203,13 +274,14 @@ export class PurchasingScanService {
 
             for (const kioskId of kioskIdsWithPar) {
                 const movements = movementsByKiosk.get(kioskId) ?? [];
-                const trigger = computeItemTrigger(item.stock_item_id, itemPars.get(kioskId) ?? null, movements);
+                const confirmedOn = confirmedCounts.get(kioskId)?.get(item.stock_item_id) ?? null;
+                const trigger = computeItemTrigger(item.stock_item_id, itemPars.get(kioskId) ?? null, movements, confirmedOn !== null);
                 if (trigger.flag === "AWAIT_STOCKTAKE") anyAwaitStocktake = true;
                 if (!trigger.triggered) continue;
                 anyTriggered = true;
                 if (override !== null) castlebayPacks += override;
                 else totalShortfall += trigger.shortfall;
-                const countDate = stockCountDate(item.stock_item_id, movements);
+                const countDate = stockCountDate(item.stock_item_id, movements, confirmedOn);
                 const daysSince = countDate ? Math.floor((today.getTime() - countDate.getTime()) / 86400000) : Infinity;
                 if (daysSince > staleDays) anyStale = true;
             }

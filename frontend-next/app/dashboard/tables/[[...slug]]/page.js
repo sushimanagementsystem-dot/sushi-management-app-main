@@ -6,6 +6,7 @@ import "@/components/dashboard/tables/tabulator-theme.css";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell, { useUnsavedGuard } from "@/components/DashboardShell";
 import { createTablesPageController } from "@/components/dashboard/tables/DataTablesController";
+import { BulkImportForTable } from "@/components/dashboard/BulkImport";
 
 /**
  * /dashboard/tables, /dashboard/tables/<table>, and
@@ -33,13 +34,17 @@ export default function DataTablesPage() {
  * component above/outside DashboardShell would get. */
 function TablesPageContent({ onTitleChange }) {
     const mountRef = useRef(null);
+    const controllerRef = useRef(null);
+    const [activeTable, setActiveTable] = useState("");
     const registerUnsavedGuard = useUnsavedGuard();
 
     useEffect(() => {
         if (!mountRef.current) return;
         const controller = createTablesPageController(mountRef.current, {
             onTitleChange: onTitleChange,
+            onTableChange: setActiveTable,
         });
+        controllerRef.current = controller;
         registerUnsavedGuard(() => controller.hasUnsavedChanges());
         return () => {
             registerUnsavedGuard(null);
@@ -53,5 +58,10 @@ function TablesPageContent({ onTitleChange }) {
     // built in DataTablesController.js pins to its top while everything
     // below (table pills, toolbar under it via toolbarHost, and the grid
     // itself, now unbounded) scrolls together underneath it.
-    return <div ref={mountRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" />;
+    return (
+        <div className="flex min-h-0 flex-1 flex-col">
+            <BulkImportForTable table={activeTable} hasUnsavedChanges={() => !!controllerRef.current?.hasUnsavedChanges()} />
+            <div ref={mountRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" />
+        </div>
+    );
 }

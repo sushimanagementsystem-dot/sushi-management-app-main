@@ -27,7 +27,12 @@ const SETTINGS_SECTIONS = [
     },
     { title: "Component Batching", keys: ["PRAWN_KATSU_ROLLS_PER_BAG", "PRAWN_KATSU_COMPONENT_ID"] },
     { title: "Secondary Item Allocation", keys: ["SECONDARY_HISTORY_LOOKBACK_DAYS", "SANDO_STEP_PRODUCT_IDS", "SANDO_UNITS_PER_PREP"] },
-    { title: "Food Waste Categories", keys: ["FOOD_WASTE_FOOD_CATEGORIES", "FOOD_WASTE_PACKAGING_CATEGORIES"] },
+    // Only "Packaging" needs a pick list now — the Food Waste item list is
+    // the Stock Take list (see stocktake-items.util.ts), toggled per item via
+    // Stock Item → "Available for Food Waste"; anything not picked here as
+    // Packaging shows as Food. No separate "Food categories" setting to keep
+    // in sync with Stock Take any more.
+    { title: "Food Waste — Packaging Category", keys: ["FOOD_WASTE_PACKAGING_CATEGORIES"] },
     { title: "Sampling", keys: ["SAMPLING_DAYS", "SAMPLING_SUSHI", "SAMPLING_KARAAGE_PER_FLAVOUR"] },
     { title: "Defrost & Waste Attribution", keys: ["DEFROST_MEDIAN_WEEKS", "WASTE_ATTRIBUTION_DAYS_DEFAULT", "WASTE_ATTRIBUTION_DAYS_KCRB"] },
     { title: "Damage Review Thresholds", keys: ["DAMAGE_REVIEW_UNITS_PER_100", "DAMAGE_REVIEW_PRODUCT_WEEK_UNITS", "DAMAGE_REVIEW_SUBMITTER_WEEK"] },
@@ -45,7 +50,6 @@ const SETTINGS_TYPES = {
     RICE_BOWL_SUBSTITUTES: "product_multi_picker",
     PRAWN_KATSU_COMPONENT_ID: "component_picker",
     SANDO_STEP_PRODUCT_IDS: "product_multi_picker",
-    FOOD_WASTE_FOOD_CATEGORIES: "stock_category_multi_picker",
     FOOD_WASTE_PACKAGING_CATEGORIES: "stock_category_multi_picker",
 };
 

@@ -30,8 +30,8 @@ export class ReportsService {
         return { start, end };
     }
 
-    /** Planned production quantity per kiosk × product for the period —
-     * the one report topic with no existing bootstrap action to reuse. */
+    /** Planned production quantity per product for the period, one column per kiosk — so the same product can be
+     * compared across kiosks side by side. The one report topic with no existing bootstrap action to reuse. */
     async bootstrapProductionReport(startDate: Date | undefined, endDate: Date | undefined) {
         const { start, end } = this.resolveRange(startDate, endDate);
         const kiosks = (await this.tableCache.getAll<Kiosk>("kiosk")).filter((k) => k.active);
@@ -39,13 +39,28 @@ export class ReportsService {
 
         const groups = await this.prisma.productionPlan.groupBy({
             by: ["kiosk_id", "product_id"],
-            where: { kiosk_id: { in: kioskIds }, business_date: { gte: start, lte: end } },
+            // business_date carries a time of day, so the last day is "before the next midnight", not "<= midnight".
+            where: { kiosk_id: { in: kioskIds }, business_date: { gte: start, lt: addDays(end, 1) } },
             _sum: { planned_qty: true },
         });
 
         const products = await this.tableCache.getAll<Product>("product");
         const productNameById = new Map(products.map((p) => [p.product_id, p.name]));
         const kioskNameById = new Map(kiosks.map((k) => [k.kiosk_id, k.name]));
+
+        // product -> kiosk -> planned qty. Keyed by product id (two products can share a name), shown by name.
+        const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+        const byProduct = new Map<string, { productName: string; byKiosk: Record<string, number> }>();
+        for (const g of groups) {
+            const qty = round2(Number(g._sum.planned_qty ?? 0));
+            if (qty <= 0) continue;
+            const entry = byProduct.get(g.product_id) ?? { productName: productNameById.get(g.product_id) || g.product_id, byKiosk: {} };
+            entry.byKiosk[g.kiosk_id] = qty;
+            byProduct.set(g.product_id, entry);
+        }
+        const productMatrix = [...byProduct.entries()]
+            .map(([productId, e]) => ({ productId, productName: e.productName, byKiosk: e.byKiosk, total: round2(Object.values(e.byKiosk).reduce((a, b) => a + b, 0)) }))
+            .sort((a, b) => b.total - a.total || a.productName.localeCompare(b.productName));
 
         const rows = groups
             .map((g) => ({
@@ -61,6 +76,7 @@ export class ReportsService {
             startDate: toDateStr(start),
             endDate: toDateStr(end),
             kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })),
+            products: productMatrix,
             rows,
         };
     }

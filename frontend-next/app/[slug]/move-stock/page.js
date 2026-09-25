@@ -9,6 +9,7 @@ import PageTitle from "@/components/PageTitle";
 import SearchPick from "@/components/SearchPick";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
 import Wrap from "@/components/kiosk/Wrap";
+import PhotoBox from "@/components/kiosk/PhotoBox";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FieldLabel, LineCard } from "@/components/kiosk/LineCard";
 import { FormActions, FormNote, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
@@ -31,6 +32,7 @@ export default function MoveStockPage() {
     const [seededKiosks, setSeededKiosks] = useState(false);
     const [reason, setReason] = useState("");
     const [note, setNote] = useState("");
+    const [photo, setPhoto] = useState(null);
     const [lines, setLines] = useState([newLine()]);
     const [formError, setFormError] = useState("");
     const [success, setSuccess] = useState(null);
@@ -100,6 +102,7 @@ export default function MoveStockPage() {
             payloadLines.push({ stock_item_id: id, qty: qty });
         }
         if (!payloadLines.length) return setFormError("Add at least one item.");
+        if (!photo) return setFormError("A photo is required.");
 
         submitMutation.mutate({
             token: token,
@@ -112,6 +115,7 @@ export default function MoveStockPage() {
                 reason: reason,
                 note: note,
                 lines: payloadLines,
+                photo: photo,
             },
         });
     }
@@ -131,7 +135,7 @@ export default function MoveStockPage() {
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         <FormNote>
                             This creates a request only — stock isn&apos;t moved until the owner
-                            approves it.
+                            approves it. A photo of what&apos;s being transferred is required.
                         </FormNote>
 
                         {!loading && (
@@ -255,6 +259,8 @@ export default function MoveStockPage() {
                                         value={note}
                                         onChange={(e) => setNote(e.target.value)}
                                     />
+
+                                    <PhotoBox value={photo} onChange={setPhoto} label="Photo (required)" />
                                 </div>
                             </>
                         )}

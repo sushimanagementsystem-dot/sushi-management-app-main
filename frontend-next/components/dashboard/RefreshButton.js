@@ -37,11 +37,11 @@ export default function RefreshButton({ onRefetch, className = "" }) {
             disabled={spinning}
             title="Refresh data — also clears the backend cache"
             className={
-                "flex items-center gap-1 rounded-lg border border-line bg-card px-2 py-1 text-[0.72rem] font-medium text-ink shadow-elevate-1 hover:border-accent/40 hover:bg-panel hover:text-accent disabled:opacity-50 " +
+                "flex h-8 items-center gap-1.5 rounded-lg border border-line bg-card px-2 py-1 text-[0.72rem] font-medium text-ink shadow-elevate-1 hover:border-accent/40 hover:bg-panel hover:text-accent disabled:opacity-50 " +
                 className
             }
         >
-            <RefreshCw size={12} strokeWidth={2.25} className={spinning ? "animate-spin" : ""} />
+            <RefreshCw size={15} strokeWidth={2.25} className={spinning ? "animate-spin" : ""} />
             Refresh
         </button>
     );

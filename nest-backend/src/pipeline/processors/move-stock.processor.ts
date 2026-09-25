@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import type { Kiosk, Prisma } from "@prisma/client";
 import type { KeyContext, ProcessingContext, SubmissionProcessor, ValidationResult } from "../submission-processor.interface.js";
+import { UploadService } from "../../upload/upload.service.js";
 
 type MoveStockLine = { stock_item_id: string; qty: number };
 type MoveStockPayload = {
@@ -10,6 +11,8 @@ type MoveStockPayload = {
     reason?: string;
     note?: string;
     lines: MoveStockLine[];
+    photo?: { base64: string; mimeType: string; name: string };
+    photo_reference?: string;
 };
 
 /**
@@ -17,11 +20,21 @@ type MoveStockPayload = {
  * Staff create a transfer REQUEST only (status PENDING) — never moves
  * stock directly. Applying an approved transfer (the balanced OUT+IN
  * stock_movement pair) is an owner-dashboard action, not this processor.
+ *
+ * A photo is mandatory evidence of what's actually being handed over —
+ * same UploadService pattern as Damaged Product: prepareIntake() uploads
+ * it and swaps the payload's raw base64 for a `photo_reference` URL before
+ * the submission row is even created, so an upload failure throws out of
+ * intake() and no submission (and so no stock_transfer row) is ever
+ * written. One photo per request, shared by every line it contains — see
+ * the schema comment on stock_transfer.photo_reference.
  */
 @Injectable()
 export class MoveStockProcessor implements SubmissionProcessor<MoveStockPayload> {
     readonly formType = "MOVE_STOCK";
     readonly tables = [{ model: "stock_transfer" }, { model: "owner_action", viaSourceSubmission: true }];
+
+    constructor(private readonly upload: UploadService) {}
 
     validate(payload: unknown): ValidationResult {
         const p = (payload ?? {}) as Partial<MoveStockPayload>;
@@ -40,11 +53,18 @@ export class MoveStockProcessor implements SubmissionProcessor<MoveStockPayload>
                 return { valid: false, message: `Line ${i + 1}: quantity must be a number greater than 0.` };
             }
         }
+        if (!p.photo?.base64) return { valid: false, message: "A photo is required." };
         return { valid: true };
     }
 
     buildKey(ctx: KeyContext<MoveStockPayload>): string {
         return `MOVE_STOCK|${ctx.kiosk.kiosk_id}|${ctx.payload.client_key || "no-key"}`;
+    }
+
+    async prepareIntake(payload: unknown, kiosk: Kiosk): Promise<MoveStockPayload> {
+        const p = payload as MoveStockPayload;
+        const uploaded = await this.upload.save(p.photo!, kiosk.kiosk_id, "MOVE_STOCK");
+        return { ...p, photo_reference: uploaded.url, photo: undefined };
     }
 
     async process(tx: Prisma.TransactionClient, ctx: ProcessingContext<MoveStockPayload>): Promise<void> {
@@ -73,6 +93,7 @@ export class MoveStockProcessor implements SubmissionProcessor<MoveStockPayload>
                     note: String(p.note ?? "").trim() || null,
                     user_id: ctx.submission.user_id,
                     status: "PENDING",
+                    photo_reference: p.photo_reference ?? null,
                 },
             });
             lineSummaries.push(`${line.qty} ${item.count_unit} ${item.name}`);

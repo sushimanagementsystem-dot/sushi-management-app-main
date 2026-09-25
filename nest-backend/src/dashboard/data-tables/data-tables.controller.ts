@@ -1,5 +1,7 @@
 import { Body, Controller, Post } from "@nestjs/common";
 import { Roles } from "../../common/decorators/roles.decorator.js";
+import { CurrentUser } from "../../common/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { DataTablesService } from "./data-tables.service.js";
 import { BootstrapTablesPageDto, BulkSaveTableRowsDto, DeleteTableRowDto, SaveTableRowDto, TableNameDto } from "./dto/data-tables.dto.js";
 
@@ -29,13 +31,13 @@ export class DataTablesController {
     }
 
     @Post("delete_table_row")
-    async deleteRow(@Body() dto: DeleteTableRowDto) {
-        await this.service.deleteTableRow(dto.table, dto.row);
+    async deleteRow(@Body() dto: DeleteTableRowDto, @CurrentUser() user: AuthenticatedUser) {
+        await this.service.deleteTableRow(dto.table, dto.row, user.user_id);
         return {};
     }
 
     @Post("bulk_save_table_rows")
-    async bulkSave(@Body() dto: BulkSaveTableRowsDto) {
-        return { results: await this.service.bulkSaveTableRows(dto.table, dto.changes) };
+    async bulkSave(@Body() dto: BulkSaveTableRowsDto, @CurrentUser() user: AuthenticatedUser) {
+        return { results: await this.service.bulkSaveTableRows(dto.table, dto.changes, user.user_id) };
     }
 }

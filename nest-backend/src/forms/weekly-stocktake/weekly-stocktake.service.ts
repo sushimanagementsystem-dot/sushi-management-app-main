@@ -1,3 +1,4 @@
+import { stocktakeCategoryIds } from "../../common/stocktake-items.util.js";
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { EnumOptionService } from "../../reference-data/enum-option.service.js";
@@ -22,7 +23,7 @@ export class WeeklyStocktakeService {
             this.prisma.stocktakeHeader.findFirst({ where: { kiosk_id: kiosk.kiosk_id, stocktake_date: businessDate } }),
         ]);
         const categoryLabelById = new Map(categories.map((c) => [c.value, c.label]));
-        const nonWasteCatIds = new Set(categories.filter((c) => !c.label.toLowerCase().includes("per 100g")).map((c) => c.value));
+        const nonWasteCatIds = stocktakeCategoryIds(categories);
 
         const items = allItems.filter((r) => r.active && nonWasteCatIds.has(r.stock_category_id));
 

@@ -8,9 +8,11 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import PillButton from "@/components/dashboard/PillButton";
 import { useBootstrap, useApiMutation } from "@/lib/queries";
+import { apiCall } from "@/lib/api";
+import { BulkImportButton } from "@/components/dashboard/BulkImport";
 import { useQueryClient } from "@tanstack/react-query";
 import { moneyStr } from "@/lib/kpiUtils";
-import { productMargin } from "@/lib/pricing";
+import { productMargin, royaltyOf, ROYALTY_RATE } from "@/lib/pricing";
 
 /**
  * Product Prices — a focused view over `product` / `stock_item` columns
@@ -28,10 +30,12 @@ import { productMargin } from "@/lib/pricing";
  *     KPI/Profit tabs already value those movements at. Existed before.
  *   - Selling Price, Recipe Cost, Packaging Cost — what the customer pays
  *     and what it costs to make (ingredients vs. packaging, split so they
- *     can be reviewed separately). New — nothing in the system reads these
- *     yet beyond the Margin column computed right here (see lib/pricing.js);
- *     they exist so the numbers have somewhere to live and be seen.
- * Stock Items only ever had the one Cost field — that's unchanged.
+ *     can be reviewed separately). Royalty (30% of the selling price, the
+ *     franchisor's share) and Margin (price - recipe - packaging - royalty)
+ *     are worked out here, never stored (see lib/pricing.js).
+ * Stock Items / Ingredients are exactly the items on the Weekly Stocktake
+ * (bootstrap_stock_item_prices), one price each — the items are shared by
+ * both brands. Prices can be updated in bulk from an Excel file.
  */
 const SECTIONS = [
     { key: "product", label: "Finished Products", idField: "product_id", Icon: Package },
@@ -47,6 +51,8 @@ const MONEY_FIELDS = {
     ],
     stock_item: [{ key: "current_unit_cost", label: "Cost" }],
 };
+
+const PRICE_DATASET = { id: "stock_item_price", label: "Stock Item prices", description: "One price per Stock Take item, used for both brands." };
 
 export default function ProductPricesPage() {
     const [sectionKey, setSectionKey] = useState("product");
@@ -69,7 +75,7 @@ export default function ProductPricesPage() {
                 <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <PageHeader
                         title="Product Prices"
-                        description="Set the cost, selling price, recipe cost and packaging cost for every product — these feed Waste, Damage, Staff Food, Profit, and the margin shown here automatically, no re-entry needed anywhere else."
+                        description="Set the cost, selling price, recipe cost and packaging cost for every product — royalty (30% of the selling price) and margin are worked out from them, and the costs feed Waste, Damage, Staff Food and Profit automatically. Stock items are the ones on the Weekly Stocktake."
                     />
 
                     <div className="mb-2.5 flex flex-wrap gap-1.5">
@@ -125,7 +131,8 @@ function label(section, brandFilter, brands) {
 function PriceTable({ table, idField, fields, showMargin, label, brandId, brandById }) {
     const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
-    const { data: res, isPending: loading, error: bootError, refetch } = useBootstrap("list_table_rows", { table });
+    // Stock items come from the Stock Take list itself, so this page can never show an item the stocktake doesn't count.
+    const { data: res, isPending: loading, error: bootError, refetch } = useBootstrap(table === "stock_item" ? "bootstrap_stock_item_prices" : "list_table_rows", table === "stock_item" ? {} : { table });
 
     const error = (res && res.ok === false && (res.error || "Failed to load.")) || (bootError && "Failed to load.");
     const rows = useMemo(() => {
@@ -145,6 +152,12 @@ function PriceTable({ table, idField, fields, showMargin, label, brandId, brandB
 
     return (
         <SectionCard title={label} className="mb-0">
+            {table === "stock_item" && (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <BulkImportButton dataset={PRICE_DATASET} />
+                    <span className="text-[0.8rem] text-muted">One price per item, used for both brands. Download the list, edit the prices in Excel, upload and check the preview.</span>
+                </div>
+            )}
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5">
                 <div className="relative w-full max-w-[18rem]">
                     <Search size={14} strokeWidth={2.25} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -186,9 +199,20 @@ function PriceTable({ table, idField, fields, showMargin, label, brandId, brandB
                                         </th>
                                     ))}
                                     {showMargin && (
-                                        <th className="w-28 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted">
-                                            Margin
-                                        </th>
+                                        <>
+                                            <th
+                                                title={`Royalty = ${Math.round(ROYALTY_RATE * 100)}% of the selling price (the franchisor's share)`}
+                                                className="w-28 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
+                                            >
+                                                Royalty
+                                            </th>
+                                            <th
+                                                title="Margin = Selling Price − Recipe Cost − Packaging Cost − Royalty"
+                                                className="w-28 whitespace-nowrap border-b border-line bg-panel px-[0.9rem] py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.05em] text-muted"
+                                            >
+                                                Margin
+                                            </th>
+                                        </>
                                     )}
                                 </tr>
                             </thead>
@@ -203,7 +227,7 @@ function PriceTable({ table, idField, fields, showMargin, label, brandId, brandB
                                         // Only worth showing when brand isn't already
                                         // pinned by the active tab — otherwise every
                                         // row would repeat the same badge.
-                                        brandName={!brandId ? brandById.get(row.brand_id) : null}
+                                        brandName={table === "stock_item" ? `${row.category_label} · ${row.count_unit}` : !brandId ? brandById.get(row.brand_id) : null}
                                         onSaved={() => {
                                             refetch();
                                             queryClient.invalidateQueries({ queryKey: ["bootstrap_data_table", { table }] });
@@ -212,7 +236,7 @@ function PriceTable({ table, idField, fields, showMargin, label, brandId, brandB
                                 ))}
                                 {!rows.length && (
                                     <tr>
-                                        <td colSpan={1 + fields.length + (showMargin ? 1 : 0)} className="px-[0.9rem] py-6 text-center text-muted">
+                                        <td colSpan={1 + fields.length + (showMargin ? 2 : 0)} className="px-[0.9rem] py-6 text-center text-muted">
                                             No matching items.
                                         </td>
                                     </tr>
@@ -323,7 +347,14 @@ function PriceRow({ row, table, fields, showMargin, brandName, onSaved }) {
                         )}
                     </td>
                 ))}
-                {showMargin && <td className="border-b border-line px-[0.9rem] py-2 text-muted">—</td>}
+                {showMargin && (
+                    <>
+                        <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2 tabular-nums text-muted">
+                            {royaltyOf(values.selling_price) === null ? "—" : moneyStr(royaltyOf(values.selling_price))}
+                        </td>
+                        <td className="border-b border-line px-[0.9rem] py-2 text-muted">—</td>
+                    </>
+                )}
             </tr>
         );
     }
@@ -358,6 +389,11 @@ function PriceRow({ row, table, fields, showMargin, brandName, onSaved }) {
                     </td>
                 );
             })}
+            {showMargin && (
+                <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 tabular-nums">
+                    {royaltyOf(row.selling_price) === null ? <span className="text-muted">—</span> : moneyStr(royaltyOf(row.selling_price))}
+                </td>
+            )}
             {showMargin && (
                 <td className="whitespace-nowrap border-b border-line px-[0.9rem] py-2.5 tabular-nums">
                     {margin ? (

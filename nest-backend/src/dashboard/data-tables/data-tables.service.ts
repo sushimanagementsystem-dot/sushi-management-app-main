@@ -6,6 +6,9 @@ import { SettingsService } from "../../reference-data/settings.service.js";
 import { toModelName } from "../../common/model-name.util.js";
 import type { FieldSchemaRow, RowChange, RowChangeResult } from "./data-tables.types.js";
 import { explainWriteError } from "./write-error.js";
+import { explainUserBlockers, type UserHistoryCounts } from "./staff-removal.js";
+import { stocktakeCategoryIds } from "../../common/stocktake-items.util.js";
+import { orderFields, orderRows, type LayoutLookups } from "./data-tables.layout.js";
 
 type PrismaDelegate = {
     findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
@@ -54,7 +57,7 @@ export class DataTablesService {
     async listTableRows(tableName: string) {
         const fields = await this.getFieldSchema(tableName);
         if (!fields.length) throw new BadRequestException("Unknown or unconfigured table.");
-        return { rows: await this.tableCache.getAll(tableName) };
+        return { rows: await this.arrangeRows(tableName, await this.tableCache.getAll(tableName)) };
     }
 
     /**
@@ -65,14 +68,14 @@ export class DataTablesService {
      * sequential awaits were the actual cause of multi-second loads.
      */
     async bootstrapDataTable(tableName: string) {
-        const fields = await this.getFieldSchema(tableName);
+        const fields = orderFields(await this.getFieldSchema(tableName));
         if (!fields.length) throw new BadRequestException("Unknown or unconfigured table.");
 
         const refTables = [...new Set(fields.filter((f) => f.type === "reference" && f.ref_table).map((f) => f.ref_table!))];
         const enumSources = [...new Set(fields.filter((f) => (f.type === "enum" || f.type === "enum_list") && f.enum_source).map((f) => f.enum_source!))];
 
         const [referenceEntries, enumEntries, rows, meta] = await Promise.all([
-            Promise.all(refTables.map(async (t) => [t, await this.tableCache.getAll(t)] as const)),
+            Promise.all(refTables.map(async (t) => [t, t === "stock_item" ? await this.stockTakeItemRows() : await this.tableCache.getAll(t)] as const)),
             Promise.all(enumSources.map(async (e) => [e, await this.enumOptions.getOptions(e)] as const)),
             this.tableCache.getAll(tableName),
             this.getTableMeta(tableName),
@@ -80,7 +83,7 @@ export class DataTablesService {
 
         return {
             fields,
-            rows,
+            rows: await this.arrangeRows(tableName, rows),
             references: Object.fromEntries(referenceEntries),
             enums: Object.fromEntries(enumEntries),
             meta: meta ?? {},
@@ -105,9 +108,10 @@ export class DataTablesService {
      * table_schema, and refuses if any field_schema row anywhere still
      * treats this table as a foreign-key target.
      */
-    async deleteTableRow(tableName: string, row: Record<string, unknown>) {
+    async deleteTableRow(tableName: string, row: Record<string, unknown>, actingUserId?: string) {
         const tableMeta = await this.getTableMeta(tableName);
         if (!tableMeta?.hard_delete) throw new BadRequestException("Deleting rows is not enabled for this table.");
+        if (tableName === "user") await this.assertStaffRemovable(row, actingUserId);
 
         const fields = await this.getFieldSchema(tableName);
         const keyCols = this.keyColumns(fields, tableName);
@@ -127,7 +131,7 @@ export class DataTablesService {
      * A bad row is caught individually and reported in its own result —
      * it doesn't abort the rest of the batch.
      */
-    async bulkSaveTableRows(tableName: string, changes: RowChange[]): Promise<RowChangeResult[]> {
+    async bulkSaveTableRows(tableName: string, changes: RowChange[], actingUserId?: string): Promise<RowChangeResult[]> {
         const fields = await this.getFieldSchema(tableName);
         if (!fields.length) throw new BadRequestException("Unknown or unconfigured table.");
         const keyCols = this.keyColumns(fields, tableName);
@@ -141,6 +145,7 @@ export class DataTablesService {
                 if (c.isDelete) {
                     if (!tableMeta?.hard_delete) throw new Error("Deleting rows is not enabled for this table.");
                     if (referencedBy.length) throw new Error("Cannot permanently delete: other columns reference this table.");
+                    if (tableName === "user") await this.assertStaffRemovable(c.row, actingUserId);
                     const result = await delegate.deleteMany({ where: keyWhere(keyCols, c.row) });
                     if (result.count === 0) throw new Error("Row not found.");
                     results.push({ key: c.key, ok: true });
@@ -192,6 +197,72 @@ export class DataTablesService {
             if (message !== (err instanceof Error ? err.message : String(err))) throw new BadRequestException(message);
             throw err;
         }
+    }
+
+    /**
+     * A staff member can only be deleted when nothing in the system points at them. Every table that records who did
+     * something (submissions, transfers, staff food, requests, sales entries, audit corrections, assignments, the activity
+     * log) clears that link when the person is deleted, so deleting someone with history would quietly erase who did
+     * that work. Those people are set Active = off instead (they sink to the bottom of the list). Also refuses to delete
+     * yourself or the last active admin, which would lock everyone out.
+     */
+    private async assertStaffRemovable(row: Record<string, unknown>, actingUserId?: string): Promise<void> {
+        const userId = String(row.user_id ?? "");
+        const person = await this.prisma.user.findUnique({ where: { user_id: userId } });
+        if (!person) throw new NotFoundException("Row not found.");
+        const [submissions, transfers, staffFood, requests, weeklySales, auditCorrections, assignedActions, activity, otherAdmins] = await Promise.all([
+            this.prisma.submission.count({ where: { user_id: userId } }),
+            this.prisma.stockTransfer.count({ where: { user_id: userId } }),
+            this.prisma.staffFood.count({ where: { user_id: userId } }),
+            this.prisma.request.count({ where: { OR: [{ user_id: userId }, { assigned_to: userId }] } }),
+            this.prisma.weeklySales.count({ where: { entered_by: userId } }),
+            this.prisma.auditCorrection.count({ where: { staff_member_id: userId } }),
+            this.prisma.ownerAction.count({ where: { assigned_to: userId } }),
+            this.prisma.activityLog.count({ where: { changed_by: userId } }),
+            this.prisma.user.count({ where: { role: "ADMIN", active: true, user_id: { not: userId } } }),
+        ]);
+        const history: UserHistoryCounts = { submissions, transfers, staffFood, requests, weeklySales, auditCorrections, assignedActions, activity };
+        const problem = explainUserBlockers({ name: person.name, role: person.role, active: person.active, isSelf: actingUserId === userId, otherActiveAdmins: otherAdmins }, history);
+        if (problem) throw new BadRequestException(problem);
+    }
+
+    /** Puts a table's rows in their fixed display order (see data-tables.layout.ts). Reads only cached tables, so it costs no extra queries. */
+    private async arrangeRows(tableName: string, rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+        if (tableName === "stock_item") rows = await this.stockTakeItemRows();
+        if (tableName === "stock_item_par") {
+            const ids = new Set((await this.stockTakeItemRows()).map((i) => String(i.stock_item_id)));
+            rows = rows.filter((r) => ids.has(String(r.stock_item_id)));
+        }
+        if (!["production_par", "defrost_par", "product", "stock_item", "user"].includes(tableName)) return rows;
+        const [kiosks, products, stockItems, defrostItems, productCategories, stockCategories] = await Promise.all([
+            tableName === "production_par" || tableName === "defrost_par" ? this.tableCache.getAll<{ kiosk_id: string }>("kiosk") : [],
+            tableName === "production_par" || tableName === "product" ? this.tableCache.getAll<{ product_id: string; name: string; product_category_id: string }>("product") : [],
+            tableName === "stock_item" ? this.tableCache.getAll<{ stock_item_id: string; name: string; stock_category_id: string }>("stock_item") : [],
+            tableName === "defrost_par" ? this.tableCache.getAll<{ defrost_item_id: string; name: string }>("defrost_item") : [],
+            this.enumOptions.getOptions("product_category"),
+            this.enumOptions.getOptions("stock_category"),
+        ]);
+        const position = (options: { value: string }[]) => new Map(options.map((o, i) => [o.value, i] as const));
+        const productPos = position(productCategories);
+        const stockPos = position(stockCategories);
+        const lookups: LayoutLookups = {
+            kioskOrder: new Map([...kiosks].sort((a, b) => a.kiosk_id.localeCompare(b.kiosk_id)).map((k, i) => [k.kiosk_id, i] as const)),
+            products: new Map(products.map((p) => [p.product_id, { name: p.name, categoryOrder: productPos.get(p.product_category_id) ?? 9999 }] as const)),
+            stockItems: new Map(stockItems.map((s) => [s.stock_item_id, { name: s.name, categoryOrder: stockPos.get(s.stock_category_id) ?? 9999 }] as const)),
+            defrostItemNames: new Map(defrostItems.map((d) => [d.defrost_item_id, d.name] as const)),
+        };
+        return orderRows(tableName, rows, lookups);
+    }
+
+    /**
+     * The Stock Item list everywhere in Data Tables is the Weekly Stocktake list — the same category rule the stocktake form, its
+     * processor and Product Prices use (stocktakeCategoryIds) — so the two can never drift apart. The Food Waste (per 100g)
+     * tracking items are not on the Stock Take; they stay in the database for the Food Waste form but are not listed here.
+     */
+    private async stockTakeItemRows(): Promise<Record<string, unknown>[]> {
+        const [items, categories] = await Promise.all([this.tableCache.getAll<{ active: boolean; stock_category_id: string } & Record<string, unknown>>("stock_item"), this.enumOptions.getOptions("stock_category")]);
+        const ids = stocktakeCategoryIds(categories);
+        return items.filter((i) => ids.has(i.stock_category_id)); // inactive items stay listed so the owner can switch them back on
     }
 
     private async getFieldSchema(tableName: string): Promise<FieldSchemaRow[]> {

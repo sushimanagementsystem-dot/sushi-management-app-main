@@ -8,6 +8,7 @@ export type MailMessage = {
     cc?: string;
     subject: string;
     html: string;
+    attachments?: { filename: string; content: Buffer; contentType?: string }[];
 };
 
 export type SmtpConfig = {
@@ -80,6 +81,7 @@ export class MailerService {
             cc: message.cc,
             subject: message.subject,
             html: message.html,
+            attachments: message.attachments,
         });
     }
 

@@ -3,7 +3,7 @@ import { StocktakeReviewService } from "./stocktake-review.service.js";
 
 const mv = (movement_type: string, direction: "IN" | "OUT", qty: number, at: string) => ({ stock_item_id: "S1", movement_type, direction, qty, movement_date: new Date(at) });
 
-function build(movements: ReturnType<typeof mv>[], countedQty: number, stocktakeDate = "2026-09-10T00:00:00Z") {
+function build(movements: ReturnType<typeof mv>[], countedQty: number, stocktakeDate = "2026-09-10T00:00:00Z", purchasing: { runAfterStocktakeConfirmed: () => Promise<unknown> } = { runAfterStocktakeConfirmed: async () => ({ ran: false }) }) {
     const created: Record<string, unknown>[] = [];
     const tx = {
         stockMovement: { createMany: vi.fn(async ({ data }: { data: Record<string, unknown>[] }) => void created.push(...data)) },
@@ -17,7 +17,7 @@ function build(movements: ReturnType<typeof mv>[], countedQty: number, stocktake
         $transaction: async (fn: (t: typeof tx) => Promise<void>) => fn(tx),
     };
     const ownerState = { findOwnerAction: async () => null };
-    return { svc: new StocktakeReviewService(prisma as never, ownerState as never), created };
+    return { svc: new StocktakeReviewService(prisma as never, ownerState as never, purchasing as never), created };
 }
 
 describe("StocktakeReviewService.confirm", () => {
@@ -42,5 +42,15 @@ describe("StocktakeReviewService.confirm", () => {
         const { svc, created } = build([mv("DELIVERY_IN", "IN", 8, "2026-09-01T00:00:00Z")], 3);
         await svc.confirm("H1", "owner");
         expect(created[0]).toMatchObject({ direction: "OUT", qty: 5 });
+    });
+
+    it("drafts the orders once the stocktake is confirmed, and a failure while drafting never fails the confirmation", async () => {
+        const runAfter = vi.fn(async () => {
+            throw new Error("mail is down");
+        });
+        const { svc, created } = build([mv("DELIVERY_IN", "IN", 8, "2026-09-01T00:00:00Z")], 3, "2026-09-10T00:00:00Z", { runAfterStocktakeConfirmed: runAfter });
+        await expect(svc.confirm("H1", "owner")).resolves.toBeUndefined();
+        expect(runAfter).toHaveBeenCalledTimes(1);
+        expect(created).toHaveLength(1); // the stocktake itself was still posted
     });
 });

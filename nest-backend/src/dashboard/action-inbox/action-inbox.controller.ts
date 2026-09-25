@@ -6,6 +6,7 @@ import { ActionInboxService } from "./action-inbox.service.js";
 import { StocktakeReviewService } from "./stocktake-review.service.js";
 import { StockTransferReviewService } from "./stock-transfer-review.service.js";
 import { InvoiceReviewService } from "./invoice-review.service.js";
+import { PurchasingScanService } from "../../purchasing/purchasing-scan.service.js";
 import { InvoiceAiService } from "../../production-engine/invoice-ai.service.js";
 import { AuditReviewService } from "./audit-review.service.js";
 import {
@@ -35,7 +36,14 @@ export class ActionInboxController {
         private readonly invoices: InvoiceReviewService,
         private readonly audits: AuditReviewService,
         private readonly invoiceAi: InvoiceAiService,
+        private readonly purchasing: PurchasingScanService,
     ) {}
+
+    /** "Draft orders now": the same scan the weekly job and stocktake confirmation run — emails each supplier order to the owner to review. */
+    @Post("run_purchasing_scan")
+    runPurchasingScan() {
+        return this.purchasing.runWeeklyScan();
+    }
 
     @Post("bootstrap_action_inbox")
     bootstrap(@Body() dto: BootstrapActionInboxDto) {
