@@ -4,7 +4,7 @@ import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { addDays, startOfTodayUtc, startOfWeekUtc, toDateStr } from "../../common/date.util.js";
 import { movementCost, productCostMap } from "../../common/movement-cost.util.js";
 import { profitFigures } from "./profit-calc.js";
-import { buildLabourTemplate, parseLabourReport } from "./labour-report.js";
+import { parseLabourReport } from "./labour-report.js";
 import type { Kiosk, Product } from "@prisma/client";
 import { BadRequestException } from "@nestjs/common";
 
@@ -54,7 +54,7 @@ export class ProfitService {
         // Movement and delivery dates can carry a time of day, so Sunday is "before Monday", not "<= Sunday midnight".
         const dayAfterEnd = addDays(queryEnd, 1);
 
-        const [costMovements, deliveryHeaders, salesRows, products, costRows, labourRows, lastRate] = await Promise.all([
+        const [costMovements, deliveryHeaders, salesRows, products, costRows, labourRows] = await Promise.all([
             this.prisma.productMovement.findMany({
                 where: { kiosk_id: { in: kioskIds }, movement_type: { in: [...COST_MOVEMENT_TYPES] }, movement_date: { gte: queryStart, lt: dayAfterEnd } },
                 select: { kiosk_id: true, movement_type: true, movement_date: true, cost: true, unit_cost: true, qty: true, product_id: true },
@@ -69,7 +69,6 @@ export class ProfitService {
             this.tableCache.getAll<Product>("product"),
             this.prisma.weeklyCosts.findMany({ where: { kiosk_id: { in: kioskIds }, week_start: { gte: queryStart, lte: queryEnd } } }),
             this.prisma.weeklyLabour.findMany({ where: { kiosk_id: { in: kioskIds }, week_start: { gte: queryStart, lte: queryEnd } } }),
-            this.prisma.weeklyLabour.findFirst({ where: { hourly_rate: { not: null } }, orderBy: { updated_at: "desc" }, select: { hourly_rate: true } }),
         ]);
         // A movement booked before its product had a cost has none stored — price it at the product's cost now, as the
         // Staff Food, Kiosk Comparison and KPI pages do, so the same waste / staff-food figure is subtracted here.
@@ -178,7 +177,6 @@ export class ProfitService {
             startDate: toDateStr(queryStart),
             endDate: toDateStr(queryEnd),
             weeks,
-            lastHourlyRate: num(lastRate?.hourly_rate),
         };
     }
 
@@ -197,10 +195,10 @@ export class ProfitService {
         return {};
     }
 
-    /** Reads an uploaded labour report and says what it would save — nothing is written until the owner submits the rows. */
-    async previewLabourReport(fileBase64: string, weekOf: Date | undefined, hourlyRate: number | undefined) {
+    /** Reads an uploaded payroll export and says what it would save — nothing is written until the owner submits the rows. */
+    async previewLabourReport(fileBase64: string, weekOf: Date) {
         const kiosks = (await this.activeKiosks()).map((k) => ({ id: k.kiosk_id, name: k.name }));
-        return parseLabourReport(Buffer.from(fileBase64, "base64"), kiosks, { defaultWeek: weekOf, hourlyRate: hourlyRate ?? null });
+        return parseLabourReport(Buffer.from(fileBase64, "base64"), kiosks, { weekOf });
     }
 
     /** Saves the reviewed labour rows — one per kiosk per week; sending a week again replaces it (a correction, not a duplicate). */
@@ -227,13 +225,6 @@ export class ProfitService {
             { timeout: 30_000 },
         );
         return { saved: clean.length };
-    }
-
-    /** A blank labour sheet in the layout the upload reads: one line per active kiosk for the chosen week. */
-    async labourTemplate(weekOf: Date | undefined) {
-        const kiosks = (await this.activeKiosks()).map((k) => ({ id: k.kiosk_id, name: k.name }));
-        const week = startOfWeekUtc(weekOf ?? addDays(startOfTodayUtc(), -7));
-        return { fileName: `labour-report-${toDateStr(week)}.xlsx`, fileBase64: buildLabourTemplate(kiosks, week).toString("base64") };
     }
 
     /** weekOf can be any date inside the target week — normalized to that

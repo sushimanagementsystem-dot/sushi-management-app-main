@@ -207,9 +207,9 @@ export const HELP = {
     },
     "profit.labourReport": {
         title: "Weekly labour report",
-        what: "Loads staff hours from your weekly labour sheet so Labour and EBITDA can be worked out.",
-        how: "Upload an Excel or CSV sheet with total hours per kiosk (a template is available). Labour cost = hours x the hourly rate you enter, unless the sheet has its own cost column. 'Week starting' is only used when the sheet has no week column. You see a preview first and nothing is saved until you confirm.",
-        use: "Download the template, fill it in, upload, check the preview, then save.",
+        what: "Reads your punch-in system's own payroll export to work out each kiosk's Labour cost and hours for the week.",
+        how: "Only 'Shifts' lines count as worked hours. Every pay line's amount (Shifts, meal deductions, etc.) adds to that kiosk's Labour cost — a meal deduction correctly reduces it, since that food is already counted under Staff Food. A pay line shared across kiosks is split between them by that employee's hours at each one. A line with no kiosk in the file (a salaried employee not tied to one) is listed as 'unassigned' rather than guessed at.",
+        use: "Choose the week, upload the export, check the preview and splits, then add Manual Hours for anyone unassigned before submitting.",
         affects: ["Profit: Labour and EBITDA columns"],
     },
 

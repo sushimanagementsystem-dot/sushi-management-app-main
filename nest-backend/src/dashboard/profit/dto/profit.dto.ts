@@ -62,17 +62,9 @@ export class ParseLabourReportDto {
     @IsString()
     fileName?: string;
 
-    /** Used for every row when the sheet has no "Week starting" column. */
-    @IsOptional()
+    /** The payroll export has no week column of its own — every row in the file is read as this week. */
     @IsDateString()
-    weekOf?: string;
-
-    /** Euro per hour, applied to sheets that give hours only. */
-    @IsOptional()
-    @Type(() => Number)
-    @IsNumber()
-    @Min(0)
-    hourlyRate?: number;
+    weekOf!: string;
 }
 
 export class LabourRowDto {
@@ -93,10 +85,10 @@ export class LabourRowDto {
     @Min(0)
     hourlyRate?: number | null;
 
+    /** Can be negative: a kiosk's meal-deduction lines can outweigh a small Shifts total in an edge case. */
     @IsOptional()
     @Type(() => Number)
     @IsNumber()
-    @Min(0)
     labourCost?: number | null;
 }
 

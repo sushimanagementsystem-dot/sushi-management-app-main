@@ -22,17 +22,12 @@ export class ProfitController {
 
     @Post("preview_labour_report")
     previewLabourReport(@Body() dto: ParseLabourReportDto) {
-        return this.service.previewLabourReport(dto.fileBase64, dto.weekOf ? new Date(dto.weekOf) : undefined, dto.hourlyRate);
+        return this.service.previewLabourReport(dto.fileBase64, new Date(dto.weekOf));
     }
 
     @Post("save_weekly_labour")
     saveWeeklyLabour(@Body() dto: SaveWeeklyLabourDto, @CurrentUser() user: AuthenticatedUser) {
         return this.service.saveWeeklyLabour(dto.rows, dto.fileName, user.user_id);
-    }
-
-    @Post("labour_report_template")
-    labourTemplate(@Body() dto: { weekOf?: string }) {
-        return this.service.labourTemplate(dto?.weekOf ? new Date(dto.weekOf) : undefined);
     }
 
     @Post("save_weekly_sales")
