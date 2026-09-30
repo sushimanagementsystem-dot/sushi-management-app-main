@@ -1,4 +1,4 @@
-import type { StockItemPar, StockMovement } from "@prisma/client";
+import type { StockItemPar, StockMovement, SupplierItemMap } from "@prisma/client";
 import { stockBalanceAsOf } from "./stock-balance.util.js";
 
 export type ItemTrigger = {
@@ -8,25 +8,37 @@ export type ItemTrigger = {
     flag: "SET_PAR" | "AWAIT_STOCKTAKE" | null;
 };
 
+/** Sum of stockBalanceAsOf across every id in stockItemIds — the real item
+ * plus its ambient duplicates ("Kiosk (ambient product only)" rows), if
+ * any. Evan counts the same physical stock in two locations for stocktake
+ * accuracy; purchasing needs the combined total. A plain item with no
+ * duplicates is just [stockItemId], same result as before. */
+export function combinedStockBalance(stockItemIds: string[], movements: StockMovement[]): number {
+    return stockItemIds.reduce((sum, id) => sum + stockBalanceAsOf(movements, id), 0);
+}
+
 /**
  * Per spec 20.2-20.4 — port of backend/dashboard/Purchasing.js's
  * computeItemTrigger_. No stock_item_par row -> SET_PAR. No movement
- * history at all for this item at this kiosk -> AWAIT_STOCKTAKE (a current
- * balance of 0 from no data is not the same as a confirmed empty count).
- * Shared by PurchasingScanService (the weekly writer) and
+ * history at all for any of stockItemIds at this kiosk -> AWAIT_STOCKTAKE (a
+ * current balance of 0 from no data is not the same as a confirmed empty
+ * count). Shared by PurchasingScanService (the weekly writer) and
  * ActionInboxService's PURCHASING_RECOMMENDATION detail case, which
  * re-derives the same per-kiosk breakdown live rather than persisting it.
+ *
+ * stockItemIds: the real item's id plus any ambient duplicates (see
+ * combinedStockBalance). Almost always just [stockItemId].
  */
-export function computeItemTrigger(stockItemId: string, parRow: StockItemPar | null, movements: StockMovement[], hasConfirmedCount = false): ItemTrigger {
+export function computeItemTrigger(stockItemIds: string[], parRow: StockItemPar | null, movements: StockMovement[], hasConfirmedCount = false): ItemTrigger {
     if (!parRow) return { triggered: false, currentStock: null, shortfall: 0, flag: "SET_PAR" };
 
     // A confirmed stocktake line counts as history even when it posted no movement: confirming a count that equals the
     // ledger balance (e.g. counted 0, balance 0) posts nothing, and without this an item counted at zero would wait
     // for a stocktake forever instead of being ordered.
-    const hasHistory = hasConfirmedCount || movements.some((m) => m.stock_item_id === stockItemId);
+    const hasHistory = hasConfirmedCount || movements.some((m) => stockItemIds.includes(m.stock_item_id));
     if (!hasHistory) return { triggered: false, currentStock: null, shortfall: 0, flag: "AWAIT_STOCKTAKE" };
 
-    const currentStock = stockBalanceAsOf(movements, stockItemId);
+    const currentStock = combinedStockBalance(stockItemIds, movements);
     const targetPar = parRow.target_par === null ? null : Number(parRow.target_par);
     const minimumStock = parRow.minimum_stock === null ? null : Number(parRow.minimum_stock);
     const safetyStock = parRow.safety_stock === null ? 0 : Number(parRow.safety_stock);
@@ -46,16 +58,24 @@ export function applyPackRounding(shortfall: number, packSize: number, orderMult
     return Math.ceil(Math.ceil(shortfall / size) / multiple) * multiple;
 }
 
-/** 20.8: Castlebay salmon orders are always 4 boxes per triggered kiosk, not shortfall-based. */
-export function castlebayPacksOverride(supplierName: string | undefined | null): number | null {
-    return supplierName && /^castlebay$/i.test(supplierName.trim()) ? 4 : null;
+/** 20.8: some supplier_item_map rows carry a fixed per-triggered-kiosk order
+ * quantity instead of a shortfall-based one — e.g. Castlebay's salmon has a
+ * 4-case minimum per delivery regardless of the computed shortfall. Set on
+ * the specific mapping (fixed_order_qty), not by supplier name — a supplier
+ * can carry both fixed-qty items (salmon) and normal shortfall-based ones
+ * (packaging) at once. Blank/0 = no override. */
+export function fixedOrderQtyOverride(mapping: Pick<SupplierItemMap, "fixed_order_qty"> | null | undefined): number | null {
+    const n = mapping?.fixed_order_qty;
+    return typeof n === "number" && n > 0 ? n : null;
 }
 
 /** Latest date this kiosk+item was physically counted (STOCKTAKE_ADJUSTMENT
- * movement), not just any ledger touch. null if never counted. */
-export function stockCountDate(stockItemId: string, movements: StockMovement[], confirmedCountDate: Date | null = null): Date | null {
+ * movement), not just any ledger touch. null if never counted. stockItemIds:
+ * the real item's id plus any ambient duplicates — a count logged against
+ * either location counts as the item being counted. */
+export function stockCountDate(stockItemIds: string[], movements: StockMovement[], confirmedCountDate: Date | null = null): Date | null {
     const dates = movements
-        .filter((m) => m.stock_item_id === stockItemId && m.movement_type === "STOCKTAKE_ADJUSTMENT")
+        .filter((m) => stockItemIds.includes(m.stock_item_id) && m.movement_type === "STOCKTAKE_ADJUSTMENT")
         .map((m) => m.movement_date);
     if (confirmedCountDate) dates.push(confirmedCountDate);
     dates.sort((a, b) => a.getTime() - b.getTime());

@@ -100,7 +100,7 @@ model Supplier {
   supplier_id         String  @id
   name                String
   contact_email       String?
-  order_output_method String // ONLINE_ORDER_LIST | MANUAL | GMAIL_DRAFT (enum_source: order_output_method)
+  order_output_method String // ORDER_SHEET | EMAIL_ORDER | MANUAL (enum_source: order_output_method) — ONLINE_ORDER_LIST/GMAIL_DRAFT are older values some rows may still carry; purchasing-order-email.ts treats anything non-MANUAL that isn't ORDER_SHEET as a plain list, same as EMAIL_ORDER
   active              Boolean @default(true)
 
   supplier_item_maps SupplierItemMap[]
@@ -133,6 +133,20 @@ model StockItem {
   cost_per_100g       Decimal? @db.Decimal(12, 4)
   food_waste_eligible Boolean  @default(true)
   active              Boolean  @default(true)
+  // WEIGHT_G | COUNT — drives Food Waste's input (grams vs whole units) and
+  // cost formula (cost_per_100g vs current_unit_cost). Default WEIGHT_G
+  // matches every pre-existing row so nothing already in the DB changes
+  // behavior until it's explicitly set to COUNT (packaging etc.).
+  measurement_type   String  @default("WEIGHT_G")
+  // Set only on a "Kiosk (ambient product only)" stock-take-only duplicate
+  // row: points at the real item it duplicates. Same physical stock counted
+  // in two locations for stocktake accuracy — purchasing sums both items'
+  // stock_movement balances; the duplicate itself never gets a supplier
+  // mapping or par row, so it never generates its own order line.
+  ambient_duplicate_of String?
+
+  ambient_duplicate_of_item StockItem?  @relation("AmbientDuplicate", fields: [ambient_duplicate_of], references: [stock_item_id])
+  ambient_duplicates        StockItem[] @relation("AmbientDuplicate")
 
   stock_item_pars        StockItemPar[]
   defrost_items          DefrostItem[]
@@ -174,6 +188,15 @@ model Product {
   recipe_cost         Decimal? @db.Decimal(12, 4) // ingredients only, excl. packaging
   packaging_cost      Decimal? @db.Decimal(12, 4) // box/lid/etc. for this product
   plan_group          String?
+  // True only for a sharer/platter/combo product whose plan_group was
+  // redistributed out of its own former "SET BOXES"/"PLATTERS" section into
+  // an ingredient group (Veggie/Salmon/etc) — sorts it after that group's
+  // individual rolls/nigiri in the production email (Evan: these belong "at
+  // the bottom of the veggie list"). Deliberately NOT product_category_id:
+  // that field also sits at SET BOXES/PLATTERS on some regular items for
+  // unrelated legacy reasons (e.g. Mixed Maki, Salmon Classics), which are
+  // never supposed to move.
+  sort_last_in_group Boolean @default(false)
   staff_food_eligible Boolean  @default(false)
   active              Boolean  @default(true)
 
@@ -329,6 +352,12 @@ model SupplierItemMap {
   order_multiple       Decimal? @db.Decimal(10, 3)
   current_price        Decimal? @db.Decimal(12, 4)
   active               Boolean  @default(true)
+  // Fixed packs-per-triggered-kiosk for this specific mapping, overriding
+  // the normal shortfall/pack-rounding math — e.g. Castlebay's salmon has a
+  // 4-case minimum per delivery regardless of the computed shortfall. Blank
+  // = no override (the common case). Per-mapping, not per-supplier: a
+  // supplier can sell both fixed-qty items and normal shortfall-based ones.
+  fixed_order_qty Int?
 
   supplier   Supplier  @relation(fields: [supplier_id], references: [supplier_id])
   stock_item StockItem @relation(fields: [stock_item_id], references: [stock_item_id])

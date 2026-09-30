@@ -14,7 +14,7 @@ const num = (n: number) => String(Math.round(n * 1000) / 1000);
 
 function note(flags: string[], staleDays: number): string {
     return flags
-        .map((f) => (f === "STALE" ? `stock count is more than ${staleDays} days old` : f === "CASTLEBAY_OVERRIDE" ? "standing order: fixed boxes per kiosk" : f))
+        .map((f) => (f === "STALE" ? `stock count is more than ${staleDays} days old` : f === "FIXED_ORDER_QTY" ? "standing order: fixed boxes per kiosk" : f))
         .join("; ");
 }
 

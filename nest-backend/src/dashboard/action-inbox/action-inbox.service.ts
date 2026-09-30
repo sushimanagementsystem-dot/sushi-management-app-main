@@ -320,6 +320,11 @@ export class ActionInboxService {
                     loadConfirmedCounts(this.prisma as never, activeKioskIds),
                 ]);
                 const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
+                const ambientDuplicatesByRealId = new Map<string, string[]>();
+                for (const i of items) {
+                    if (!i.ambient_duplicate_of) continue;
+                    ambientDuplicatesByRealId.set(i.ambient_duplicate_of, [...(ambientDuplicatesByRealId.get(i.ambient_duplicate_of) ?? []), i.stock_item_id]);
+                }
                 const movementsByKiosk = new Map<string, typeof allMovements>();
                 for (const m of allMovements) {
                     if (!movementsByKiosk.has(m.kiosk_id)) movementsByKiosk.set(m.kiosk_id, []);
@@ -330,9 +335,11 @@ export class ActionInboxService {
 
                 out.purchasingLines = batchLines.map((line) => {
                     const item = itemById.get(line.stock_item_id);
+                    const balanceIds = [line.stock_item_id, ...(ambientDuplicatesByRealId.get(line.stock_item_id) ?? [])];
                     const kioskBreakdown = activeKiosks.map((k) => {
                         const parRow = parByItemKiosk.get(`${line.stock_item_id}|${k.kiosk_id}`) ?? null;
-                        const trigger = computeItemTrigger(line.stock_item_id, parRow, movementsByKiosk.get(k.kiosk_id) ?? [], confirmedCounts.get(k.kiosk_id)?.has(line.stock_item_id) ?? false);
+                        const hasConfirmed = balanceIds.some((id) => confirmedCounts.get(k.kiosk_id)?.has(id));
+                        const trigger = computeItemTrigger(balanceIds, parRow, movementsByKiosk.get(k.kiosk_id) ?? [], hasConfirmed);
                         return {
                             kioskId: k.kiosk_id,
                             kioskName: k.name,

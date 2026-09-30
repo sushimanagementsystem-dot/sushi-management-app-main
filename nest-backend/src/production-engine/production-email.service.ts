@@ -169,12 +169,21 @@ export class ProductionEmailService {
             }
         }
 
-        const groupsMap: Record<string, { name: string; make: number }[]> = {};
+        // Sharers/platters/combos sit under whichever ingredient group their
+        // recipe puts them in (veg content wins ties), but always listed
+        // after that group's individual rolls/nigiri — product.sort_last_in_group
+        // marks exactly these, not product_category_id (which also sits at
+        // SET BOXES/PLATTERS on some regular items for unrelated reasons).
+        const groupsMap: Record<string, { name: string; make: number; isCombo: boolean }[]> = {};
         for (const ln of plan.lines) {
             if (ln.make <= 0) continue;
             const prod = productById.get(ln.product_id);
             const g = prod?.plan_group || "Other";
-            (groupsMap[g] ??= []).push({ name: ln.name, make: ln.make });
+            const isCombo = !!prod?.sort_last_in_group;
+            (groupsMap[g] ??= []).push({ name: ln.name, make: ln.make, isCombo });
+        }
+        for (const items of Object.values(groupsMap)) {
+            items.sort((a, b) => (a.isCombo === b.isCombo ? 0 : a.isCombo ? 1 : -1));
         }
         const ORDER = ["Veggie", "Salmon", "California", "Prawn", "Chicken", "Street Food", "Ready Meals"];
         const groups = Object.keys(groupsMap)

@@ -34,7 +34,7 @@ export function findKiosk(kiosks: KioskRow[], value: unknown): KioskRow | null {
     return byName.length === 1 ? byName[0]! : null;
 }
 
-export type StockTakeItem = { stock_item_id: string; name: string; count_unit: string; current_unit_cost: unknown; stock_category_id: string; categoryLabel: string; categoryOrder: number };
+export type StockTakeItem = { stock_item_id: string; name: string; count_unit: string; current_unit_cost: unknown; cost_per_100g: unknown; stock_category_id: string; categoryLabel: string; categoryOrder: number };
 
 /** The active Weekly Stocktake items, in Stock Take order (section, then name) — the one list every section shares. */
 export async function loadStockTakeList(db: Db): Promise<StockTakeItem[]> {

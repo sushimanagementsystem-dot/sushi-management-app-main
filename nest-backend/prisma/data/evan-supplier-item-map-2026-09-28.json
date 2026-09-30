@@ -1,0 +1,842 @@
+[
+  {
+    "stock_item_id": "STK009",
+    "name": "AVOCADO",
+    "supplier_name": "Sysco",
+    "case_multiple": 18.0,
+    "current_price": 21.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK010",
+    "name": "CUCUMBER",
+    "supplier_name": "Sysco",
+    "case_multiple": 14.0,
+    "current_price": 10.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK011",
+    "name": "MANGO",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 2.24,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK012",
+    "name": "CABBAGE, RED",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 3.23,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK013",
+    "name": "SLAW",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 5.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK014",
+    "name": "CARROT",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 4.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK015",
+    "name": "SPRING ONION",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 1.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK017",
+    "name": "RED PEPPERS",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 1.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK019",
+    "name": "CHICKEN FILLETS",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 28.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK121",
+    "name": "CREAM CHEESE",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 17.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK122",
+    "name": "PAK CHOI",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 1.35,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK123",
+    "name": "CHIVES",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 2.1,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK021",
+    "name": "SALMON",
+    "supplier_name": "Castlebay",
+    "case_multiple": 1.0,
+    "current_price": 320.0,
+    "is_salmon_castlebay": true
+  },
+  {
+    "stock_item_id": "STK022",
+    "name": "TUNA",
+    "supplier_name": "Tazaki",
+    "case_multiple": 10.0,
+    "current_price": 175.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK124",
+    "name": "PRAWNS",
+    "supplier_name": "Tazaki",
+    "case_multiple": 20.0,
+    "current_price": 122.6,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK024",
+    "name": "SURIMI",
+    "supplier_name": "Tazaki",
+    "case_multiple": 20.0,
+    "current_price": 44.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK125",
+    "name": "SUSHI EBI",
+    "supplier_name": "Tazaki",
+    "case_multiple": 26.0,
+    "current_price": 111.8,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK026",
+    "name": "CHICKEN KARAAGE",
+    "supplier_name": "Tazaki",
+    "case_multiple": 10.0,
+    "current_price": 86.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK027",
+    "name": "CHICKEN KATSU",
+    "supplier_name": "Tazaki",
+    "case_multiple": 5.0,
+    "current_price": 82.03,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK126",
+    "name": "CURRY",
+    "supplier_name": "Tazaki",
+    "case_multiple": 6.0,
+    "current_price": 44.78,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK127",
+    "name": "PUMPKIN",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 90.96,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK031",
+    "name": "EDAMAME",
+    "supplier_name": "Tazaki",
+    "case_multiple": 10.0,
+    "current_price": 17.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK128",
+    "name": "WAKAME SEAWEED",
+    "supplier_name": "Tazaki",
+    "case_multiple": 20.0,
+    "current_price": 70.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK033",
+    "name": "INARI",
+    "supplier_name": "Tazaki",
+    "case_multiple": 10.0,
+    "current_price": 78.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK034",
+    "name": "GYOZA, CHICKEN",
+    "supplier_name": "Asia Market",
+    "case_multiple": 10.0,
+    "current_price": 41.95,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK035",
+    "name": "GYOZA, DUCK",
+    "supplier_name": "Asia Market",
+    "case_multiple": 10.0,
+    "current_price": 48.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK036",
+    "name": "GYOZA, VEG",
+    "supplier_name": "Asia Market",
+    "case_multiple": 10.0,
+    "current_price": 36.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK037",
+    "name": "STRAWBERRY MOCHI",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 40.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK038",
+    "name": "CHOCOLATE MOCHI",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 40.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK040",
+    "name": "KFC SAUCE",
+    "supplier_name": "Tazaki",
+    "case_multiple": 6.0,
+    "current_price": 32.1,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK041",
+    "name": "MAYONAISSE",
+    "supplier_name": "Sysco",
+    "case_multiple": 6.0,
+    "current_price": 30.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK043",
+    "name": "Teriyaki Sauce",
+    "supplier_name": "Tazaki",
+    "case_multiple": 3.0,
+    "current_price": 23.75,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK129",
+    "name": "Soy Sauce",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 3.8,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK130",
+    "name": "PONZU SOY SAUCE",
+    "supplier_name": "Sysco",
+    "case_multiple": 1.0,
+    "current_price": 7.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK131",
+    "name": "Sriracha Chilli Sauce",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 4.9,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK049",
+    "name": "SUNFLOWER OIL",
+    "supplier_name": "Supermarket",
+    "case_multiple": 1.0,
+    "current_price": 1.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK132",
+    "name": "SESAME SEEDS, WHITE",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 6.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK133",
+    "name": "SESAME SEEDS, BLACK",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 8.1,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK054",
+    "name": "Bamboo Rolling Mat",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 0.7,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK134",
+    "name": "CHILLI POWDER",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 3.45,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK056",
+    "name": "Shredded Pickled Ginger",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 3.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK135",
+    "name": "Takaokaya Powdered Seaweed Aonori Premium 100g",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 4.4,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK136",
+    "name": "Mishima Yukari - Seasoned Dry Perilla 20g",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 1.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK137",
+    "name": "Sushi Ginger",
+    "supplier_name": "Tazaki",
+    "case_multiple": 5.0,
+    "current_price": 45.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK138",
+    "name": "Wasabi",
+    "supplier_name": "Tazaki",
+    "case_multiple": 12.0,
+    "current_price": 161.88,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK059",
+    "name": "Soy Sauce Sachets",
+    "supplier_name": "Tazaki",
+    "case_multiple": 10.0,
+    "current_price": 103.6,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK139",
+    "name": "Nori Seaweed",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 15.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK061",
+    "name": "Crispy Onions",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 5.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK062",
+    "name": "UDON NOODLES",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 15.6,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK063",
+    "name": "YAKISOBA NOODLES",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 15.6,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK140",
+    "name": "Yutaka Miso Ramen Meal Kit 184g",
+    "supplier_name": "Tazaki",
+    "case_multiple": 12.0,
+    "current_price": 27.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK141",
+    "name": "Yutaka Tan Tan Ramen Meal Kit 215g",
+    "supplier_name": "Tazaki",
+    "case_multiple": 12.0,
+    "current_price": 27.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK142",
+    "name": "Yutaka Yaki Udon Meal Kit 376g",
+    "supplier_name": "Tazaki",
+    "case_multiple": 12.0,
+    "current_price": 30.599999999999998,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK143",
+    "name": "CRISPY ONION SACHETS",
+    "supplier_name": "Castlebay",
+    "case_multiple": 1.0,
+    "current_price": 73.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK067",
+    "name": "HOT & SPICY NORI CRISPS (RED)",
+    "supplier_name": "Asia Market",
+    "case_multiple": 48.0,
+    "current_price": 75.95,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK068",
+    "name": "ORIGINAL NORI CRISPS (GREEN)",
+    "supplier_name": "Asia Market",
+    "case_multiple": 48.0,
+    "current_price": 75.95,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK069",
+    "name": "BOBA KIT",
+    "supplier_name": "Asia Market",
+    "case_multiple": 24.0,
+    "current_price": 66.95,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK144",
+    "name": "CHOPSTICKS",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 73.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK145",
+    "name": "Hata Bin Ramune -Soda Pop 200ml",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 34.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK146",
+    "name": "Hata Bin Ramune - Soda Pop Strawberry Flavour 200ml",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 34.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK147",
+    "name": "Hata Bin Ramune - Soda Pop Blueberry Flavour 200ml",
+    "supplier_name": "Tazaki",
+    "case_multiple": 30.0,
+    "current_price": 34.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK148",
+    "name": "Koshi Yutaka Standard Rice 5kg",
+    "supplier_name": "Tazaki",
+    "case_multiple": 4.0,
+    "current_price": 34.8,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK149",
+    "name": "Mizkan Sushi Vinegar JS-47 18L",
+    "supplier_name": "Tazaki",
+    "case_multiple": 1.0,
+    "current_price": 54.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK150",
+    "name": "Mini Snack Box - Kraft Base",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 32.06,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK151",
+    "name": "Mini Snack Box - rPET lid",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 26.49,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK152",
+    "name": "Roll Box - Kraft Base",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 43.55,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK153",
+    "name": "Roll Box - rPET lid",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 44.89,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK080",
+    "name": "PORTION POT",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2500.0,
+    "current_price": 37.44,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK081",
+    "name": "PORTION POT LID",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2500.0,
+    "current_price": 29.54,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK082",
+    "name": "CURRY INSERT",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1850.0,
+    "current_price": 82.98,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK154",
+    "name": "MARKA LABELS",
+    "supplier_name": "Bunzl",
+    "case_multiple": 12.0,
+    "current_price": 129.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK084",
+    "name": "STICKERS (VEG, CHICKEN ETC)",
+    "supplier_name": "VSD",
+    "case_multiple": 10.0,
+    "current_price": 100.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK085",
+    "name": "GREASEPROOF PAPER",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 22.86,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK155",
+    "name": "YO SUSHI BAGS",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 45.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK156",
+    "name": "New Combined Sharer Box/Lid ",
+    "supplier_name": "Castlebay",
+    "case_multiple": 150.0,
+    "current_price": 87.4,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK157",
+    "name": "Onigiri Packaging",
+    "supplier_name": "Castlebay",
+    "case_multiple": 1125.0,
+    "current_price": 132.13,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK158",
+    "name": "Combo Box - Kraft base",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 42.8,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK159",
+    "name": "Combo Box - rPET Lid",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 42.8,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK160",
+    "name": "Combo Box Plus - Kraft Base",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 49.92,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK161",
+    "name": "Combo Box Plus - rPET Lid",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 53.66,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK162",
+    "name": "Kraft 750 ML bowls",
+    "supplier_name": "Castlebay",
+    "case_multiple": 300.0,
+    "current_price": 39.97,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK163",
+    "name": "rPET lid 750 ML",
+    "supplier_name": "Castlebay",
+    "case_multiple": 300.0,
+    "current_price": 28.19,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK164",
+    "name": "Panku Large base - rPET Lid",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 73.94,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK165",
+    "name": "Panku Large base  - Kraft Base",
+    "supplier_name": "Castlebay",
+    "case_multiple": 600.0,
+    "current_price": 55.51,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK095",
+    "name": "BLUE ROLL",
+    "supplier_name": "Sysco",
+    "case_multiple": 6.0,
+    "current_price": 10.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK096",
+    "name": "J CLOTH",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 10.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK097",
+    "name": "CLINGFILM",
+    "supplier_name": "Bunzl",
+    "case_multiple": 3.0,
+    "current_price": 43.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK098",
+    "name": "BLUE HAIR NET",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 16.5,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK099",
+    "name": "GREEN SCOURER PADS",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 2.11,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK101",
+    "name": "BLUE GLOVES - M",
+    "supplier_name": "Sysco",
+    "case_multiple": 10.0,
+    "current_price": 17.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK102",
+    "name": "BLUE GLOVES - L",
+    "supplier_name": "Sysco",
+    "case_multiple": 10.0,
+    "current_price": 17.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK103",
+    "name": "REFUSE SACKS",
+    "supplier_name": "Bunzl",
+    "case_multiple": 4.0,
+    "current_price": 40.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK104",
+    "name": "DISPOSABLE APRONS",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 82.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK105",
+    "name": "DISHWASHER SALT",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 17.57,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK106",
+    "name": "FRESH PRODUCE WASH",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 33.73,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK166",
+    "name": "PH BUFFER SOLUTION",
+    "supplier_name": "Bunzl",
+    "case_multiple": 1.0,
+    "current_price": 22.44,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK167",
+    "name": "RINSE AID SOLUTION 5L",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 19.29,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK109",
+    "name": "MACHINELINE DISHWASHER CLEANER 5L",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 16.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK110",
+    "name": "DEIONISED WATER 5L",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 18.46,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK111",
+    "name": "PROBE WIPES",
+    "supplier_name": "Bunzl",
+    "case_multiple": 10.0,
+    "current_price": 52.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK112",
+    "name": "WASHING UP LIQUID",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 11.31,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK113",
+    "name": "HAND SOAP 5L",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 11.7,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK168",
+    "name": "GLASS CLEANING SPRAY",
+    "supplier_name": "Bunzl",
+    "case_multiple": 6.0,
+    "current_price": 15.0,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK115",
+    "name": "CLEANER & SANITISER BOTTLE 5L",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 12.75,
+    "is_salmon_castlebay": false
+  },
+  {
+    "stock_item_id": "STK169",
+    "name": "FLOOR CLEANER",
+    "supplier_name": "Bunzl",
+    "case_multiple": 2.0,
+    "current_price": 22.0,
+    "is_salmon_castlebay": false
+  }
+]

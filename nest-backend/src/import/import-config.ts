@@ -72,6 +72,22 @@ export const IMPORT_ORDER: ImportTable[] = [
         stringify: ["value"],
         emptyStringIfNull: ["value"],
     },
+    {
+        // Keyed on `category` (its own @unique column), not the autoincrement
+        // `id` — a stable business key survives round-tripping through a
+        // fresh database the way a regenerated autoincrement id wouldn't.
+        // `secrets` (e.g. the SMTP password) is exported/imported as
+        // whatever ciphertext SecretsService already stored — this sheet
+        // never sees a plaintext credential, but the value only decrypts
+        // correctly back into the *same* deployment's encryption key, so
+        // moving this sheet to a different environment silently breaks
+        // that row's secrets (re-enter them there rather than relying on
+        // the import).
+        sheet: "site_config",
+        model: "siteConfig",
+        pk: (r) => ({ category: r.category }),
+        json: ["config", "secrets"],
+    },
 
     // --- Level 1: depend only on level 0 ---
     { sheet: "kiosk", model: "kiosk", pk: (r) => ({ kiosk_id: r.kiosk_id }) },
@@ -113,6 +129,24 @@ export const IMPORT_ORDER: ImportTable[] = [
         model: "defrostPar",
         pk: (r) => ({ kiosk_id_defrost_item_id: { kiosk_id: r.kiosk_id, defrost_item_id: r.defrost_item_id } }),
         decimal: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"],
+    },
+    {
+        sheet: "weekly_sales",
+        model: "weeklySales",
+        pk: (r) => ({ kiosk_id_week_start: { kiosk_id: r.kiosk_id, week_start: r.week_start } }),
+        decimal: ["sales_amount"],
+    },
+    {
+        sheet: "weekly_costs",
+        model: "weeklyCosts",
+        pk: (r) => ({ kiosk_id_week_start: { kiosk_id: r.kiosk_id, week_start: r.week_start } }),
+        decimal: ["fixed_costs", "misc_costs"],
+    },
+    {
+        sheet: "weekly_labour",
+        model: "weeklyLabour",
+        pk: (r) => ({ kiosk_id_week_start: { kiosk_id: r.kiosk_id, week_start: r.week_start } }),
+        decimal: ["hours", "hourly_rate", "labour_cost"],
     },
     {
         sheet: "supplier_item_map",

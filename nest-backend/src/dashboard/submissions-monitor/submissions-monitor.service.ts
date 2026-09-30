@@ -11,6 +11,11 @@ export type StaffFoodDetailLine = { who: string; product: string };
 /** One Food Waste line: an amount of a raw stock item thrown out, plus its
  * cost if the item has a cost_per_100g rate set (null = UNCOSTED, never guessed). */
 export type FoodWasteDetailLine = { item: string; grams: number; cost: number | null };
+/** One Damaged Product line — the photo is what an owner actually needs to
+ * see here: DamagedProductProcessor only raises an Action Inbox item when a
+ * rolling threshold is breached, so a normal one-off submission was
+ * otherwise never visible anywhere ("submitted" was all this grid showed). */
+export type DamagedProductDetailLine = { product: string; qty: number; cost: number | null; damageCause: string | null; photoReference: string | null };
 
 /** Every form_type a kiosk can submit — the client wants all of them
  * visible in this view, not just the daily ones. Order matches the kiosk
@@ -73,7 +78,7 @@ export class SubmissionsMonitorService {
         // KioskTaskStatusService), so the last day must be "before the next midnight", not "<= midnight".
         const endExclusive = addDays(end, 1);
 
-        const [rows, staffFoodRows, foodWasteRows, products, stockItems, users] = await Promise.all([
+        const [rows, staffFoodRows, foodWasteRows, damagedProductRows, products, stockItems, users] = await Promise.all([
             this.prisma.submission.findMany({
                 where: { kiosk_id: { in: kioskIds }, form_type: { in: [...ALL_FORM_TYPES] }, business_date: { gte: start, lt: endExclusive } },
                 select: { kiosk_id: true, form_type: true, business_date: true },
@@ -85,6 +90,10 @@ export class SubmissionsMonitorService {
             this.prisma.stockMovement.findMany({
                 where: { kiosk_id: { in: kioskIds }, movement_type: "FOOD_WASTE", movement_date: { gte: start, lt: endExclusive } },
                 select: { kiosk_id: true, movement_date: true, stock_item_id: true, qty: true, cost: true },
+            }),
+            this.prisma.productMovement.findMany({
+                where: { kiosk_id: { in: kioskIds }, movement_type: "DAMAGE", movement_date: { gte: start, lt: endExclusive } },
+                select: { kiosk_id: true, movement_date: true, product_id: true, qty: true, cost: true, damage_cause: true, photo_reference: true },
             }),
             this.tableCache.getAll<Product>("product"),
             this.tableCache.getAll<StockItem>("stock_item"),
@@ -112,12 +121,24 @@ export class SubmissionsMonitorService {
             const line: FoodWasteDetailLine = { item: stockItemName.get(r.stock_item_id) || r.stock_item_id, grams: Number(r.qty), cost: r.cost === null ? null : Number(r.cost) };
             (foodWasteByKey.get(key) ?? foodWasteByKey.set(key, []).get(key)!).push(line);
         }
+        const damagedProductByKey = new Map<string, DamagedProductDetailLine[]>();
+        for (const r of damagedProductRows) {
+            const key = `${r.kiosk_id}|${toDateStr(r.movement_date)}`;
+            const line: DamagedProductDetailLine = {
+                product: productName.get(r.product_id) || r.product_id,
+                qty: Number(r.qty),
+                cost: r.cost === null ? null : Number(r.cost),
+                damageCause: r.damage_cause,
+                photoReference: r.photo_reference,
+            };
+            (damagedProductByKey.get(key) ?? damagedProductByKey.set(key, []).get(key)!).push(line);
+        }
 
-        const days: { date: string; kiosks: Record<string, Record<FormType, boolean>>; detail: Record<string, { STAFF_FOOD?: StaffFoodDetailLine[]; FOOD_WASTE?: FoodWasteDetailLine[] }> }[] = [];
+        const days: { date: string; kiosks: Record<string, Record<FormType, boolean>>; detail: Record<string, { STAFF_FOOD?: StaffFoodDetailLine[]; FOOD_WASTE?: FoodWasteDetailLine[]; DAMAGED_PRODUCT?: DamagedProductDetailLine[] }> }[] = [];
         for (let d = end; d >= start; d = addDays(d, -1)) {
             const dateStr = toDateStr(d);
             const kioskStatus: Record<string, Record<FormType, boolean>> = {};
-            const detail: Record<string, { STAFF_FOOD?: StaffFoodDetailLine[]; FOOD_WASTE?: FoodWasteDetailLine[] }> = {};
+            const detail: Record<string, { STAFF_FOOD?: StaffFoodDetailLine[]; FOOD_WASTE?: FoodWasteDetailLine[]; DAMAGED_PRODUCT?: DamagedProductDetailLine[] }> = {};
             for (const kId of kioskIds) {
                 const perTask = {} as Record<FormType, boolean>;
                 for (const t of ALL_FORM_TYPES) perTask[t] = submitted.has(`${kId}|${t}|${dateStr}`);
@@ -126,7 +147,8 @@ export class SubmissionsMonitorService {
                 const key = `${kId}|${dateStr}`;
                 const staffFood = staffFoodByKey.get(key);
                 const foodWaste = foodWasteByKey.get(key);
-                if (staffFood || foodWaste) detail[kId] = { STAFF_FOOD: staffFood, FOOD_WASTE: foodWaste };
+                const damagedProduct = damagedProductByKey.get(key);
+                if (staffFood || foodWaste || damagedProduct) detail[kId] = { STAFF_FOOD: staffFood, FOOD_WASTE: foodWaste, DAMAGED_PRODUCT: damagedProduct };
             }
             days.push({ date: dateStr, kiosks: kioskStatus, detail });
         }

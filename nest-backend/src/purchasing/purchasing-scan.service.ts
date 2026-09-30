@@ -3,11 +3,11 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { SettingsService } from "../reference-data/settings.service.js";
 import { MailerService } from "../mailer/mailer.service.js";
-import { applyPackRounding, castlebayPacksOverride, computeItemTrigger, loadConfirmedCounts, stockCountDate } from "../common/purchasing-trigger.util.js";
+import { applyPackRounding, fixedOrderQtyOverride, computeItemTrigger, loadConfirmedCounts, stockCountDate } from "../common/purchasing-trigger.util.js";
 import { buildOrderEmail, type OrderItemInfo } from "./purchasing-order-email.js";
 import { loadStocktakeItems } from "../common/stocktake-items.util.js";
 import { addDays, startOfTodayUtc, toDateStr } from "../common/date.util.js";
-import type { Kiosk, StockItemPar, StockMovement, Supplier, SupplierItemMap } from "@prisma/client";
+import type { Kiosk, StockItem, StockItemPar, StockMovement, Supplier, SupplierItemMap } from "@prisma/client";
 
 type RecommendationLine = {
     stockItemId: string;
@@ -224,6 +224,16 @@ export class PurchasingScanService {
         ]);
         const activeKioskIds = new Set(kiosks.map((k: Kiosk) => k.kiosk_id));
 
+        // "Kiosk (ambient product only)" rows: same physical stock as their
+        // real counterpart, counted separately for stocktake accuracy. Never
+        // carry their own par/supplier mapping — see ambient_duplicate_of.
+        const ambientDuplicatesByRealId = new Map<string, string[]>();
+        for (const item of stockItems) {
+            const of = (item as StockItem).ambient_duplicate_of;
+            if (!of) continue;
+            ambientDuplicatesByRealId.set(of, [...(ambientDuplicatesByRealId.get(of) ?? []), item.stock_item_id]);
+        }
+
         const parByItem = new Map<string, Map<string, StockItemPar>>();
         for (const p of parRows) {
             if (!activeKioskIds.has(p.kiosk_id)) continue;
@@ -265,23 +275,24 @@ export class PurchasingScanService {
                 continue;
             }
 
-            const override = castlebayPacksOverride(supplierResult.supplier?.name);
+            const balanceIds = [item.stock_item_id, ...(ambientDuplicatesByRealId.get(item.stock_item_id) ?? [])];
+            const override = fixedOrderQtyOverride(supplierResult.mapping);
             let totalShortfall = 0;
-            let castlebayPacks = 0;
+            let fixedPacks = 0;
             let anyTriggered = false;
             let anyStale = false;
             let anyAwaitStocktake = false;
 
             for (const kioskId of kioskIdsWithPar) {
                 const movements = movementsByKiosk.get(kioskId) ?? [];
-                const confirmedOn = confirmedCounts.get(kioskId)?.get(item.stock_item_id) ?? null;
-                const trigger = computeItemTrigger(item.stock_item_id, itemPars.get(kioskId) ?? null, movements, confirmedOn !== null);
+                const confirmedOn = balanceIds.map((id) => confirmedCounts.get(kioskId)?.get(id) ?? null).find((d) => d !== null) ?? null;
+                const trigger = computeItemTrigger(balanceIds, itemPars.get(kioskId) ?? null, movements, confirmedOn !== null);
                 if (trigger.flag === "AWAIT_STOCKTAKE") anyAwaitStocktake = true;
                 if (!trigger.triggered) continue;
                 anyTriggered = true;
-                if (override !== null) castlebayPacks += override;
+                if (override !== null) fixedPacks += override;
                 else totalShortfall += trigger.shortfall;
-                const countDate = stockCountDate(item.stock_item_id, movements, confirmedOn);
+                const countDate = stockCountDate(balanceIds, movements, confirmedOn);
                 const daysSince = countDate ? Math.floor((today.getTime() - countDate.getTime()) / 86400000) : Infinity;
                 if (daysSince > staleDays) anyStale = true;
             }
@@ -306,8 +317,8 @@ export class PurchasingScanService {
 
             let recommendedPacks: number;
             if (override !== null) {
-                recommendedPacks = castlebayPacks;
-                flags.push("CASTLEBAY_OVERRIDE");
+                recommendedPacks = fixedPacks;
+                flags.push("FIXED_ORDER_QTY");
             } else {
                 recommendedPacks = applyPackRounding(totalShortfall, packSize, orderMultiple);
             }

@@ -1,0 +1,1165 @@
+{
+  "updates": [
+    {
+      "stock_item_id": "STK001",
+      "name": "AVOCADO",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": true,
+      "master_name": "AVOCADO",
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK002",
+      "name": "KFC SAUCE",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": true,
+      "master_name": "KFC SAUCE",
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK003",
+      "name": "MAYONAISSE",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": true,
+      "master_name": "MAYONAISSE",
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK005",
+      "name": "UDON NOODLES",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": true,
+      "master_name": "UDON NOODLES",
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK006",
+      "name": "YAKISOBA NOODLES",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": true,
+      "master_name": "YAKISOBA NOODLES",
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK007",
+      "name": "RICE",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": true,
+      "master_name": "RICE",
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK008",
+      "name": "BLUE ROLL",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": true,
+      "master_name": "BLUE ROLL",
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK009",
+      "name": "AVOCADO",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.5833,
+      "is_ambient": false,
+      "master_name": "AVOCADO",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK010",
+      "name": "CUCUMBER",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.2381,
+      "is_ambient": false,
+      "master_name": "CUCUMBER",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK011",
+      "name": "MANGO",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 1.12,
+      "is_ambient": false,
+      "master_name": "MANGO",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK012",
+      "name": "CABBAGE, RED",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.323,
+      "is_ambient": false,
+      "master_name": "CABBAGE, RED",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK013",
+      "name": "SLAW",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.25,
+      "is_ambient": false,
+      "master_name": "SLAW",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK014",
+      "name": "CARROT",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.4,
+      "is_ambient": false,
+      "master_name": "CARROT",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK015",
+      "name": "SPRING ONION",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 1.2,
+      "is_ambient": false,
+      "master_name": "SPRING ONION",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK017",
+      "name": "RED PEPPERS",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.8,
+      "is_ambient": false,
+      "master_name": "RED PEPPERS",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK019",
+      "name": "CHICKEN FILLETS",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 1.12,
+      "is_ambient": false,
+      "master_name": "CHICKEN FILLETS",
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK021",
+      "name": "SALMON",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 2.0,
+      "is_ambient": false,
+      "master_name": "SALMON",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK022",
+      "name": "TUNA",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 3.5,
+      "is_ambient": false,
+      "master_name": "TUNA",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK024",
+      "name": "SURIMI",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.44,
+      "is_ambient": false,
+      "master_name": "SURIMI",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK026",
+      "name": "CHICKEN KARAAGE",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.86,
+      "is_ambient": false,
+      "master_name": "CHICKEN KARAAGE",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK027",
+      "name": "CHICKEN KATSU",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.8203,
+      "is_ambient": false,
+      "master_name": "CHICKEN KATSU",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK031",
+      "name": "EDAMAME",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.34,
+      "is_ambient": false,
+      "master_name": "EDAMAME",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK033",
+      "name": "INARI",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 1.04,
+      "is_ambient": false,
+      "master_name": "INARI",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK034",
+      "name": "GYOZA, CHICKEN",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.6992,
+      "is_ambient": false,
+      "master_name": "GYOZA, CHICKEN",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK035",
+      "name": "GYOZA, DUCK",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.8083,
+      "is_ambient": false,
+      "master_name": "GYOZA, DUCK",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK036",
+      "name": "GYOZA, VEG",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.6083,
+      "is_ambient": false,
+      "master_name": "GYOZA, VEG",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK037",
+      "name": "STRAWBERRY MOCHI",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "STRAWBERRY MOCHI",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK038",
+      "name": "CHOCOLATE MOCHI",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "CHOCOLATE MOCHI",
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK040",
+      "name": "KFC SAUCE",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.535,
+      "is_ambient": false,
+      "master_name": "KFC SAUCE",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK041",
+      "name": "MAYONAISSE",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.5,
+      "is_ambient": false,
+      "master_name": "MAYONAISSE",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK043",
+      "name": "TERIYAKI SAUCE",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.1319,
+      "is_ambient": false,
+      "master_name": "Teriyaki Sauce",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK049",
+      "name": "SUNFLOWER OIL",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.15,
+      "is_ambient": false,
+      "master_name": "SUNFLOWER OIL",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK054",
+      "name": "BAMBOO ROLLING MAT",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "Bamboo Rolling Mat",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK056",
+      "name": "SHREDDED PICKLED GINGER",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.2333,
+      "is_ambient": false,
+      "master_name": "Shredded Pickled Ginger",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK059",
+      "name": "SOY SAUCE SACHETS",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "Soy Sauce Sachets",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK061",
+      "name": "CRISPY ONIONS",
+      "measurement_type": "WEIGHT_G",
+      "cost_per_100g": 0.5,
+      "is_ambient": false,
+      "master_name": "Crispy Onions",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK062",
+      "name": "UDON NOODLES",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "UDON NOODLES",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK063",
+      "name": "YAKISOBA NOODLES",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "YAKISOBA NOODLES",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK067",
+      "name": "HOT & SPICY NORI CRISPS (RED)",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "HOT & SPICY NORI CRISPS (RED)",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK068",
+      "name": "ORIGINAL NORI CRISPS (GREEN)",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "ORIGINAL NORI CRISPS (GREEN)",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK069",
+      "name": "BOBA KIT",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "BOBA KIT",
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK080",
+      "name": "PORTION POT",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "PORTION POT",
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK081",
+      "name": "PORTION POT LID",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "PORTION POT LID",
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK082",
+      "name": "CURRY INSERT",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "CURRY INSERT",
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK084",
+      "name": "STICKERS (VEG, CHICKEN ETC)",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "STICKERS (VEG, CHICKEN ETC)",
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK085",
+      "name": "GREASEPROOF PAPER",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "GREASEPROOF PAPER",
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK095",
+      "name": "BLUE ROLL",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "BLUE ROLL",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK096",
+      "name": "J CLOTH",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "J CLOTH",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK097",
+      "name": "CLINGFILM",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "CLINGFILM",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK098",
+      "name": "BLUE HAIR NET",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "BLUE HAIR NET",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK099",
+      "name": "GREEN SCOURER PADS",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "GREEN SCOURER PADS",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK101",
+      "name": "BLUE GLOVES - M",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "BLUE GLOVES - M",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK102",
+      "name": "BLUE GLOVES - L",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "BLUE GLOVES - L",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK103",
+      "name": "REFUSE SACKS",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "REFUSE SACKS",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK104",
+      "name": "DISPOSABLE APRONS",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "DISPOSABLE APRONS",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK105",
+      "name": "DISHWASHER SALT",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "DISHWASHER SALT",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK106",
+      "name": "FRESH PRODUCE WASH",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "FRESH PRODUCE WASH",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK109",
+      "name": "MACHINELINE DISHWASHER CLEANER 5L",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "MACHINELINE DISHWASHER CLEANER 5L",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK110",
+      "name": "DEIONISED WATER 5L",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "DEIONISED WATER 5L",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK111",
+      "name": "PROBE WIPES",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "PROBE WIPES",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK112",
+      "name": "WASHING UP LIQUID",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "WASHING UP LIQUID",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK113",
+      "name": "HAND SOAP 5L",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "HAND SOAP 5L",
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK115",
+      "name": "CLEANER & SANITISER BOTTLE 5L",
+      "measurement_type": "COUNT",
+      "cost_per_100g": null,
+      "is_ambient": false,
+      "master_name": "CLEANER & SANITISER BOTTLE 5L",
+      "master_section": "DRYSTORE - CLEANING"
+    }
+  ],
+  "creates": [
+    {
+      "stock_item_id": "STK120",
+      "name": "CRISPY ONION SACHETS",
+      "stock_category_id": "SC01",
+      "count_unit": "BOX",
+      "current_unit_cost": 73.5,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": true,
+      "master_section": "Kiosk (ambient product only)"
+    },
+    {
+      "stock_item_id": "STK121",
+      "name": "CREAM CHEESE",
+      "stock_category_id": "SC02",
+      "count_unit": "BOX",
+      "current_unit_cost": 17.5,
+      "cost_per_100g": 0.875,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK122",
+      "name": "PAK CHOI",
+      "stock_category_id": "SC02",
+      "count_unit": "BAG",
+      "current_unit_cost": 1.35,
+      "cost_per_100g": 0.9,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK123",
+      "name": "CHIVES",
+      "stock_category_id": "SC02",
+      "count_unit": "BAG",
+      "current_unit_cost": 2.1,
+      "cost_per_100g": 2.1,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Walk In Fridge"
+    },
+    {
+      "stock_item_id": "STK124",
+      "name": "PRAWNS",
+      "stock_category_id": "SC03",
+      "count_unit": "PACK",
+      "current_unit_cost": 6.13,
+      "cost_per_100g": 2.5542,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK125",
+      "name": "SUSHI EBI",
+      "stock_category_id": "SC03",
+      "count_unit": "PACK",
+      "current_unit_cost": 4.3,
+      "cost_per_100g": 5.7333,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK126",
+      "name": "CURRY",
+      "stock_category_id": "SC03",
+      "count_unit": "BAG",
+      "current_unit_cost": 7.463333333,
+      "cost_per_100g": 0.3732,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK127",
+      "name": "PUMPKIN",
+      "stock_category_id": "SC03",
+      "count_unit": "BOX",
+      "current_unit_cost": 90.96,
+      "cost_per_100g": 1.6844,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK128",
+      "name": "WAKAME SEAWEED",
+      "stock_category_id": "SC03",
+      "count_unit": "BAG",
+      "current_unit_cost": 3.5,
+      "cost_per_100g": 0.7,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "Freezer"
+    },
+    {
+      "stock_item_id": "STK129",
+      "name": "Soy Sauce",
+      "stock_category_id": "SC04",
+      "count_unit": "BOTTLE",
+      "current_unit_cost": 3.8,
+      "cost_per_100g": 0.38,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK130",
+      "name": "PONZU SOY SAUCE",
+      "stock_category_id": "SC04",
+      "count_unit": "BOTTLE",
+      "current_unit_cost": 7.5,
+      "cost_per_100g": 0.75,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK131",
+      "name": "Sriracha Chilli Sauce",
+      "stock_category_id": "SC04",
+      "count_unit": "BOTTLE",
+      "current_unit_cost": 4.9,
+      "cost_per_100g": 0.49,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK132",
+      "name": "SESAME SEEDS, WHITE",
+      "stock_category_id": "SC04",
+      "count_unit": "BAG",
+      "current_unit_cost": 6.5,
+      "cost_per_100g": 0.65,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK133",
+      "name": "SESAME SEEDS, BLACK",
+      "stock_category_id": "SC04",
+      "count_unit": "BAG",
+      "current_unit_cost": 8.1,
+      "cost_per_100g": 0.81,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK134",
+      "name": "CHILLI POWDER",
+      "stock_category_id": "SC04",
+      "count_unit": "BAG",
+      "current_unit_cost": 3.45,
+      "cost_per_100g": 1.15,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK135",
+      "name": "Takaokaya Powdered Seaweed Aonori Premium 100g",
+      "stock_category_id": "SC04",
+      "count_unit": "BAG",
+      "current_unit_cost": 4.4,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK136",
+      "name": "Mishima Yukari - Seasoned Dry Perilla 20g",
+      "stock_category_id": "SC04",
+      "count_unit": "BAG",
+      "current_unit_cost": 1.5,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK137",
+      "name": "Sushi Ginger",
+      "stock_category_id": "SC04",
+      "count_unit": "BAG",
+      "current_unit_cost": 9.0,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK138",
+      "name": "Wasabi",
+      "stock_category_id": "SC04",
+      "count_unit": "BAG",
+      "current_unit_cost": 13.49,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK139",
+      "name": "Nori Seaweed",
+      "stock_category_id": "SC04",
+      "count_unit": "PACK",
+      "current_unit_cost": 15.0,
+      "cost_per_100g": 6.0,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK140",
+      "name": "Yutaka Miso Ramen Meal Kit 184g",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 2.25,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK141",
+      "name": "Yutaka Tan Tan Ramen Meal Kit 215g",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 2.25,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK142",
+      "name": "Yutaka Yaki Udon Meal Kit 376g",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 2.55,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK143",
+      "name": "CRISPY ONION SACHETS",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 73.5,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK144",
+      "name": "CHOPSTICKS",
+      "stock_category_id": "SC04",
+      "count_unit": "PACK",
+      "current_unit_cost": 2.45,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK145",
+      "name": "Hata Bin Ramune -Soda Pop 200ml",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 1.15,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK146",
+      "name": "Hata Bin Ramune - Soda Pop Strawberry Flavour 200ml",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 1.15,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK147",
+      "name": "Hata Bin Ramune - Soda Pop Blueberry Flavour 200ml",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 1.15,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK148",
+      "name": "Koshi Yutaka Standard Rice 5kg",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 8.7,
+      "cost_per_100g": 0.174,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK149",
+      "name": "Mizkan Sushi Vinegar JS-47 18L",
+      "stock_category_id": "SC04",
+      "count_unit": "BOX",
+      "current_unit_cost": 54.0,
+      "cost_per_100g": 0.3,
+      "measurement_type": "WEIGHT_G",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - FOOD"
+    },
+    {
+      "stock_item_id": "STK150",
+      "name": "Mini Snack Box - Kraft Base",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.05343333333,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK151",
+      "name": "Mini Snack Box - rPET lid",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.04415,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK152",
+      "name": "Roll Box - Kraft Base",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.07258333333,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK153",
+      "name": "Roll Box - rPET lid",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.07481666667,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK154",
+      "name": "MARKA LABELS",
+      "stock_category_id": "SC05",
+      "count_unit": "BOX",
+      "current_unit_cost": 10.75,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK155",
+      "name": "YO SUSHI BAGS",
+      "stock_category_id": "SC05",
+      "count_unit": "BOX",
+      "current_unit_cost": 45.0,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK156",
+      "name": "New Combined Sharer Box/Lid",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.5826666667,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK157",
+      "name": "Onigiri Packaging",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.1174488889,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK158",
+      "name": "Combo Box - Kraft base",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.07133333333,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK159",
+      "name": "Combo Box - rPET Lid",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.07133333333,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK160",
+      "name": "Combo Box Plus - Kraft Base",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.0832,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK161",
+      "name": "Combo Box Plus - rPET Lid",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.08943333333,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK162",
+      "name": "Kraft 750 ML bowls",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.1332333333,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK163",
+      "name": "rPET lid 750 ML",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.09396666667,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK164",
+      "name": "Panku Large base - rPET Lid",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.1232333333,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK165",
+      "name": "Panku Large base  - Kraft Base",
+      "stock_category_id": "SC05",
+      "count_unit": "Box",
+      "current_unit_cost": 0.09251666667,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - PACKAGING"
+    },
+    {
+      "stock_item_id": "STK166",
+      "name": "PH BUFFER SOLUTION",
+      "stock_category_id": "SC06",
+      "count_unit": "BTL",
+      "current_unit_cost": 22.44,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK167",
+      "name": "RINSE AID SOLUTION 5L",
+      "stock_category_id": "SC06",
+      "count_unit": "BTL",
+      "current_unit_cost": 9.645,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK168",
+      "name": "GLASS CLEANING SPRAY",
+      "stock_category_id": "SC06",
+      "count_unit": "BTL",
+      "current_unit_cost": 2.5,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - CLEANING"
+    },
+    {
+      "stock_item_id": "STK169",
+      "name": "FLOOR CLEANER",
+      "stock_category_id": "SC06",
+      "count_unit": "BTL",
+      "current_unit_cost": 11.0,
+      "cost_per_100g": null,
+      "measurement_type": "COUNT",
+      "is_ambient": false,
+      "master_section": "DRYSTORE - CLEANING"
+    }
+  ],
+  "ambient_links": [
+    {
+      "ambient_id": "STK001",
+      "real_id": "STK009",
+      "ambient_name": "AVOCADO"
+    },
+    {
+      "ambient_id": "STK002",
+      "real_id": "STK040",
+      "ambient_name": "KFC SAUCE"
+    },
+    {
+      "ambient_id": "STK003",
+      "real_id": "STK041",
+      "ambient_name": "MAYONAISSE"
+    },
+    {
+      "ambient_id": "STK005",
+      "real_id": "STK062",
+      "ambient_name": "UDON NOODLES"
+    },
+    {
+      "ambient_id": "STK006",
+      "real_id": "STK063",
+      "ambient_name": "YAKISOBA NOODLES"
+    },
+    {
+      "ambient_id": "STK007",
+      "real_id": "STK148",
+      "ambient_name": "RICE"
+    },
+    {
+      "ambient_id": "STK008",
+      "real_id": "STK095",
+      "ambient_name": "BLUE ROLL"
+    },
+    {
+      "ambient_id": "STK120",
+      "real_id": "STK143",
+      "ambient_name": "CRISPY ONION SACHETS"
+    }
+  ]
+}

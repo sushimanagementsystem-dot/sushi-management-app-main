@@ -33,12 +33,16 @@ export class FoodWasteService {
         const stockTakeCatIds = stocktakeCategoryIds(categories);
 
         const mapped = allItems
-            .filter((r) => r.active && r.food_waste_eligible && stockTakeCatIds.has(r.stock_category_id))
+            // ambient_duplicate_of set = a "Kiosk (ambient product only)" stocktake-only duplicate row (same physical
+            // stock as its real counterpart, counted separately just for stocktake accuracy) — Evan: these "should
+            // not be issued in any other sheet". Excluded here even though their category otherwise qualifies.
+            .filter((r) => r.active && r.food_waste_eligible && !r.ambient_duplicate_of && stockTakeCatIds.has(r.stock_category_id))
             .map((r) => ({
                 id: r.stock_item_id,
                 name: r.name,
                 unit: r.count_unit,
                 cat: packagingCats.includes(r.stock_category_id) ? "PACKAGING" : "FOOD",
+                measurementType: r.measurement_type === "COUNT" ? "COUNT" : "WEIGHT_G",
             }));
 
         return { businessDate: toDateStr(startOfTodayUtc()), items: mapped };
