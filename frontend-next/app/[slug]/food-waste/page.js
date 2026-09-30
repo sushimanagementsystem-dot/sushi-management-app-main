@@ -14,7 +14,7 @@ import { FieldLabel, LineCard } from "@/components/kiosk/LineCard";
 import { FormActions, FormNote, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
 
 let lineSeq = 0;
-const newLine = () => ({ key: ++lineSeq, category: "", name: "", grams: "" });
+const newLine = () => ({ key: ++lineSeq, category: "", name: "", amount: "" });
 
 function makeClientKey() {
     return typeof crypto !== "undefined" && crypto.randomUUID
@@ -49,6 +49,12 @@ export default function FoodWastePage() {
         return m;
     }, [boot]);
 
+    const byId = useMemo(() => {
+        const m = {};
+        (boot?.items || []).forEach((p) => (m[p.id] = p));
+        return m;
+    }, [boot]);
+
     const categories = useMemo(
         () => [...new Set((boot?.items || []).map((p) => p.cat))].sort(),
         [boot],
@@ -77,13 +83,18 @@ export default function FoodWastePage() {
         setFormError("");
         const payloadLines = [];
         for (const l of lines) {
-            if (!l.name.trim() && !l.grams) continue;
+            if (!l.name.trim() && !l.amount) continue;
             const id = byName[l.name.trim()];
             if (!id) return setFormError(`Unknown item: "${l.name}". Pick from the list.`);
-            const grams = Number(l.grams);
-            if (!Number.isFinite(grams) || grams <= 0)
-                return setFormError(`${l.name}: weight must be a number greater than 0 grams.`);
-            payloadLines.push({ stock_item_id: id, grams: grams });
+            const isCount = byId[id]?.measurementType === "COUNT";
+            const amount = Number(l.amount);
+            if (!Number.isFinite(amount) || amount <= 0)
+                return setFormError(
+                    isCount
+                        ? `${l.name}: enter a whole number greater than 0.`
+                        : `${l.name}: weight must be a number greater than 0 grams.`,
+                );
+            payloadLines.push({ stock_item_id: id, amount: isCount ? Math.round(amount) : amount });
         }
         if (!payloadLines.length) return setFormError("Add at least one item.");
 
@@ -149,16 +160,16 @@ export default function FoodWastePage() {
                                         />
                                     </div>
                                     <div className="w-20 flex-none">
-                                        <FieldLabel>Grams</FieldLabel>
+                                        <FieldLabel>{byId[byName[l.name.trim()]]?.measurementType === "COUNT" ? "Each" : "Grams"}</FieldLabel>
                                         <input
                                             type="number"
                                             min="1"
-                                            step="any"
-                                            inputMode="decimal"
+                                            step={byId[byName[l.name.trim()]]?.measurementType === "COUNT" ? "1" : "any"}
+                                            inputMode={byId[byName[l.name.trim()]]?.measurementType === "COUNT" ? "numeric" : "decimal"}
                                             placeholder="0"
-                                            value={l.grams}
+                                            value={l.amount}
                                             ref={(el) => (gramsRefs.current[l.key] = el)}
-                                            onChange={(e) => updateLine(l.key, { grams: e.target.value })}
+                                            onChange={(e) => updateLine(l.key, { amount: e.target.value })}
                                         />
                                     </div>
                                 </LineCard>

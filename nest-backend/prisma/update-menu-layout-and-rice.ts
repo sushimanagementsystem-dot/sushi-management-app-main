@@ -87,18 +87,26 @@ async function main() {
     }
     console.log(`✓ reclassified ${moved}/${Object.keys(RECLASSIFY).length} combo/sharer/platter products into their ingredient group`);
 
-    // Onigiri: correct the existing rice recipe_component qty.
+    // Onigiri: correct the existing rice recipe_component qty, or create it
+    // if this product had none at all (e.g. a newer Onigiri SKU added after
+    // this script was first written).
     const onigiriProducts = await prisma.product.findMany({ where: { name: { contains: "Onigiri", mode: "insensitive" } } });
     let onigiriFixed = 0;
+    let onigiriCreated = 0;
     for (const p of onigiriProducts) {
-        const res = await prisma.recipeComponent.updateMany({
-            where: { product_id: p.product_id, component_id: SUSHI_RICE_COMPONENT_ID },
-            data: { qty: ONIGIRI_RICE_GRAMS },
-        });
-        onigiriFixed += res.count;
-        if (res.count === 0) console.warn(`  ⚠ ${p.name} (${p.product_id}) had no existing sushi-rice recipe_component row to update`);
+        const existing = await prisma.recipeComponent.findFirst({ where: { product_id: p.product_id, component_id: SUSHI_RICE_COMPONENT_ID } });
+        if (existing) {
+            await prisma.recipeComponent.update({ where: { recipe_component_id: existing.recipe_component_id }, data: { qty: ONIGIRI_RICE_GRAMS } });
+            onigiriFixed++;
+        } else {
+            await prisma.recipeComponent.create({
+                data: { recipe_component_id: crypto.randomUUID(), product_id: p.product_id, component_id: SUSHI_RICE_COMPONENT_ID, qty: ONIGIRI_RICE_GRAMS, unit: "gram" },
+            });
+            onigiriCreated++;
+            console.warn(`  ⚠ ${p.name} (${p.product_id}) had no existing sushi-rice recipe_component row — created one`);
+        }
     }
-    console.log(`✓ Onigiri sushi rice corrected to ${ONIGIRI_RICE_GRAMS}g on ${onigiriFixed} row(s)`);
+    console.log(`✓ Onigiri sushi rice set to ${ONIGIRI_RICE_GRAMS}g on ${onigiriFixed} existing row(s), created on ${onigiriCreated} product(s) that had none`);
 
     // Poke: this component was missing entirely — create it.
     const pokeProducts = await prisma.product.findMany({ where: { name: { contains: "Poke", mode: "insensitive" } } });

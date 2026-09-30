@@ -21,6 +21,7 @@ import {
     LayoutGrid,
 } from "lucide-react";
 import { moneyStr, qtyStr } from "@/lib/kpiUtils";
+import EvidencePreview from "@/components/dashboard/EvidencePreview";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -216,11 +217,14 @@ function todayLocalStr() {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
-// The two form types whose exact submitted lines are worth drilling into —
-// see SubmissionsMonitorService's `detail` (who took what / which stock
-// items were wasted). Every other form type stays a plain status icon;
-// its full content already has its own dashboard page or review flow.
-const DETAIL_TASKS = ["STAFF_FOOD", "FOOD_WASTE"];
+// The form types whose exact submitted lines are worth drilling into — see
+// SubmissionsMonitorService's `detail` (who took what / which stock items
+// were wasted / which product was damaged, photo included). Every other
+// form type stays a plain status icon; its full content already has its
+// own dashboard page or review flow. Damaged Product only otherwise shows
+// up in the Action Inbox when a Damage Review threshold is breached — a
+// normal one-off submission had no visible photo anywhere before this.
+const DETAIL_TASKS = ["STAFF_FOOD", "FOOD_WASTE", "DAMAGED_PRODUCT"];
 
 /** Daily tasks always render (green if done, muted + red badge if not) —
  * they're expected every day, so their absence is itself the signal.
@@ -269,14 +273,17 @@ function DayStatusCell({ status, dailyTasks, otherTasks, detail, onOpenDetail })
     );
 }
 
-/** What was actually submitted for one Staff Food or Food Waste icon —
- * who took which product (Staff Food), or how many grams of which stock
- * item were thrown out and its cost if known (Food Waste, UNCOSTED shown
- * plainly rather than guessed — see FoodWasteProcessor). */
+/** What was actually submitted for one Staff Food, Food Waste or Damaged
+ * Product icon — who took which product (Staff Food), how many grams of
+ * which stock item were thrown out and its cost if known (Food Waste,
+ * UNCOSTED shown plainly rather than guessed — see FoodWasteProcessor), or
+ * which product was damaged, how many, its cost, the cause and the photo
+ * staff took (Damaged Product — see DamagedProductProcessor). */
 function SubmissionDetailModal({ dateLabel, formType, lines, onClose }) {
     const meta = TASK_META[formType] || { label: formType, Icon: Check };
     const Icon = meta.Icon;
     const isFoodWaste = formType === "FOOD_WASTE";
+    const isDamagedProduct = formType === "DAMAGED_PRODUCT";
 
     return (
         <div
@@ -294,8 +301,26 @@ function SubmissionDetailModal({ dateLabel, formType, lines, onClose }) {
                 </div>
                 <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
                     {lines.map((ln, i) => (
-                        <li key={i} className="flex items-center justify-between gap-3 rounded-lg bg-panel px-3 py-2 text-[0.88rem]">
-                            {isFoodWaste ? (
+                        <li
+                            key={i}
+                            className={
+                                isDamagedProduct
+                                    ? "flex flex-col gap-2 rounded-lg bg-panel px-3 py-2 text-[0.88rem]"
+                                    : "flex items-center justify-between gap-3 rounded-lg bg-panel px-3 py-2 text-[0.88rem]"
+                            }
+                        >
+                            {isDamagedProduct ? (
+                                <>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-ink">{ln.product}</span>
+                                        <span className="whitespace-nowrap tabular-nums text-muted">
+                                            {qtyStr(ln.qty)}{ln.cost !== null ? " · " + moneyStr(ln.cost) : " · uncosted"}
+                                        </span>
+                                    </div>
+                                    {ln.damageCause && <p className="m-0 text-muted">{ln.damageCause}</p>}
+                                    {ln.photoReference && <EvidencePreview url={ln.photoReference} label="Photo" />}
+                                </>
+                            ) : isFoodWaste ? (
                                 <>
                                     <span className="text-ink">{ln.item}</span>
                                     <span className="whitespace-nowrap tabular-nums text-muted">
