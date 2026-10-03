@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Tag, Package, Check, X, Pencil, Search } from "lucide-react";
+import { Tag, Package, Soup, Check, X, Pencil, Search } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -41,6 +41,11 @@ import { productMargin, royaltyOf, ROYALTY_RATE } from "@/lib/pricing";
 const SECTIONS = [
     { key: "product", label: "Finished Products", idField: "product_id", Icon: Package },
     { key: "stock_item", label: "Stock Items / Ingredients", idField: "stock_item_id", Icon: Tag },
+    // Same `stock_item` table underneath (saveTable below), but a different, non-overlapping set of rows: the
+    // "per 100g" tracking-only items that the Weekly Stocktake / Stock Item Par / ordering side of the app
+    // deliberately never sees (see ProductPricesService.foodWasteItemRows). A separate bootstrap action, not a
+    // client-side filter, so the two lists can never leak into each other.
+    { key: "food_waste_item", label: "Food Waste Items (per 100g)", idField: "stock_item_id", Icon: Soup, saveTable: "stock_item", bootstrapAction: "bootstrap_food_waste_item_prices" },
 ];
 
 const MONEY_FIELDS = {
@@ -51,6 +56,7 @@ const MONEY_FIELDS = {
         { key: "packaging_cost", label: "Packaging Cost" },
     ],
     stock_item: [{ key: "current_unit_cost", label: "Cost" }],
+    food_waste_item: [{ key: "cost_per_100g", label: "Cost per 100g" }],
 };
 
 const PRICE_DATASET = { id: "stock_item_price", label: "Stock Item prices", description: "One price per Stock Take item, used for both brands." };
@@ -110,7 +116,8 @@ export default function ProductPricesPage() {
                     )}
 
                     <PriceTable
-                        table={section.key}
+                        table={section.saveTable || section.key}
+                        bootstrapAction={section.bootstrapAction}
                         idField={section.idField}
                         fields={MONEY_FIELDS[section.key]}
                         showMargin={section.key === "product"}
@@ -130,11 +137,13 @@ function label(section, brandFilter, brands) {
     return section.label + " — " + (brand?.name || brandFilter);
 }
 
-function PriceTable({ table, idField, fields, showMargin, label, brandId, brandById }) {
+function PriceTable({ table, bootstrapAction, idField, fields, showMargin, label, brandId, brandById }) {
     const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
-    // Stock items come from the Stock Take list itself, so this page can never show an item the stocktake doesn't count.
-    const { data: res, isPending: loading, error: bootError, refetch } = useBootstrap(table === "stock_item" ? "bootstrap_stock_item_prices" : "list_table_rows", table === "stock_item" ? {} : { table });
+    // Stock items come from the Stock Take list itself (or, for Food Waste Items, the deliberately separate
+    // per-100g list — see bootstrapAction) — never a client-side filter over the same bootstrap.
+    const action = bootstrapAction || (table === "stock_item" ? "bootstrap_stock_item_prices" : "list_table_rows");
+    const { data: res, isPending: loading, error: bootError, refetch } = useBootstrap(action, action === "list_table_rows" ? { table } : {});
 
     const error = (res && res.ok === false && (res.error || "Failed to load.")) || (bootError && "Failed to load.");
     const rows = useMemo(() => {
@@ -153,8 +162,8 @@ function PriceTable({ table, idField, fields, showMargin, label, brandId, brandB
     ).length;
 
     return (
-        <SectionCard title={label} help={table === "stock_item" ? "prices.stockItems" : undefined} className="mb-0">
-            {table === "stock_item" && (
+        <SectionCard title={label} help={bootstrapAction ? "prices.foodWasteItems" : table === "stock_item" ? "prices.stockItems" : undefined} className="mb-0">
+            {table === "stock_item" && !bootstrapAction && (
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                     <BulkImportButton dataset={PRICE_DATASET} />
                     <span className="text-[0.8rem] text-muted">One price per item, used for both brands. Download the list, edit the prices in Excel, upload and check the preview.</span>

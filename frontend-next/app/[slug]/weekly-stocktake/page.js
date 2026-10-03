@@ -43,14 +43,22 @@ export default function WeeklyStocktakePage() {
         });
     }, [boot]);
 
-    const byCat = useMemo(() => {
+    // Sections follow the stock_category list's own order (catOrder, from
+    // the backend), items within a section follow the client's master
+    // stock sheet row position (sortOrder) — not alphabetical. An item with
+    // no sortOrder yet sinks to the end of its section, sorted by name.
+    const FAR = 999999;
+    const { byCat, catsInOrder } = useMemo(() => {
         const m = {};
+        const catOrderByLabel = {};
         (boot?.items || []).forEach((p) => {
             m[p.cat] = m[p.cat] || [];
             m[p.cat].push(p);
+            catOrderByLabel[p.cat] = p.catOrder ?? FAR;
         });
-        Object.values(m).forEach((list) => list.sort((a, b) => a.name.localeCompare(b.name)));
-        return m;
+        Object.values(m).forEach((list) => list.sort((a, b) => (a.sortOrder ?? FAR) - (b.sortOrder ?? FAR) || a.name.localeCompare(b.name)));
+        const cats = Object.keys(m).sort((a, b) => catOrderByLabel[a] - catOrderByLabel[b] || a.localeCompare(b));
+        return { byCat: m, catsInOrder: cats };
     }, [boot]);
 
     const total = boot?.items?.length || 0;
@@ -111,9 +119,7 @@ export default function WeeklyStocktakePage() {
                         <FormNote>Decimals are fine for weight units.</FormNote>
 
                         <div>
-                            {Object.keys(byCat)
-                                .sort()
-                                .map((cat) => (
+                            {catsInOrder.map((cat) => (
                                     <div key={cat}>
                                         <div className="mb-[0.4rem] mt-[1.2rem] text-xs font-bold uppercase tracking-[0.1em] text-muted">
                                             {cat}

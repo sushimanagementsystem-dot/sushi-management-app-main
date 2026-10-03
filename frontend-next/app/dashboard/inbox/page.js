@@ -69,9 +69,6 @@ function categoryMeta(category) {
 const INBOX_STATUSES = ["OPEN", "IN_PROGRESS", "WAITING_FOR_OWNER", "RESOLVED", "CLOSED", "NOT_PROCEEDING"];
 const INBOX_PRIORITIES = ["LOW", "NORMAL", "URGENT"];
 
-const REQUEST_STATUSES = ["NEW", "IN_PROGRESS", "WAITING_FOR_KIOSK", "WAITING_FOR_OWNER", "RESOLVED", "CLOSED", "NOT_PROCEEDING"];
-const REQUEST_PRIORITIES = ["", "LOW", "NORMAL", "URGENT"];
-
 // max-[720px]:min-h-[2.75rem] gives every button a real ~44px touch target
 // on mobile (WCAG 2.5.5 / iOS HIG minimum) — the desktop padding alone
 // doesn't reach that.
@@ -847,7 +844,7 @@ function StockItemPicker({ stockItems, value, onChange }) {
 }
 
 function RequestTableWrap({ children }) {
-    return <div className="max-h-[18rem] overflow-x-auto overflow-y-auto">{children}</div>;
+    return <div className="overflow-x-auto">{children}</div>;
 }
 
 const TH = "sticky top-0 border-b border-line bg-card px-2 py-[0.3rem] text-left font-semibold text-muted";
@@ -864,14 +861,7 @@ function HelpIssueSection({ row, onChanged }) {
     if (!req) return <p className="text-muted">Linked request not found.</p>;
 
     function startEdit() {
-        setFields({
-            owner_status: req.owner_status || "",
-            owner_priority: req.owner_priority || "",
-            assigned_to: req.assigned_to || "",
-            due_date: req.due_date || "",
-            owner_note: req.owner_note || "",
-            resolution_note: req.resolution_note || "",
-        });
+        setFields({ resolution_note: req.resolution_note || "" });
         setEditMode(true);
     }
 
@@ -903,16 +893,7 @@ function HelpIssueSection({ row, onChanged }) {
 
             {!editMode ? (
                 <div>
-                    <ViewFields
-                        pairs={[
-                            ["Status", req.owner_status],
-                            ["Priority", req.owner_priority],
-                            ["Assigned to", req.assigned_to],
-                            ["Due date", req.due_date],
-                            ["Owner note", req.owner_note],
-                            ["Resolution note", req.resolution_note],
-                        ]}
-                    />
+                    <ViewFields pairs={[["Resolution note", req.resolution_note]]} />
                     <button type="button" className={DASH_BTN} onClick={startEdit}>
                         Edit
                     </button>
@@ -920,21 +901,6 @@ function HelpIssueSection({ row, onChanged }) {
             ) : (
                 <div>
                     <div className="flex flex-wrap gap-x-6">
-                        <FieldSelect
-                            label="Status"
-                            value={fields.owner_status}
-                            options={REQUEST_STATUSES}
-                            onChange={(v) => setFields((f) => ({ ...f, owner_status: v }))}
-                        />
-                        <FieldSelect
-                            label="Priority"
-                            value={fields.owner_priority}
-                            options={REQUEST_PRIORITIES}
-                            onChange={(v) => setFields((f) => ({ ...f, owner_priority: v }))}
-                        />
-                        <FieldText label="Assigned to" value={fields.assigned_to} onChange={(v) => setFields((f) => ({ ...f, assigned_to: v }))} />
-                        <FieldDate label="Due date" value={fields.due_date} onChange={(v) => setFields((f) => ({ ...f, due_date: v }))} />
-                        <FieldText label="Owner note" value={fields.owner_note} onChange={(v) => setFields((f) => ({ ...f, owner_note: v }))} />
                         <FieldText
                             label="Resolution note"
                             value={fields.resolution_note}

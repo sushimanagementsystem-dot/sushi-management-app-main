@@ -8,6 +8,7 @@ import {
     AlertOctagon,
     Inbox,
     ListChecks,
+    Receipt,
     Scale,
     Package,
     AlertTriangle,
@@ -61,6 +62,7 @@ const DASHBOARD_GROUPS = [
             { key: "issues", Icon: AlertOctagon, label: "Issues", shortLabel: "Issues", href: "/dashboard/issues" },
             { key: "inbox", Icon: Inbox, label: "Action Inbox", shortLabel: "Inbox", href: "/dashboard/inbox" },
             { key: "submissions", Icon: ListChecks, label: "All Submissions", shortLabel: "Submitted", href: "/dashboard/submissions" },
+            { key: "invoices", Icon: Receipt, label: "Invoices", shortLabel: "Invoices", href: "/dashboard/invoices" },
         ],
     },
     {

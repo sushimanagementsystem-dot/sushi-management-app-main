@@ -435,6 +435,17 @@ function referenceOptionCount_(f) {
     return Object.keys(REF_CACHES[f.ref_table] || {}).length;
 }
 
+/** Ids from a reference cache that are safe to OFFER when picking a new
+ * value — excludes rows switched off (active: false). A ref table with no
+ * active column at all (active undefined) is untouched, every id stays
+ * pickable. The already-saved value on a row still displays correctly
+ * even if it later became inactive — callers look that label up straight
+ * from the cache, never through this filtered list (see buildFieldInput /
+ * the Add-row modal's optionsFor). */
+function pickableRefIds_(cache) {
+    return Object.keys(cache).filter((id) => cache[id].active !== false);
+}
+
 function buildReferenceFilterForm(popup, f, state) {
     const cache = REF_CACHES[f.ref_table] || {};
     const options = Object.keys(cache)
@@ -762,7 +773,7 @@ function buildFieldInput(f, currentValue, onChange) {
         const picker = makeSearchPick(wrap, {
             placeholder: "Search " + (f.label || f.column_name).toLowerCase() + "…",
             getItems: (q) =>
-                Object.keys(cache)
+                pickableRefIds_(cache)
                     .map((id) => ({ id: id, label: cache[id][f.ref_label_field] }))
                     .filter((it) => !q || it.label.toLowerCase().includes(q))
                     .sort((a, b) => a.label.localeCompare(b.label)),
@@ -1299,6 +1310,23 @@ class DataGrid {
         this.bulkDeleteBtn.className = DASH_BTN_DANGER;
         this.bulkDeleteBtn.addEventListener("click", () => this.handleBulkDelete());
         this.toolbarEl.appendChild(this.bulkDeleteBtn);
+
+        // Stock Item only, for now: the default list is active items only
+        // (see DataTablesService.arrangeRows) so it stays the simple,
+        // current Stock Take list rather than a mix of current and retired
+        // items — this is the one way back to whatever was switched off.
+        if (this.tableName === "stock_item") {
+            const archivedWrap = document.createElement("span");
+            archivedWrap.className = "inline-flex items-center gap-1.5";
+            const archivedBtn = document.createElement("button");
+            archivedBtn.className = DASH_BTN_MUTED;
+            archivedBtn.textContent = "Archived/Inactive Items";
+            archivedBtn.addEventListener("click", () => this.openArchivedModal());
+            archivedWrap.appendChild(archivedBtn);
+            const archivedHelp = createHelpButton("stockItem.archived");
+            if (archivedHelp) archivedWrap.appendChild(archivedHelp);
+            this.toolbarEl.appendChild(archivedWrap);
+        }
 
         this.updateToolbarButtons();
     }
@@ -2057,6 +2085,94 @@ class DataGrid {
         });
     }
 
+    // --- Archived/Inactive Items modal (Stock Item only) ----------------
+
+    /** A deliberately plain list, not another full grid — name, category, and one Restore button each. Everything
+     * else about an inactive item (price, par, food-waste flag) is still reachable by restoring it first. */
+    openArchivedModal() {
+        const overlay = document.createElement("div");
+        overlay.className = MODAL_OVERLAY;
+        const box = document.createElement("div");
+        box.className = modalBoxClass("w-[32rem]");
+        const heading = document.createElement("h3");
+        heading.className = "mb-1 mt-0 flex items-center gap-1.5 text-lg font-bold tracking-[-0.01em]";
+        heading.innerHTML = "<span>Archived/Inactive Items</span>";
+        const headingHelp = createHelpButton("stockItem.archived");
+        if (headingHelp) heading.appendChild(headingHelp);
+        box.appendChild(heading);
+        const introText = document.createElement("p");
+        introText.className = "mb-4 text-[0.85rem] text-muted";
+        introText.textContent = "Switched off, so they don't show up anywhere items are picked from. Restore one to bring it back.";
+        box.appendChild(introText);
+        const listEl = document.createElement("div");
+        listEl.textContent = "Loading…";
+        box.appendChild(listEl);
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = DASH_BTN_MUTED + " mt-4";
+        closeBtn.textContent = "Close";
+        closeBtn.addEventListener("click", () => overlay.remove());
+        box.appendChild(closeBtn);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        const categoryLabel = (id) => {
+            const opt = (ENUM_CACHES["stock_category"] || []).find((o) => o.value === id);
+            return opt ? opt.label : id;
+        };
+
+        const renderList = (rows) => {
+            listEl.innerHTML = "";
+            if (!rows.length) {
+                listEl.textContent = "Nothing archived.";
+                return;
+            }
+            rows.forEach((row) => {
+                const line = document.createElement("div");
+                line.className = "flex items-center justify-between gap-3 border-b border-line py-2 text-[0.85rem] last:border-b-0";
+                const text = document.createElement("div");
+                text.innerHTML = "<div class='font-medium text-ink'>" + (row.name || row.stock_item_id) + "</div><div class='text-muted'>" + categoryLabel(row.stock_category_id) + "</div>";
+                line.appendChild(text);
+                const restoreBtn = document.createElement("button");
+                restoreBtn.type = "button";
+                restoreBtn.className = DASH_BTN_SMALL;
+                restoreBtn.textContent = "Restore";
+                const errEl = document.createElement("div");
+                errEl.className = "text-[0.75rem] text-danger-ink";
+                restoreBtn.addEventListener("click", async () => {
+                    restoreBtn.disabled = true;
+                    restoreBtn.textContent = "Restoring…";
+                    errEl.textContent = "";
+                    // save_table_row writes the whole row, not a partial patch — every other
+                    // field has to come along unchanged, or the server's required-field check
+                    // rejects it (that's why restoring was silently failing before this fix).
+                    const res = await apiCall("save_table_row", { table: "stock_item", isNew: false, row: { ...row, active: true } }).catch(() => ({ ok: false, error: "Could not reach the server." }));
+                    if (!res.ok) {
+                        restoreBtn.disabled = false;
+                        restoreBtn.textContent = "Restore";
+                        errEl.textContent = res.error || "Restore failed.";
+                        return;
+                    }
+                    invalidateCachesFor(this.tableName);
+                    line.remove();
+                    if (!listEl.children.length) listEl.textContent = "Nothing archived.";
+                    this.load();
+                });
+                line.appendChild(restoreBtn);
+                line.appendChild(errEl);
+                listEl.appendChild(line);
+            });
+        };
+
+        apiCall("list_table_rows", { table: "stock_item", includeInactive: true }).then((res) => {
+            if (!res.ok) {
+                listEl.textContent = res.error || "Could not load archived items.";
+                return;
+            }
+            renderList(res.rows.sort((a, b) => String(a.name).localeCompare(String(b.name))));
+        });
+    }
+
     // --- Add-new modal -------------------------------------------------
 
     openAddModal() {
@@ -2105,7 +2221,7 @@ class DataGrid {
 
         const optionsFor = (field) => {
             const cache = REF_CACHES[field.ref_table] || {};
-            return Object.keys(cache).filter((id) => {
+            return pickableRefIds_(cache).filter((id) => {
                 return !usedCombos().some((row) =>
                     this.keyFields.every((kf) => {
                         const candidate = kf.column_name === field.column_name ? id : formState[kf.column_name];

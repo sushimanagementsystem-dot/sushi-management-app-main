@@ -12,6 +12,49 @@ import Wrap from "@/components/kiosk/Wrap";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
 
+// A long form (up to 59 questions, ~an hour of work) that staff fill in
+// across multiple on-page sections — unlike the one-screen forms (Morning
+// Waste, Fridge Count), there's a real "Back to menu" link here, and
+// following it used to wipe every answer and photo because they only ever
+// lived in this component's own React state. Saved to the browser's own
+// storage on every change and restored on load instead, so leaving and
+// coming back (even a full page reload) picks up exactly where it left
+// off — cleared only once the audit actually submits.
+function draftKey(slug) {
+    return "monthly_audit_draft_" + slug;
+}
+
+function loadDraft(slug, businessDate) {
+    try {
+        const raw = window.localStorage.getItem(draftKey(slug));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        // A draft from a different day (a prior, already-submitted audit
+        // window) is stale — never resurrect it into a new one.
+        if (!parsed || parsed.businessDate !== businessDate) return null;
+        return parsed;
+    } catch {
+        return null; // private browsing, storage disabled, or corrupt JSON — fall back to a blank form, never crash
+    }
+}
+
+function saveDraft(slug, businessDate, answers, currentSection) {
+    try {
+        window.localStorage.setItem(draftKey(slug), JSON.stringify({ businessDate, answers, currentSection }));
+    } catch {
+        // Quota exceeded (a lot of evidence photos can add up) or storage unavailable — the in-memory answers
+        // the user can still see and submit right now are unaffected; only "survives a page reload" is lost.
+    }
+}
+
+function clearDraft(slug) {
+    try {
+        window.localStorage.removeItem(draftKey(slug));
+    } catch {
+        // Nothing to clean up if storage was never usable in the first place.
+    }
+}
+
 export default function MonthlyAuditPage() {
     const { slug } = useParams();
     const menuHref = "/" + slug + "/home";
@@ -38,8 +81,14 @@ export default function MonthlyAuditPage() {
     useEffect(() => {
         if (!boot || !boot.ok || seeded.current) return;
         seeded.current = true;
+        const draft = loadDraft(slug, boot.businessDate);
         const init = {};
         (boot.questions || []).forEach((q) => {
+            const fromDraft = draft?.answers?.[q.id];
+            if (fromDraft) {
+                init[q.id] = fromDraft;
+                return;
+            }
             const prev = boot.existingAnswers && boot.existingAnswers[q.id];
             init[q.id] = {
                 answer: prev ? prev.answer : "",
@@ -48,7 +97,15 @@ export default function MonthlyAuditPage() {
             };
         });
         setAnswers(init);
-    }, [boot]);
+        if (draft && typeof draft.currentSection === "number") setCurrentSection(draft.currentSection);
+    }, [boot, slug]);
+
+    // Every change (an answer picked, a photo attached, a section flipped) is persisted immediately — cheap,
+    // infrequent, user-driven writes, not a hot loop, so no debouncing is needed.
+    useEffect(() => {
+        if (!seeded.current || !boot?.businessDate) return;
+        saveDraft(slug, boot.businessDate, answers, currentSection);
+    }, [answers, currentSection, slug, boot?.businessDate]);
 
     const sections = useMemo(() => {
         if (!boot) return [];
@@ -68,6 +125,7 @@ export default function MonthlyAuditPage() {
         onSuccess: (res) => {
             if (res.ok) {
                 setSuccess("Audit submitted for owner review.");
+                clearDraft(slug);
                 kickProcessing();
             } else {
                 setFormError(res.error);

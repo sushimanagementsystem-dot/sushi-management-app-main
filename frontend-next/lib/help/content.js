@@ -241,8 +241,16 @@ export const HELP = {
     "prices.stockItems": {
         title: "Stock Items / Ingredients",
         what: "One price per stock item - exactly the items on the Weekly Stocktake, shared by both brands.",
-        how: "The price is used to value stock movements (deliveries, transfers, stocktake adjustments). Food Waste is valued separately using Cost per 100g in Data Tables > Stock Item.",
+        how: "The price is used to value stock movements (deliveries, transfers, stocktake adjustments). A handful of items used only for Food Waste tracking (never physically counted or ordered) aren't on this list - see the 'Food Waste Items (per 100g)' tab above.",
         affects: ["Data Tables > Stock Item", "Stock Usage and stock value figures"],
+    },
+    "prices.foodWasteItems": {
+        title: "Food Waste Items (per 100g)",
+        what: "A separate, small set of items that exist only to cost Food Waste entries - things like a generic 'Salmon' or 'Tuna' that aren't counted in the Weekly Stocktake or ever ordered from a supplier.",
+        why: "Kept apart from the main Stock Items / Ingredients list on purpose: giving one of these a price must not make it show up on the Weekly Stocktake, Stock Item Par or any ordering list, since it isn't a real purchasable item.",
+        how: "Cost per 100g is what Food Waste uses: grams thrown away / 100 x this. A blank one shows as 'uncosted' on the dashboards.",
+        use: "Click the pencil to set it, the same way as any other price on this page.",
+        affects: ["Food Waste form costs", "KPI Dashboard", "Kiosk Comparison"],
     },
 
     // -------------------------------------------------------------------- Reports
@@ -717,6 +725,14 @@ export const HELP = {
         use: EDIT_ROWS,
         affects: ["Weekly Stocktake", "Food Waste form", "Purchasing", "Invoice matching"],
     },
+    "stockItem.archived": {
+        title: "Archived/Inactive Items",
+        what: "The items switched off (Active = No) on the Stock Item list.",
+        why: "Keeping the main Stock Item list to only what's actually in use makes it far easier to manage - old or wrong items don't clutter it or turn up as choices elsewhere.",
+        how: "An inactive item is hidden from the Stock Item list itself and from every dropdown/picker across the dashboard (Supplier Items, Stock Item Par, invoice matching, and so on). Its past history (movements, invoices, stocktakes) is kept exactly as it was.",
+        use: "Open this to see what's archived. Press Restore on an item to switch it back on - it immediately reappears on the Stock Item list and in every dropdown again.",
+        affects: ["Stock Item list", "Every dropdown that picks a stock item"],
+    },
     "tables.stock_item_par": {
         title: "Stock Item Par",
         what: "How much of each item a kiosk should hold, used to decide when to order.",
@@ -754,9 +770,9 @@ export const HELP = {
     },
     "tables.defrost_par": {
         title: "Defrost Par",
-        what: "Manual defrost quantities per kiosk, item and weekday.",
-        how: "Only used for items with no automatic calculation. While this is empty those items never appear in the email.",
-        use: EDIT_ROWS,
+        what: "How much of an item to take out to defrost, for one kiosk, for one day of the week. Only for items where the system can't work this out on its own (see Defrost Item's Planning Mode) — most items don't need a row here at all.",
+        how: "Each weekday has its own column, so Monday's number can be different from Friday's. Whatever number is in that day's column is what shows up under 'Defrost tomorrow' in the kiosk's production email the night before.",
+        use: "It's fine to leave this empty for now — nothing breaks. Items with no number here simply don't appear in that part of the email until you add one.",
         affects: ["Production email"],
     },
     "tables.component": {
@@ -810,8 +826,9 @@ export const HELP = {
     "col.product.plan_group": {
         title: "Plan Group",
         what: "The heading the product is listed under in the production email.",
-        how: "Products with the same group are listed together; products with none go under 'Other'.",
-        affects: ["Production email"],
+        how: "Products with the same group are listed together; products with none go under 'Other'. The order the groups appear in is set in Data Tables > Enum Option (Type: plan_group) - each group's Sort Order there, not this column. A group with no Sort Order sorts alphabetically after every group that has one.",
+        use: "Pick from the list, or use the manage-options icon on this column's header to add a new group.",
+        affects: ["Production email", "Data Tables > Enum Option (plan_group)"],
     },
     "col.product.staff_food_eligible": {
         title: "Available for Staff Food",
@@ -922,6 +939,17 @@ export const HELP = {
         how: "Multiplied by the units to make to give the prep quantity.",
         affects: ["Production plan and email"],
     },
+    ...Object.fromEntries(
+        ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"].map((day) => [
+            `col.defrost_par.${day}`,
+            {
+                title: day[0] + day.slice(1).toLowerCase(),
+                what: `How much to defrost for ${day[0] + day.slice(1).toLowerCase()}, for this kiosk and this item.`,
+                how: "Shown under 'Defrost tomorrow' in the production email the night before. Blank means nothing for that item that day — leaving it blank is fine.",
+                affects: ["Production email"],
+            },
+        ]),
+    ),
 };
 
 /** The entry for a help id, or null if there is none. */
