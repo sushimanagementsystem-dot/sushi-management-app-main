@@ -129,6 +129,11 @@ model StockItem {
   name                String
   stock_category_id   String // enum_source: stock_category
   count_unit          String
+  // The item's row position on the client's master stock sheet, so Weekly
+  // Stocktake (and the Stock Item Data Table) can list items in exactly
+  // that order instead of alphabetically — blank for any item not yet
+  // placed against the sheet, which sorts after every numbered one.
+  sort_order          Int?
   current_unit_cost   Decimal? @db.Decimal(12, 4)
   cost_per_100g       Decimal? @db.Decimal(12, 4)
   food_waste_eligible Boolean  @default(true)

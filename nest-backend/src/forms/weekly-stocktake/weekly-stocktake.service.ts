@@ -23,6 +23,10 @@ export class WeeklyStocktakeService {
             this.prisma.stocktakeHeader.findFirst({ where: { kiosk_id: kiosk.kiosk_id, stocktake_date: businessDate } }),
         ]);
         const categoryLabelById = new Map(categories.map((c) => [c.value, c.label]));
+        // Section order on the page follows the stock_category list's own
+        // order (its sort_order), the same position Data Tables' Stock Item
+        // layout uses — not an alphabetical sort of the category labels.
+        const categoryOrder = new Map(categories.map((c, i) => [c.value, i]));
         const nonWasteCatIds = stocktakeCategoryIds(categories);
 
         const items = allItems.filter((r) => r.active && nonWasteCatIds.has(r.stock_category_id));
@@ -35,7 +39,14 @@ export class WeeklyStocktakeService {
 
         return {
             businessDate: toDateStr(businessDate),
-            items: items.map((r) => ({ id: r.stock_item_id, name: r.name, unit: r.count_unit, cat: categoryLabelById.get(r.stock_category_id) ?? "Other" })),
+            items: items.map((r) => ({
+                id: r.stock_item_id,
+                name: r.name,
+                unit: r.count_unit,
+                cat: categoryLabelById.get(r.stock_category_id) ?? "Other",
+                catOrder: categoryOrder.get(r.stock_category_id) ?? 9999,
+                sortOrder: r.sort_order,
+            })),
             existingCounts,
             alreadySubmitted: !!header,
         };

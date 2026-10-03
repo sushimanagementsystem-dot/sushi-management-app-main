@@ -11,7 +11,11 @@ const LK: LayoutLookups = {
         ["P2", { name: "Crisps", categoryOrder: 0 }],
         ["P3", { name: "Bento", categoryOrder: 1 }],
     ]),
-    stockItems: new Map([["S1", { name: "B", categoryOrder: 0 }], ["S2", { name: "A", categoryOrder: 1 }], ["S3", { name: "A", categoryOrder: 0 }]]),
+    stockItems: new Map([
+        ["S1", { name: "B", categoryOrder: 0, sortOrder: null }],
+        ["S2", { name: "A", categoryOrder: 1, sortOrder: null }],
+        ["S3", { name: "A", categoryOrder: 0, sortOrder: null }],
+    ]),
     defrostItemNames: new Map([["D1", "Zebra"], ["D2", "Apple"]]),
 };
 
@@ -35,9 +39,21 @@ describe("orderRows", () => {
         const k01Only = orderRows("production_par", rows.filter((r) => r.kiosk_id === "K01"), LK).map((r) => `${r.kiosk_id}${r.product_id}`);
         expect(k01Only).toEqual(all.filter((x) => x.startsWith("K01")));
     });
-    it("stock_item: Stock Take section, then name", () => {
+    it("stock_item: Stock Take section, then name, when no item has a sort_order", () => {
         const rows = [{ stock_item_id: "S2", name: "A" }, { stock_item_id: "S1", name: "B" }, { stock_item_id: "S3", name: "A" }];
         expect(orderRows("stock_item", rows, LK).map((r) => r.stock_item_id)).toEqual(["S3", "S1", "S2"]);
+    });
+    it("stock_item: sort_order wins over section/name once set — unset items sink to the bottom", () => {
+        const lk: LayoutLookups = {
+            ...LK,
+            stockItems: new Map([
+                ["T1", { name: "Z", categoryOrder: 0, sortOrder: 3 }],
+                ["T2", { name: "A", categoryOrder: 0, sortOrder: 1 }],
+                ["T3", { name: "M", categoryOrder: 0, sortOrder: null }],
+            ]),
+        };
+        const rows = [{ stock_item_id: "T1", name: "Z" }, { stock_item_id: "T3", name: "M" }, { stock_item_id: "T2", name: "A" }];
+        expect(orderRows("stock_item", rows, lk).map((r) => r.stock_item_id)).toEqual(["T2", "T1", "T3"]);
     });
     it("user: active first, then name", () => {
         const rows = [{ name: "Zed", active: true }, { name: "Amy", active: false }, { name: "Bob", active: true }];

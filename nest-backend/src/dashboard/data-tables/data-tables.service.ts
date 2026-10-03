@@ -54,10 +54,10 @@ export class DataTablesService {
         return { tables, activeTable: tableName, ...data };
     }
 
-    async listTableRows(tableName: string) {
+    async listTableRows(tableName: string, includeInactive = false) {
         const fields = await this.getFieldSchema(tableName);
         if (!fields.length) throw new BadRequestException("Unknown or unconfigured table.");
-        return { rows: await this.arrangeRows(tableName, await this.tableCache.getAll(tableName)) };
+        return { rows: await this.arrangeRows(tableName, await this.tableCache.getAll(tableName), includeInactive) };
     }
 
     /**
@@ -67,13 +67,18 @@ export class DataTablesService {
      * (Promise.all), not sequentially — with N round trips at ~280ms each,
      * sequential awaits were the actual cause of multi-second loads.
      */
-    async bootstrapDataTable(tableName: string) {
+    async bootstrapDataTable(tableName: string, includeInactive = false) {
         const fields = orderFields(await this.getFieldSchema(tableName));
         if (!fields.length) throw new BadRequestException("Unknown or unconfigured table.");
 
         const refTables = [...new Set(fields.filter((f) => f.type === "reference" && f.ref_table).map((f) => f.ref_table!))];
         const enumSources = [...new Set(fields.filter((f) => (f.type === "enum" || f.type === "enum_list") && f.enum_source).map((f) => f.enum_source!))];
 
+        // Reference pickers always see every stock item, active or not — a
+        // row that already links to one that's since been switched off must
+        // still resolve its name here (see DataTablesController.js's
+        // buildFieldInput, which filters the PICKABLE options itself but
+        // still needs this full cache for that already-saved value's label).
         const [referenceEntries, enumEntries, rows, meta] = await Promise.all([
             Promise.all(refTables.map(async (t) => [t, t === "stock_item" ? await this.stockTakeItemRows() : await this.tableCache.getAll(t)] as const)),
             Promise.all(enumSources.map(async (e) => [e, await this.enumOptions.getOptions(e)] as const)),
@@ -83,7 +88,7 @@ export class DataTablesService {
 
         return {
             fields,
-            rows: await this.arrangeRows(tableName, rows),
+            rows: await this.arrangeRows(tableName, rows, includeInactive),
             references: Object.fromEntries(referenceEntries),
             enums: Object.fromEntries(enumEntries),
             meta: meta ?? {},
@@ -227,8 +232,16 @@ export class DataTablesService {
     }
 
     /** Puts a table's rows in their fixed display order (see data-tables.layout.ts). Reads only cached tables, so it costs no extra queries. */
-    private async arrangeRows(tableName: string, rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
-        if (tableName === "stock_item") rows = await this.stockTakeItemRows();
+    private async arrangeRows(tableName: string, rows: Record<string, unknown>[], includeInactive = false): Promise<Record<string, unknown>[]> {
+        // Default view: active items only, so the list stays the simple,
+        // current Stock Take list rather than a mix of current and retired
+        // items. includeInactive flips this to the Archived view instead —
+        // the two never mix, so "is this item live or not" is never
+        // ambiguous from the list alone.
+        if (tableName === "stock_item") {
+            const all = await this.stockTakeItemRows();
+            rows = all.filter((i) => (i as { active?: boolean }).active === !includeInactive);
+        }
         if (tableName === "stock_item_par") {
             const ids = new Set((await this.stockTakeItemRows()).map((i) => String(i.stock_item_id)));
             rows = rows.filter((r) => ids.has(String(r.stock_item_id)));
@@ -237,7 +250,7 @@ export class DataTablesService {
         const [kiosks, products, stockItems, defrostItems, productCategories, stockCategories] = await Promise.all([
             tableName === "production_par" || tableName === "defrost_par" ? this.tableCache.getAll<{ kiosk_id: string }>("kiosk") : [],
             tableName === "production_par" || tableName === "product" ? this.tableCache.getAll<{ product_id: string; name: string; product_category_id: string }>("product") : [],
-            tableName === "stock_item" ? this.tableCache.getAll<{ stock_item_id: string; name: string; stock_category_id: string }>("stock_item") : [],
+            tableName === "stock_item" ? this.tableCache.getAll<{ stock_item_id: string; name: string; stock_category_id: string; sort_order: number | null }>("stock_item") : [],
             tableName === "defrost_par" ? this.tableCache.getAll<{ defrost_item_id: string; name: string }>("defrost_item") : [],
             this.enumOptions.getOptions("product_category"),
             this.enumOptions.getOptions("stock_category"),
@@ -248,7 +261,7 @@ export class DataTablesService {
         const lookups: LayoutLookups = {
             kioskOrder: new Map([...kiosks].sort((a, b) => a.kiosk_id.localeCompare(b.kiosk_id)).map((k, i) => [k.kiosk_id, i] as const)),
             products: new Map(products.map((p) => [p.product_id, { name: p.name, categoryOrder: productPos.get(p.product_category_id) ?? 9999 }] as const)),
-            stockItems: new Map(stockItems.map((s) => [s.stock_item_id, { name: s.name, categoryOrder: stockPos.get(s.stock_category_id) ?? 9999 }] as const)),
+            stockItems: new Map(stockItems.map((s) => [s.stock_item_id, { name: s.name, categoryOrder: stockPos.get(s.stock_category_id) ?? 9999, sortOrder: s.sort_order }] as const)),
             defrostItemNames: new Map(defrostItems.map((d) => [d.defrost_item_id, d.name] as const)),
         };
         return orderRows(tableName, rows, lookups);

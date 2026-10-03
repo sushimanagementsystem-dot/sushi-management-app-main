@@ -13,6 +13,11 @@ export class TableNameDto {
     @IsString()
     @MinLength(1)
     table!: string;
+
+    /** Stock Item only, for now: true shows the Archived/Inactive view instead of the normal active-only list. */
+    @IsOptional()
+    @IsBoolean()
+    includeInactive?: boolean;
 }
 
 export class SaveTableRowDto extends TableNameDto {

@@ -25,8 +25,8 @@ export type LayoutLookups = {
     kioskOrder: Map<string, number>;
     /** product_id -> { name, category position } */
     products: Map<string, { name: string; categoryOrder: number }>;
-    /** stock_item_id -> { name, category position } (position within the stock_category enum, i.e. the Stock Take sections) */
-    stockItems: Map<string, { name: string; categoryOrder: number }>;
+    /** stock_item_id -> { name, category position, sheet row position } (category: position within the stock_category enum, i.e. the Stock Take sections; sortOrder: the item's own row on the client's master stock sheet, null if not yet placed) */
+    stockItems: Map<string, { name: string; categoryOrder: number; sortOrder: number | null }>;
     defrostItemNames: Map<string, string>;
 };
 
@@ -68,6 +68,7 @@ export function orderRows(tableName: string, rows: Row[], lk: LayoutLookups): Ro
         case "stock_item":
             return sorted.sort(
                 (a, b) =>
+                    cmp(lk.stockItems.get(String(a.stock_item_id))?.sortOrder ?? FAR, lk.stockItems.get(String(b.stock_item_id))?.sortOrder ?? FAR) ||
                     cmp(lk.stockItems.get(String(a.stock_item_id))?.categoryOrder ?? FAR, lk.stockItems.get(String(b.stock_item_id))?.categoryOrder ?? FAR) ||
                     text(a.name).localeCompare(text(b.name)) ||
                     text(a.stock_item_id).localeCompare(text(b.stock_item_id)),

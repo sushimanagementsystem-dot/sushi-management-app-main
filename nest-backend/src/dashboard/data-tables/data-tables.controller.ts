@@ -17,12 +17,12 @@ export class DataTablesController {
 
     @Post("list_table_rows")
     listRows(@Body() dto: TableNameDto) {
-        return this.service.listTableRows(dto.table);
+        return this.service.listTableRows(dto.table, dto.includeInactive);
     }
 
     @Post("bootstrap_data_table")
     bootstrapTable(@Body() dto: TableNameDto) {
-        return this.service.bootstrapDataTable(dto.table);
+        return this.service.bootstrapDataTable(dto.table, dto.includeInactive);
     }
 
     @Post("save_table_row")

@@ -12,4 +12,9 @@ export class ProductPricesController {
     stockItemRows() {
         return this.service.stockItemRows();
     }
+
+    @Post("bootstrap_food_waste_item_prices")
+    foodWasteItemRows() {
+        return this.service.foodWasteItemRows();
+    }
 }

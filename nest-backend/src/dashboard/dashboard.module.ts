@@ -37,6 +37,8 @@ import { SiteConfigController } from "./site-config/site-config.controller.js";
 import { SiteConfigService } from "./site-config/site-config.service.js";
 import { BulkImportController } from "./bulk-import/bulk-import.controller.js";
 import { BulkImportService } from "./bulk-import/bulk-import.service.js";
+import { InvoicesListController } from "./invoices-list/invoices-list.controller.js";
+import { InvoicesListService } from "./invoices-list/invoices-list.service.js";
 import { PurchasingModule } from "../purchasing/purchasing.module.js";
 
 @Module({
@@ -57,10 +59,12 @@ import { PurchasingModule } from "../purchasing/purchasing.module.js";
         AuditResultController,
         ActionInboxController,
         BulkImportController,
+        InvoicesListController,
     ],
     providers: [
         DataTablesService,
         BulkImportService,
+        InvoicesListService,
         DashboardSettingsService,
         KpiService,
         WasteRateService,

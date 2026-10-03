@@ -1,0 +1,567 @@
+[
+  {
+    "sortOrder": 1,
+    "stock_item_id": "STK001",
+    "name": "AVOCADO"
+  },
+  {
+    "sortOrder": 2,
+    "stock_item_id": "STK002",
+    "name": "KFC SAUCE"
+  },
+  {
+    "sortOrder": 3,
+    "stock_item_id": "STK003",
+    "name": "MAYONAISSE"
+  },
+  {
+    "sortOrder": 4,
+    "stock_item_id": "STK005",
+    "name": "UDON NOODLES"
+  },
+  {
+    "sortOrder": 5,
+    "stock_item_id": "STK006",
+    "name": "YAKISOBA NOODLES"
+  },
+  {
+    "sortOrder": 6,
+    "stock_item_id": "STK007",
+    "name": "RICE"
+  },
+  {
+    "sortOrder": 7,
+    "stock_item_id": "STK008",
+    "name": "BLUE ROLL"
+  },
+  {
+    "sortOrder": 8,
+    "stock_item_id": "STK120",
+    "name": "CRISPY ONION SACHETS"
+  },
+  {
+    "sortOrder": 9,
+    "stock_item_id": "STK009",
+    "name": "AVOCADO"
+  },
+  {
+    "sortOrder": 10,
+    "stock_item_id": "STK010",
+    "name": "CUCUMBER"
+  },
+  {
+    "sortOrder": 11,
+    "stock_item_id": "STK011",
+    "name": "MANGO"
+  },
+  {
+    "sortOrder": 12,
+    "stock_item_id": "STK012",
+    "name": "CABBAGE, RED"
+  },
+  {
+    "sortOrder": 13,
+    "stock_item_id": "STK013",
+    "name": "SLAW"
+  },
+  {
+    "sortOrder": 14,
+    "stock_item_id": "STK014",
+    "name": "CARROT"
+  },
+  {
+    "sortOrder": 15,
+    "stock_item_id": "STK015",
+    "name": "SPRING ONION"
+  },
+  {
+    "sortOrder": 16,
+    "stock_item_id": "STK017",
+    "name": "RED PEPPERS"
+  },
+  {
+    "sortOrder": 17,
+    "stock_item_id": "STK019",
+    "name": "CHICKEN FILLETS"
+  },
+  {
+    "sortOrder": 18,
+    "stock_item_id": "STK121",
+    "name": "CREAM CHEESE"
+  },
+  {
+    "sortOrder": 19,
+    "stock_item_id": "STK122",
+    "name": "PAK CHOI"
+  },
+  {
+    "sortOrder": 20,
+    "stock_item_id": "STK123",
+    "name": "CHIVES"
+  },
+  {
+    "sortOrder": 21,
+    "stock_item_id": "STK021",
+    "name": "SALMON"
+  },
+  {
+    "sortOrder": 22,
+    "stock_item_id": "STK022",
+    "name": "TUNA"
+  },
+  {
+    "sortOrder": 23,
+    "stock_item_id": "STK124",
+    "name": "PRAWNS"
+  },
+  {
+    "sortOrder": 24,
+    "stock_item_id": "STK024",
+    "name": "SURIMI"
+  },
+  {
+    "sortOrder": 25,
+    "stock_item_id": "STK125",
+    "name": "SUSHI EBI"
+  },
+  {
+    "sortOrder": 26,
+    "stock_item_id": "STK026",
+    "name": "CHICKEN KARAAGE"
+  },
+  {
+    "sortOrder": 27,
+    "stock_item_id": "STK027",
+    "name": "CHICKEN KATSU"
+  },
+  {
+    "sortOrder": 28,
+    "stock_item_id": "STK126",
+    "name": "CURRY"
+  },
+  {
+    "sortOrder": 29,
+    "stock_item_id": "STK127",
+    "name": "PUMPKIN"
+  },
+  {
+    "sortOrder": 30,
+    "stock_item_id": "STK031",
+    "name": "EDAMAME"
+  },
+  {
+    "sortOrder": 31,
+    "stock_item_id": "STK128",
+    "name": "WAKAME SEAWEED"
+  },
+  {
+    "sortOrder": 32,
+    "stock_item_id": "STK033",
+    "name": "INARI"
+  },
+  {
+    "sortOrder": 33,
+    "stock_item_id": "STK034",
+    "name": "GYOZA, CHICKEN"
+  },
+  {
+    "sortOrder": 34,
+    "stock_item_id": "STK035",
+    "name": "GYOZA, DUCK"
+  },
+  {
+    "sortOrder": 35,
+    "stock_item_id": "STK036",
+    "name": "GYOZA, VEG"
+  },
+  {
+    "sortOrder": 36,
+    "stock_item_id": "STK037",
+    "name": "STRAWBERRY MOCHI"
+  },
+  {
+    "sortOrder": 37,
+    "stock_item_id": "STK038",
+    "name": "CHOCOLATE MOCHI"
+  },
+  {
+    "sortOrder": 38,
+    "stock_item_id": "STK040",
+    "name": "KFC SAUCE"
+  },
+  {
+    "sortOrder": 39,
+    "stock_item_id": "STK041",
+    "name": "MAYONAISSE"
+  },
+  {
+    "sortOrder": 40,
+    "stock_item_id": "STK043",
+    "name": "TERIYAKI SAUCE"
+  },
+  {
+    "sortOrder": 41,
+    "stock_item_id": "STK129",
+    "name": "Soy Sauce"
+  },
+  {
+    "sortOrder": 42,
+    "stock_item_id": "STK130",
+    "name": "PONZU SOY SAUCE"
+  },
+  {
+    "sortOrder": 43,
+    "stock_item_id": "STK131",
+    "name": "Sriracha Chilli Sauce"
+  },
+  {
+    "sortOrder": 44,
+    "stock_item_id": "STK049",
+    "name": "SUNFLOWER OIL"
+  },
+  {
+    "sortOrder": 45,
+    "stock_item_id": "STK132",
+    "name": "SESAME SEEDS, WHITE"
+  },
+  {
+    "sortOrder": 46,
+    "stock_item_id": "STK133",
+    "name": "SESAME SEEDS, BLACK"
+  },
+  {
+    "sortOrder": 47,
+    "stock_item_id": "STK054",
+    "name": "BAMBOO ROLLING MAT"
+  },
+  {
+    "sortOrder": 48,
+    "stock_item_id": "STK134",
+    "name": "CHILLI POWDER"
+  },
+  {
+    "sortOrder": 49,
+    "stock_item_id": "STK056",
+    "name": "SHREDDED PICKLED GINGER"
+  },
+  {
+    "sortOrder": 50,
+    "stock_item_id": "STK135",
+    "name": "Takaokaya Powdered Seaweed Aonori Premium 100g"
+  },
+  {
+    "sortOrder": 51,
+    "stock_item_id": "STK136",
+    "name": "Mishima Yukari - Seasoned Dry Perilla 20g"
+  },
+  {
+    "sortOrder": 52,
+    "stock_item_id": "STK137",
+    "name": "Sushi Ginger"
+  },
+  {
+    "sortOrder": 53,
+    "stock_item_id": "STK138",
+    "name": "Wasabi"
+  },
+  {
+    "sortOrder": 54,
+    "stock_item_id": "STK059",
+    "name": "SOY SAUCE SACHETS"
+  },
+  {
+    "sortOrder": 55,
+    "stock_item_id": "STK139",
+    "name": "Nori Seaweed"
+  },
+  {
+    "sortOrder": 56,
+    "stock_item_id": "STK061",
+    "name": "CRISPY ONIONS"
+  },
+  {
+    "sortOrder": 57,
+    "stock_item_id": "STK062",
+    "name": "UDON NOODLES"
+  },
+  {
+    "sortOrder": 58,
+    "stock_item_id": "STK063",
+    "name": "YAKISOBA NOODLES"
+  },
+  {
+    "sortOrder": 59,
+    "stock_item_id": "STK140",
+    "name": "Yutaka Miso Ramen Meal Kit 184g"
+  },
+  {
+    "sortOrder": 60,
+    "stock_item_id": "STK141",
+    "name": "Yutaka Tan Tan Ramen Meal Kit 215g"
+  },
+  {
+    "sortOrder": 61,
+    "stock_item_id": "STK142",
+    "name": "Yutaka Yaki Udon Meal Kit 376g"
+  },
+  {
+    "sortOrder": 62,
+    "stock_item_id": "STK143",
+    "name": "CRISPY ONION SACHETS"
+  },
+  {
+    "sortOrder": 63,
+    "stock_item_id": "STK067",
+    "name": "HOT & SPICY NORI CRISPS (RED)"
+  },
+  {
+    "sortOrder": 64,
+    "stock_item_id": "STK068",
+    "name": "ORIGINAL NORI CRISPS (GREEN)"
+  },
+  {
+    "sortOrder": 65,
+    "stock_item_id": "STK069",
+    "name": "BOBA KIT"
+  },
+  {
+    "sortOrder": 66,
+    "stock_item_id": "STK144",
+    "name": "CHOPSTICKS"
+  },
+  {
+    "sortOrder": 67,
+    "stock_item_id": "STK145",
+    "name": "Hata Bin Ramune -Soda Pop 200ml"
+  },
+  {
+    "sortOrder": 68,
+    "stock_item_id": "STK146",
+    "name": "Hata Bin Ramune - Soda Pop Strawberry Flavour 200ml"
+  },
+  {
+    "sortOrder": 69,
+    "stock_item_id": "STK147",
+    "name": "Hata Bin Ramune - Soda Pop Blueberry Flavour 200ml"
+  },
+  {
+    "sortOrder": 70,
+    "stock_item_id": "STK148",
+    "name": "Koshi Yutaka Standard Rice 5kg"
+  },
+  {
+    "sortOrder": 71,
+    "stock_item_id": "STK149",
+    "name": "Mizkan Sushi Vinegar JS-47 18L"
+  },
+  {
+    "sortOrder": 72,
+    "stock_item_id": "STK150",
+    "name": "Mini Snack Box - Kraft Base"
+  },
+  {
+    "sortOrder": 73,
+    "stock_item_id": "STK151",
+    "name": "Mini Snack Box - rPET lid"
+  },
+  {
+    "sortOrder": 74,
+    "stock_item_id": "STK152",
+    "name": "Roll Box - Kraft Base"
+  },
+  {
+    "sortOrder": 75,
+    "stock_item_id": "STK153",
+    "name": "Roll Box - rPET lid"
+  },
+  {
+    "sortOrder": 76,
+    "stock_item_id": "STK080",
+    "name": "PORTION POT"
+  },
+  {
+    "sortOrder": 77,
+    "stock_item_id": "STK081",
+    "name": "PORTION POT LID"
+  },
+  {
+    "sortOrder": 78,
+    "stock_item_id": "STK082",
+    "name": "CURRY INSERT"
+  },
+  {
+    "sortOrder": 79,
+    "stock_item_id": "STK154",
+    "name": "MARKA LABELS"
+  },
+  {
+    "sortOrder": 80,
+    "stock_item_id": "STK084",
+    "name": "STICKERS (VEG, CHICKEN ETC)"
+  },
+  {
+    "sortOrder": 81,
+    "stock_item_id": "STK085",
+    "name": "GREASEPROOF PAPER"
+  },
+  {
+    "sortOrder": 82,
+    "stock_item_id": "STK155",
+    "name": "YO SUSHI BAGS"
+  },
+  {
+    "sortOrder": 83,
+    "stock_item_id": "STK156",
+    "name": "New Combined Sharer Box/Lid"
+  },
+  {
+    "sortOrder": 84,
+    "stock_item_id": "STK157",
+    "name": "Onigiri Packaging"
+  },
+  {
+    "sortOrder": 85,
+    "stock_item_id": "STK158",
+    "name": "Combo Box - Kraft base"
+  },
+  {
+    "sortOrder": 86,
+    "stock_item_id": "STK159",
+    "name": "Combo Box - rPET Lid"
+  },
+  {
+    "sortOrder": 87,
+    "stock_item_id": "STK160",
+    "name": "Combo Box Plus - Kraft Base"
+  },
+  {
+    "sortOrder": 88,
+    "stock_item_id": "STK161",
+    "name": "Combo Box Plus - rPET Lid"
+  },
+  {
+    "sortOrder": 89,
+    "stock_item_id": "STK162",
+    "name": "Kraft 750 ML bowls"
+  },
+  {
+    "sortOrder": 90,
+    "stock_item_id": "STK163",
+    "name": "rPET lid 750 ML"
+  },
+  {
+    "sortOrder": 91,
+    "stock_item_id": "STK164",
+    "name": "Panku Large base - rPET Lid"
+  },
+  {
+    "sortOrder": 92,
+    "stock_item_id": "STK165",
+    "name": "Panku Large base  - Kraft Base"
+  },
+  {
+    "sortOrder": 93,
+    "stock_item_id": "STK095",
+    "name": "BLUE ROLL"
+  },
+  {
+    "sortOrder": 94,
+    "stock_item_id": "STK096",
+    "name": "J CLOTH"
+  },
+  {
+    "sortOrder": 95,
+    "stock_item_id": "STK097",
+    "name": "CLINGFILM"
+  },
+  {
+    "sortOrder": 96,
+    "stock_item_id": "STK098",
+    "name": "BLUE HAIR NET"
+  },
+  {
+    "sortOrder": 97,
+    "stock_item_id": "STK099",
+    "name": "GREEN SCOURER PADS"
+  },
+  {
+    "sortOrder": 98,
+    "stock_item_id": "STK101",
+    "name": "BLUE GLOVES - M"
+  },
+  {
+    "sortOrder": 99,
+    "stock_item_id": "STK102",
+    "name": "BLUE GLOVES - L"
+  },
+  {
+    "sortOrder": 100,
+    "stock_item_id": "STK103",
+    "name": "REFUSE SACKS"
+  },
+  {
+    "sortOrder": 101,
+    "stock_item_id": "STK104",
+    "name": "DISPOSABLE APRONS"
+  },
+  {
+    "sortOrder": 102,
+    "stock_item_id": "STK105",
+    "name": "DISHWASHER SALT"
+  },
+  {
+    "sortOrder": 103,
+    "stock_item_id": "STK106",
+    "name": "FRESH PRODUCE WASH"
+  },
+  {
+    "sortOrder": 104,
+    "stock_item_id": "STK166",
+    "name": "PH BUFFER SOLUTION"
+  },
+  {
+    "sortOrder": 105,
+    "stock_item_id": "STK167",
+    "name": "RINSE AID SOLUTION 5L"
+  },
+  {
+    "sortOrder": 106,
+    "stock_item_id": "STK109",
+    "name": "MACHINELINE DISHWASHER CLEANER 5L"
+  },
+  {
+    "sortOrder": 107,
+    "stock_item_id": "STK110",
+    "name": "DEIONISED WATER 5L"
+  },
+  {
+    "sortOrder": 108,
+    "stock_item_id": "STK111",
+    "name": "PROBE WIPES"
+  },
+  {
+    "sortOrder": 109,
+    "stock_item_id": "STK112",
+    "name": "WASHING UP LIQUID"
+  },
+  {
+    "sortOrder": 110,
+    "stock_item_id": "STK113",
+    "name": "HAND SOAP 5L"
+  },
+  {
+    "sortOrder": 111,
+    "stock_item_id": "STK168",
+    "name": "GLASS CLEANING SPRAY"
+  },
+  {
+    "sortOrder": 112,
+    "stock_item_id": "STK115",
+    "name": "CLEANER & SANITISER BOTTLE 5L"
+  },
+  {
+    "sortOrder": 113,
+    "stock_item_id": "STK169",
+    "name": "FLOOR CLEANER"
+  }
+]

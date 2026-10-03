@@ -1,0 +1,567 @@
+[
+  {
+    "sortOrder": 1,
+    "section": "Kiosk (ambient product only)",
+    "product": "AVOCADO"
+  },
+  {
+    "sortOrder": 2,
+    "section": "Kiosk (ambient product only)",
+    "product": "KFC SAUCE"
+  },
+  {
+    "sortOrder": 3,
+    "section": "Kiosk (ambient product only)",
+    "product": "MAYONAISSE"
+  },
+  {
+    "sortOrder": 4,
+    "section": "Kiosk (ambient product only)",
+    "product": "UDON NOODLES"
+  },
+  {
+    "sortOrder": 5,
+    "section": "Kiosk (ambient product only)",
+    "product": "YAKISOBA NOODLES"
+  },
+  {
+    "sortOrder": 6,
+    "section": "Kiosk (ambient product only)",
+    "product": "RICE"
+  },
+  {
+    "sortOrder": 7,
+    "section": "Kiosk (ambient product only)",
+    "product": "BLUE ROLL"
+  },
+  {
+    "sortOrder": 8,
+    "section": "Kiosk (ambient product only)",
+    "product": "CRISPY ONION SACHETS"
+  },
+  {
+    "sortOrder": 9,
+    "section": "Walk In Fridge",
+    "product": "AVOCADO"
+  },
+  {
+    "sortOrder": 10,
+    "section": "Walk In Fridge",
+    "product": "CUCUMBER"
+  },
+  {
+    "sortOrder": 11,
+    "section": "Walk In Fridge",
+    "product": "MANGO"
+  },
+  {
+    "sortOrder": 12,
+    "section": "Walk In Fridge",
+    "product": "CABBAGE, RED"
+  },
+  {
+    "sortOrder": 13,
+    "section": "Walk In Fridge",
+    "product": "SLAW"
+  },
+  {
+    "sortOrder": 14,
+    "section": "Walk In Fridge",
+    "product": "CARROT"
+  },
+  {
+    "sortOrder": 15,
+    "section": "Walk In Fridge",
+    "product": "SPRING ONION"
+  },
+  {
+    "sortOrder": 16,
+    "section": "Walk In Fridge",
+    "product": "RED PEPPERS"
+  },
+  {
+    "sortOrder": 17,
+    "section": "Walk In Fridge",
+    "product": "CHICKEN FILLETS"
+  },
+  {
+    "sortOrder": 18,
+    "section": "Walk In Fridge",
+    "product": "CREAM CHEESE"
+  },
+  {
+    "sortOrder": 19,
+    "section": "Walk In Fridge",
+    "product": "PAK CHOI"
+  },
+  {
+    "sortOrder": 20,
+    "section": "Walk In Fridge",
+    "product": "CHIVES"
+  },
+  {
+    "sortOrder": 21,
+    "section": "Freezer",
+    "product": "SALMON"
+  },
+  {
+    "sortOrder": 22,
+    "section": "Freezer",
+    "product": "TUNA"
+  },
+  {
+    "sortOrder": 23,
+    "section": "Freezer",
+    "product": "PRAWNS"
+  },
+  {
+    "sortOrder": 24,
+    "section": "Freezer",
+    "product": "SURIMI"
+  },
+  {
+    "sortOrder": 25,
+    "section": "Freezer",
+    "product": "SUSHI EBI"
+  },
+  {
+    "sortOrder": 26,
+    "section": "Freezer",
+    "product": "CHICKEN KARAAGE"
+  },
+  {
+    "sortOrder": 27,
+    "section": "Freezer",
+    "product": "CHICKEN KATSU"
+  },
+  {
+    "sortOrder": 28,
+    "section": "Freezer",
+    "product": "CURRY"
+  },
+  {
+    "sortOrder": 29,
+    "section": "Freezer",
+    "product": "PUMPKIN"
+  },
+  {
+    "sortOrder": 30,
+    "section": "Freezer",
+    "product": "EDAMAME"
+  },
+  {
+    "sortOrder": 31,
+    "section": "Freezer",
+    "product": "WAKAME SEAWEED"
+  },
+  {
+    "sortOrder": 32,
+    "section": "Freezer",
+    "product": "INARI"
+  },
+  {
+    "sortOrder": 33,
+    "section": "Freezer",
+    "product": "GYOZA, CHICKEN"
+  },
+  {
+    "sortOrder": 34,
+    "section": "Freezer",
+    "product": "GYOZA, DUCK"
+  },
+  {
+    "sortOrder": 35,
+    "section": "Freezer",
+    "product": "GYOZA, VEG"
+  },
+  {
+    "sortOrder": 36,
+    "section": "Freezer",
+    "product": "STRAWBERRY MOCHI"
+  },
+  {
+    "sortOrder": 37,
+    "section": "Freezer",
+    "product": "CHOCOLATE MOCHI"
+  },
+  {
+    "sortOrder": 38,
+    "section": "DRYSTORE - FOOD",
+    "product": "KFC SAUCE"
+  },
+  {
+    "sortOrder": 39,
+    "section": "DRYSTORE - FOOD",
+    "product": "MAYONAISSE"
+  },
+  {
+    "sortOrder": 40,
+    "section": "DRYSTORE - FOOD",
+    "product": "Teriyaki Sauce"
+  },
+  {
+    "sortOrder": 41,
+    "section": "DRYSTORE - FOOD",
+    "product": "Soy Sauce"
+  },
+  {
+    "sortOrder": 42,
+    "section": "DRYSTORE - FOOD",
+    "product": "PONZU SOY SAUCE"
+  },
+  {
+    "sortOrder": 43,
+    "section": "DRYSTORE - FOOD",
+    "product": "Sriracha Chilli Sauce"
+  },
+  {
+    "sortOrder": 44,
+    "section": "DRYSTORE - FOOD",
+    "product": "SUNFLOWER OIL"
+  },
+  {
+    "sortOrder": 45,
+    "section": "DRYSTORE - FOOD",
+    "product": "SESAME SEEDS, WHITE"
+  },
+  {
+    "sortOrder": 46,
+    "section": "DRYSTORE - FOOD",
+    "product": "SESAME SEEDS, BLACK"
+  },
+  {
+    "sortOrder": 47,
+    "section": "DRYSTORE - FOOD",
+    "product": "Bamboo Rolling Mat"
+  },
+  {
+    "sortOrder": 48,
+    "section": "DRYSTORE - FOOD",
+    "product": "CHILLI POWDER"
+  },
+  {
+    "sortOrder": 49,
+    "section": "DRYSTORE - FOOD",
+    "product": "Shredded Pickled Ginger"
+  },
+  {
+    "sortOrder": 50,
+    "section": "DRYSTORE - FOOD",
+    "product": "Takaokaya Powdered Seaweed Aonori Premium 100g"
+  },
+  {
+    "sortOrder": 51,
+    "section": "DRYSTORE - FOOD",
+    "product": "Mishima Yukari - Seasoned Dry Perilla 20g"
+  },
+  {
+    "sortOrder": 52,
+    "section": "DRYSTORE - FOOD",
+    "product": "Sushi Ginger"
+  },
+  {
+    "sortOrder": 53,
+    "section": "DRYSTORE - FOOD",
+    "product": "Wasabi"
+  },
+  {
+    "sortOrder": 54,
+    "section": "DRYSTORE - FOOD",
+    "product": "Soy Sauce Sachets"
+  },
+  {
+    "sortOrder": 55,
+    "section": "DRYSTORE - FOOD",
+    "product": "Nori Seaweed"
+  },
+  {
+    "sortOrder": 56,
+    "section": "DRYSTORE - FOOD",
+    "product": "Crispy Onions"
+  },
+  {
+    "sortOrder": 57,
+    "section": "DRYSTORE - FOOD",
+    "product": "UDON NOODLES"
+  },
+  {
+    "sortOrder": 58,
+    "section": "DRYSTORE - FOOD",
+    "product": "YAKISOBA NOODLES"
+  },
+  {
+    "sortOrder": 59,
+    "section": "DRYSTORE - FOOD",
+    "product": "Yutaka Miso Ramen Meal Kit 184g"
+  },
+  {
+    "sortOrder": 60,
+    "section": "DRYSTORE - FOOD",
+    "product": "Yutaka Tan Tan Ramen Meal Kit 215g"
+  },
+  {
+    "sortOrder": 61,
+    "section": "DRYSTORE - FOOD",
+    "product": "Yutaka Yaki Udon Meal Kit 376g"
+  },
+  {
+    "sortOrder": 62,
+    "section": "DRYSTORE - FOOD",
+    "product": "CRISPY ONION SACHETS"
+  },
+  {
+    "sortOrder": 63,
+    "section": "DRYSTORE - FOOD",
+    "product": "HOT & SPICY NORI CRISPS (RED)"
+  },
+  {
+    "sortOrder": 64,
+    "section": "DRYSTORE - FOOD",
+    "product": "ORIGINAL NORI CRISPS (GREEN)"
+  },
+  {
+    "sortOrder": 65,
+    "section": "DRYSTORE - FOOD",
+    "product": "BOBA KIT"
+  },
+  {
+    "sortOrder": 66,
+    "section": "DRYSTORE - FOOD",
+    "product": "CHOPSTICKS"
+  },
+  {
+    "sortOrder": 67,
+    "section": "DRYSTORE - FOOD",
+    "product": "Hata Bin Ramune -Soda Pop 200ml"
+  },
+  {
+    "sortOrder": 68,
+    "section": "DRYSTORE - FOOD",
+    "product": "Hata Bin Ramune - Soda Pop Strawberry Flavour 200ml"
+  },
+  {
+    "sortOrder": 69,
+    "section": "DRYSTORE - FOOD",
+    "product": "Hata Bin Ramune - Soda Pop Blueberry Flavour 200ml"
+  },
+  {
+    "sortOrder": 70,
+    "section": "DRYSTORE - FOOD",
+    "product": "Koshi Yutaka Standard Rice 5kg"
+  },
+  {
+    "sortOrder": 71,
+    "section": "DRYSTORE - FOOD",
+    "product": "Mizkan Sushi Vinegar JS-47 18L"
+  },
+  {
+    "sortOrder": 72,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Mini Snack Box - Kraft Base"
+  },
+  {
+    "sortOrder": 73,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Mini Snack Box - rPET lid"
+  },
+  {
+    "sortOrder": 74,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Roll Box - Kraft Base"
+  },
+  {
+    "sortOrder": 75,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Roll Box - rPET lid"
+  },
+  {
+    "sortOrder": 76,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "PORTION POT"
+  },
+  {
+    "sortOrder": 77,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "PORTION POT LID"
+  },
+  {
+    "sortOrder": 78,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "CURRY INSERT"
+  },
+  {
+    "sortOrder": 79,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "MARKA LABELS"
+  },
+  {
+    "sortOrder": 80,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "STICKERS (VEG, CHICKEN ETC)"
+  },
+  {
+    "sortOrder": 81,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "GREASEPROOF PAPER"
+  },
+  {
+    "sortOrder": 82,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "YO SUSHI BAGS"
+  },
+  {
+    "sortOrder": 83,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "New Combined Sharer Box/Lid "
+  },
+  {
+    "sortOrder": 84,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Onigiri Packaging"
+  },
+  {
+    "sortOrder": 85,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Combo Box - Kraft base"
+  },
+  {
+    "sortOrder": 86,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Combo Box - rPET Lid"
+  },
+  {
+    "sortOrder": 87,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Combo Box Plus - Kraft Base"
+  },
+  {
+    "sortOrder": 88,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Combo Box Plus - rPET Lid"
+  },
+  {
+    "sortOrder": 89,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Kraft 750 ML bowls"
+  },
+  {
+    "sortOrder": 90,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "rPET lid 750 ML"
+  },
+  {
+    "sortOrder": 91,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Panku Large base - rPET Lid"
+  },
+  {
+    "sortOrder": 92,
+    "section": "DRYSTORE - PACKAGING",
+    "product": "Panku Large base\u00a0 - Kraft Base"
+  },
+  {
+    "sortOrder": 93,
+    "section": "DRYSTORE - CLEANING",
+    "product": "BLUE ROLL"
+  },
+  {
+    "sortOrder": 94,
+    "section": "DRYSTORE - CLEANING",
+    "product": "J CLOTH"
+  },
+  {
+    "sortOrder": 95,
+    "section": "DRYSTORE - CLEANING",
+    "product": "CLINGFILM"
+  },
+  {
+    "sortOrder": 96,
+    "section": "DRYSTORE - CLEANING",
+    "product": "BLUE HAIR NET"
+  },
+  {
+    "sortOrder": 97,
+    "section": "DRYSTORE - CLEANING",
+    "product": "GREEN SCOURER PADS"
+  },
+  {
+    "sortOrder": 98,
+    "section": "DRYSTORE - CLEANING",
+    "product": "BLUE GLOVES - M"
+  },
+  {
+    "sortOrder": 99,
+    "section": "DRYSTORE - CLEANING",
+    "product": "BLUE GLOVES - L"
+  },
+  {
+    "sortOrder": 100,
+    "section": "DRYSTORE - CLEANING",
+    "product": "REFUSE SACKS"
+  },
+  {
+    "sortOrder": 101,
+    "section": "DRYSTORE - CLEANING",
+    "product": "DISPOSABLE APRONS"
+  },
+  {
+    "sortOrder": 102,
+    "section": "DRYSTORE - CLEANING",
+    "product": "DISHWASHER SALT"
+  },
+  {
+    "sortOrder": 103,
+    "section": "DRYSTORE - CLEANING",
+    "product": "FRESH PRODUCE WASH"
+  },
+  {
+    "sortOrder": 104,
+    "section": "DRYSTORE - CLEANING",
+    "product": "PH BUFFER SOLUTION"
+  },
+  {
+    "sortOrder": 105,
+    "section": "DRYSTORE - CLEANING",
+    "product": "RINSE AID SOLUTION 5L"
+  },
+  {
+    "sortOrder": 106,
+    "section": "DRYSTORE - CLEANING",
+    "product": "MACHINELINE DISHWASHER CLEANER 5L"
+  },
+  {
+    "sortOrder": 107,
+    "section": "DRYSTORE - CLEANING",
+    "product": "DEIONISED WATER 5L"
+  },
+  {
+    "sortOrder": 108,
+    "section": "DRYSTORE - CLEANING",
+    "product": "PROBE WIPES"
+  },
+  {
+    "sortOrder": 109,
+    "section": "DRYSTORE - CLEANING",
+    "product": "WASHING UP LIQUID"
+  },
+  {
+    "sortOrder": 110,
+    "section": "DRYSTORE - CLEANING",
+    "product": "HAND SOAP 5L"
+  },
+  {
+    "sortOrder": 111,
+    "section": "DRYSTORE - CLEANING",
+    "product": "GLASS CLEANING SPRAY"
+  },
+  {
+    "sortOrder": 112,
+    "section": "DRYSTORE - CLEANING",
+    "product": "CLEANER & SANITISER BOTTLE 5L"
+  },
+  {
+    "sortOrder": 113,
+    "section": "DRYSTORE - CLEANING",
+    "product": "FLOOR CLEANER"
+  }
+]

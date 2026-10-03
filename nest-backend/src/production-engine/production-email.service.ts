@@ -185,12 +185,17 @@ export class ProductionEmailService {
         for (const items of Object.values(groupsMap)) {
             items.sort((a, b) => (a.isCombo === b.isCombo ? 0 : a.isCombo ? 1 : -1));
         }
-        const ORDER = ["Veggie", "Salmon", "California", "Prawn", "Chicken", "Street Food", "Ready Meals"];
+        // Client-configurable section order: Dashboard > Data Tables > Enum Option > "plan_group" — each row's Sort
+        // Order decides where its group falls here. A plan_group with no row yet (or a row with no Sort Order set,
+        // e.g. Sushi Circle's groups before Evan gives their order) falls through to the "99, alphabetical" bucket,
+        // same safety net the old hardcoded list had — a group is never silently dropped, just unordered.
+        const planGroupOptions = await this.enumOptions.getOptions("plan_group");
+        const planGroupOrder = new Map(planGroupOptions.filter((o) => o.sort_order !== null).map((o) => [o.value, o.sort_order!]));
         const groups = Object.keys(groupsMap)
             .sort((a, b) => {
-                const ia = ORDER.indexOf(a);
-                const ib = ORDER.indexOf(b);
-                return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
+                const ia = planGroupOrder.get(a) ?? 99;
+                const ib = planGroupOrder.get(b) ?? 99;
+                return ia - ib || a.localeCompare(b);
             })
             .map((g) => ({ name: g, items: groupsMap[g]! }));
 
