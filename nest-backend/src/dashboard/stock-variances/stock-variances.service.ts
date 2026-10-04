@@ -7,6 +7,8 @@ import { addDays, endOfDay, startOfTodayUtc, toDateStr } from "../../common/date
 import type { Kiosk, StockItem } from "@prisma/client";
 
 export type StockVariance = {
+    stocktakeLineId: string;
+    reviewed: boolean;
     kioskId: string;
     kioskName: string;
     stockItemName: string;
@@ -45,7 +47,7 @@ export class StockVariancesService {
         private readonly settings: SettingsService,
     ) {}
 
-    async bootstrap(startDate: Date | undefined, endDate: Date | undefined) {
+    async bootstrap(startDate: Date | undefined, endDate: Date | undefined, includeDismissed = false) {
         const kiosks = (await this.tableCache.getAll<Kiosk>("kiosk")).filter((k) => k.active);
         const kioskIds = kiosks.map((k) => k.kiosk_id);
 
@@ -63,11 +65,13 @@ export class StockVariancesService {
             return { startDate: toDateStr(start), endDate: toDateStr(end), kiosks: kiosks.map((k) => ({ id: k.kiosk_id, name: k.name })), variances: [] as StockVariance[] };
         }
 
-        const [lines, movements, items] = await Promise.all([
+        const [lines, movements, items, dismissals] = await Promise.all([
             this.prisma.stocktakeLine.findMany({ where: { stocktake_header_id: { in: headers.map((h) => h.stocktake_header_id) } } }),
             this.prisma.stockMovement.findMany({ where: { kiosk_id: { in: kioskIds } } }),
             this.tableCache.getAll<StockItem>("stock_item"),
+            this.prisma.stockVarianceDismissal.findMany({ select: { stocktake_line_id: true } }),
         ]);
+        const dismissedIds = new Set(dismissals.map((d) => d.stocktake_line_id));
 
         const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
         const headerById = new Map(headers.map((h) => [h.stocktake_header_id, h]));
@@ -86,6 +90,7 @@ export class StockVariancesService {
             const header = headerById.get(line.stocktake_header_id);
             const item = itemById.get(line.stock_item_id);
             if (!header || !item) continue;
+            if (!includeDismissed && dismissedIds.has(line.stocktake_line_id)) continue;
 
             const kioskMovements = movementsByKiosk.get(header.kiosk_id) ?? [];
             // What the ledger said at the end of the count day, EXCLUDING the correction this very stocktake posted when the
@@ -108,6 +113,8 @@ export class StockVariancesService {
             if (!passesThreshold) continue;
 
             variances.push({
+                stocktakeLineId: line.stocktake_line_id,
+                reviewed: dismissedIds.has(line.stocktake_line_id),
                 kioskId: header.kiosk_id,
                 kioskName: nameById.get(header.kiosk_id) || header.kiosk_id,
                 stockItemName: item.name,
@@ -128,5 +135,20 @@ export class StockVariancesService {
             thresholds: { pct, minUnits },
             variances,
         };
+    }
+
+    /** Marks one variance reviewed — it drops out of the list above (unless includeDismissed is asked for) the
+     * next time it's loaded. Upsert, not create: re-reviewing an already-dismissed line is harmless, not an error. */
+    async dismiss(stocktakeLineId: string, dismissedBy: string): Promise<void> {
+        await this.prisma.stockVarianceDismissal.upsert({
+            where: { stocktake_line_id: stocktakeLineId },
+            create: { stocktake_line_id: stocktakeLineId, dismissed_by: dismissedBy },
+            update: { dismissed_by: dismissedBy, dismissed_at: new Date() },
+        });
+    }
+
+    /** Undoes a dismissal — brings a variance back onto the default list. */
+    async undismiss(stocktakeLineId: string): Promise<void> {
+        await this.prisma.stockVarianceDismissal.deleteMany({ where: { stocktake_line_id: stocktakeLineId } });
     }
 }

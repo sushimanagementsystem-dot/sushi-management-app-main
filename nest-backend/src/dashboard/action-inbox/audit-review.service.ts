@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { SettingsService } from "../../reference-data/settings.service.js";
 import { OwnerActionStateService } from "./owner-action-state.service.js";
+import { AuditReportEmailService } from "../audit-result/audit-report-email.service.js";
 import { addDays } from "../../common/date.util.js";
 import type { AuditAnswer, AuditQuestion } from "@prisma/client";
 
@@ -34,10 +35,13 @@ export function auditFinalOutcome(answer: Pick<AuditAnswer, "staff_answer" | "ow
 
 @Injectable()
 export class AuditReviewService {
+    private readonly logger = new Logger(AuditReviewService.name);
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly settings: SettingsService,
         private readonly ownerActionState: OwnerActionStateService,
+        private readonly auditReportEmail: AuditReportEmailService,
     ) {}
 
     /**
@@ -72,7 +76,9 @@ export class AuditReviewService {
             this.settings.getNumber("AUDIT_ATTENTION_PCT"),
         ]);
 
-        await this.prisma.$transaction(async (tx) => {
+        const wasAlreadyFullyReviewed = response.review_status === "FULLY_REVIEWED";
+
+        const allDecided = await this.prisma.$transaction(async (tx) => {
             await tx.auditAnswer.update({ where: { audit_answer_id: auditAnswerId }, data: { owner_decision: decision, owner_note: note || null } });
 
             const decidedAnswer = { ...answer, owner_decision: decision };
@@ -124,7 +130,32 @@ export class AuditReviewService {
                 await tx.auditResponse.update({ where: { audit_response_id: response.audit_response_id }, data: { review_status: "PARTIALLY_REVIEWED" } });
                 if (action) await this.ownerActionState.advanceOwnerActionOnAction(tx, action.owner_action_id, { complete: false, note: "audit answer reviewed" });
             }
+            return allDecided;
         });
+
+        // Report email is sent from here, after the transaction above has committed — never inside it, so a slow
+        // or failing send can't hold the review transaction open or roll back the decision just recorded. Only
+        // fires the moment review_status first reaches FULLY_REVIEWED, not on every later edit to an already-
+        // reviewed audit (re-deciding one answer would otherwise re-send the report each time).
+        if (allDecided && !wasAlreadyFullyReviewed) {
+            try {
+                await this.auditReportEmail.sendAuditReportEmail(response.audit_response_id, response.kiosk_id);
+            } catch (err) {
+                const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+                this.logger.warn(`Failed to send audit report email for ${response.audit_response_id}: ${message}`);
+                await this.prisma.processingErrorLog.create({
+                    data: {
+                        kiosk_id: response.kiosk_id,
+                        form_type: "MONTHLY_AUDIT",
+                        submission_id: response.submission_id,
+                        stage: "send audit report email",
+                        error_message: message,
+                        records_written_before_error: true,
+                        recommended_action: "Fix the cause (e.g. missing kiosk Production Email, or the mail Sender Email/App Password on the Site Configuration page), then resend manually.",
+                    },
+                });
+            }
+        }
     }
 
     /**

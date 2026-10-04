@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Store, CalendarDays, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Store, CalendarDays, TrendingDown, TrendingUp, Check, Undo2 } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
 import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import KpiFilters from "@/components/dashboard/KpiFilters";
 import RefreshButton from "@/components/dashboard/RefreshButton";
-import { useBootstrap } from "@/lib/queries";
+import { useBootstrap, useApiMutation } from "@/lib/queries";
 import { dateFiltersFromQuery, presetRange, qtyStr, writeDateFiltersToQuery } from "@/lib/kpiUtils";
 
 /**
@@ -27,17 +27,19 @@ export default function StockVariancesPage() {
     const initial = dateFiltersFromQuery("last30");
     const [filters, setFilters] = useState({ startDate: initial.startDate, endDate: initial.endDate });
     const [activePreset, setActivePreset] = useState(initial.preset);
+    const [includeDismissed, setIncludeDismissed] = useState(false);
 
     useEffect(() => {
         writeDateFiltersToQuery({ startDate: filters.startDate, endDate: filters.endDate, preset: activePreset });
     }, [filters, activePreset]);
 
+    const bootstrapParams = { ...filters, includeDismissed };
     const {
         data: res,
         isPending: loading,
         error: bootError,
         refetch,
-    } = useBootstrap("bootstrap_stock_variances", filters, { enabled: !!filters.startDate });
+    } = useBootstrap("bootstrap_stock_variances", bootstrapParams, { enabled: !!filters.startDate });
 
     const error = (res && res.ok === false && (res.error || "Failed to load.")) || (bootError && "Failed to load.");
 
@@ -58,19 +60,25 @@ export default function StockVariancesPage() {
                         description="Automatically detected gaps between what the stock ledger expects and what staff actually counted — usually a sign something was never logged."
                         actions={<RefreshButton onRefetch={refetch} />}
                     >
-                        <KpiFilters
-                            filters={filters}
-                            activePreset={activePreset}
-                            onPreset={applyPreset}
-                            onStartDate={(v) => {
-                                setActivePreset(null);
-                                setFilters((f) => ({ ...f, startDate: v }));
-                            }}
-                            onEndDate={(v) => {
-                                setActivePreset(null);
-                                setFilters((f) => ({ ...f, endDate: v }));
-                            }}
-                        />
+                        <div className="flex flex-wrap items-center gap-3">
+                            <KpiFilters
+                                filters={filters}
+                                activePreset={activePreset}
+                                onPreset={applyPreset}
+                                onStartDate={(v) => {
+                                    setActivePreset(null);
+                                    setFilters((f) => ({ ...f, startDate: v }));
+                                }}
+                                onEndDate={(v) => {
+                                    setActivePreset(null);
+                                    setFilters((f) => ({ ...f, endDate: v }));
+                                }}
+                            />
+                            <label className="flex items-center gap-[0.3rem] text-[0.78rem] text-muted">
+                                <input type="checkbox" checked={includeDismissed} onChange={(e) => setIncludeDismissed(e.target.checked)} />
+                                Show reviewed
+                            </label>
+                        </div>
                     </PageHeader>
 
                     {loading && (
@@ -78,14 +86,14 @@ export default function StockVariancesPage() {
                     )}
                     {error && <div className="text-danger-ink">{error}</div>}
 
-                    {!loading && res && !error && <VarianceReport res={res} />}
+                    {!loading && res && !error && <VarianceReport res={res} includeDismissed={includeDismissed} onChanged={refetch} />}
                 </div>
             </DashboardShell>
         </>
     );
 }
 
-function VarianceReport({ res }) {
+function VarianceReport({ res, includeDismissed, onChanged }) {
     const variances = res.variances || [];
     const thresholds = res.thresholds;
 
@@ -99,7 +107,7 @@ function VarianceReport({ res }) {
                     }
                 >
                     {variances.length > 0 ? <AlertTriangle size={13} strokeWidth={2.25} /> : <CheckCircle2 size={13} strokeWidth={2.25} />}
-                    {variances.length} variance{variances.length === 1 ? "" : "s"} found
+                    {variances.length} variance{variances.length === 1 ? "" : "s"} {includeDismissed ? "(including reviewed)" : "found"}
                 </div>
                 {thresholds && (
                     <span className="text-[0.78rem] text-muted">
@@ -115,8 +123,8 @@ function VarianceReport({ res }) {
                     </p>
                 ) : (
                     <div className="flex flex-col gap-2.5">
-                        {variances.map((v, i) => (
-                            <VarianceCard key={i} v={v} />
+                        {variances.map((v) => (
+                            <VarianceCard key={v.stocktakeLineId} v={v} onChanged={onChanged} />
                         ))}
                     </div>
                 )}
@@ -125,9 +133,15 @@ function VarianceReport({ res }) {
     );
 }
 
-function VarianceCard({ v }) {
+/** Once reviewed, a variance is marked reviewed (same one-click pattern as the Action Inbox) and drops off the
+ * list below — "Show reviewed" above brings it back if it's ever worth a second look, with Undo to put it back. */
+function VarianceCard({ v, onChanged }) {
     const missing = v.difference < 0; // actual < expected — stock is unaccounted-for-missing
     const Icon = missing ? TrendingDown : TrendingUp;
+    const dismissMutation = useApiMutation("dismiss_stock_variance", { onSuccess: () => onChanged() });
+    const undismissMutation = useApiMutation("undismiss_stock_variance", { onSuccess: () => onChanged() });
+    const busy = dismissMutation.isPending || undismissMutation.isPending;
+
     return (
         <div
             className={
@@ -144,6 +158,27 @@ function VarianceCard({ v }) {
                     <Icon size={12} strokeWidth={2.5} />
                     {missing ? "Missing" : "Surplus"}
                 </span>
+                {v.reviewed ? (
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => undismissMutation.mutate({ stocktakeLineId: v.stocktakeLineId })}
+                        className="flex items-center gap-1 rounded-full border border-line bg-card px-[0.55rem] py-[0.15rem] text-[0.72rem] font-semibold text-muted hover:border-accent/40 disabled:opacity-50"
+                    >
+                        <Undo2 size={12} strokeWidth={2.25} />
+                        Undo
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => dismissMutation.mutate({ stocktakeLineId: v.stocktakeLineId })}
+                        className="flex items-center gap-1 rounded-full border-none bg-accent px-[0.55rem] py-[0.15rem] text-[0.72rem] font-semibold text-accent-ink hover:bg-accent/90 disabled:opacity-50"
+                    >
+                        <Check size={12} strokeWidth={2.5} />
+                        {busy ? "Saving…" : "Reviewed"}
+                    </button>
+                )}
             </div>
 
             <div className="mb-1.5 text-[0.95rem] font-semibold leading-snug text-ink">

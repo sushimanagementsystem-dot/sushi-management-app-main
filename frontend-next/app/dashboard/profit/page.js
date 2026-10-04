@@ -16,11 +16,14 @@ import { addDaysStr, dateFiltersFromQuery, moneyStr, pad2, presetRange, todayStr
 
 /**
  * Profit tab — per kiosk, per week, in this column order:
- *   Sales | COGS | Waste | Damage | Staff Food | Fixed Costs | Misc Costs | Gross Profit | Labour | EBITDA Profit
- * Sales, Fixed Costs and Misc Costs are typed in (click a cell); COGS, waste, damage and staff food are pulled
- * from data already captured elsewhere in the app; Labour comes from the weekly labour report submitted in the card
- * at the top. Gross Profit = Sales - all costs to its left; EBITDA = Gross Profit - Labour (arithmetic lives in the
- * backend's profit-calc.ts, so this page only displays it).
+ *   Sales | COGS | Waste | Damage | Staff Food | Fixed Costs | Misc Costs | Gross Profit | Royalty | Labour |
+ *   Total Labour | EBITDA Profit
+ * Sales, Fixed Costs and Misc Costs are typed in (click a cell); COGS comes from the kiosk's confirmed Weekly
+ * Stocktakes (opening + purchases - closing — already includes Waste/Damage/Staff Food, shown alongside it only
+ * as a breakdown, never added again); Labour comes from the weekly labour report submitted in the card at the
+ * top. Gross Profit = Sales - COGS - Fixed - Misc; Royalty = 30% of Sales; Total Labour = Labour x 1.25; EBITDA =
+ * Gross Profit - Royalty - Total Labour (arithmetic lives in the backend's profit-calc.ts, so this page only
+ * displays it).
  */
 export default function ProfitPage() {
     const initial = dateFiltersFromQuery("last30");
@@ -54,7 +57,7 @@ export default function ProfitPage() {
                     <PageHeader
                         title="Profit"
                         help="profit.page"
-                        description="Gross Profit and EBITDA per kiosk, per week — sales, fixed costs and misc costs are typed in; COGS, waste, damage, staff food and labour come in automatically."
+                        description="Gross Profit and EBITDA per kiosk, per week — sales, fixed costs and misc costs are typed in; COGS comes from confirmed Weekly Stocktakes, royalty and total labour are worked out automatically."
                         actions={<RefreshButton onRefetch={refetch} />}
                     >
                         <KpiFilters
@@ -94,9 +97,16 @@ export default function ProfitPage() {
     );
 }
 
-const COLUMNS = ["Kiosk", "Sales", "COGS", "Waste", "Damage", "Staff Food", "Fixed Costs", "Misc Costs", "Gross Profit", "Labour", "EBITDA Profit"];
+const COLUMNS = ["Kiosk", "Sales", "COGS", "Waste", "Damage", "Staff Food", "Fixed Costs", "Misc Costs", "Gross Profit", "Royalty", "Labour", "Total Labour", "EBITDA Profit"];
 // Column headings that need an explanation get the shared "?" Help icon (ids in lib/help/content.js).
-const COLUMN_HELP = { COGS: "profit.cogs", "Gross Profit": "profit.grossProfit", Labour: "profit.labour", "EBITDA Profit": "profit.ebitda" };
+const COLUMN_HELP = {
+    COGS: "profit.cogs",
+    "Gross Profit": "profit.grossProfit",
+    Royalty: "profit.royalty",
+    Labour: "profit.labour",
+    "Total Labour": "profit.totalLabour",
+    "EBITDA Profit": "profit.ebitda",
+};
 const CELL = "whitespace-nowrap border-b border-line px-[0.9rem] py-2.5";
 const TOTAL_CELL = "whitespace-nowrap border-t border-line px-[0.9rem] py-2.5";
 
@@ -120,6 +130,7 @@ function WeekBlock({ week, onSaved }) {
     const showTotal = rows.length > 1;
     const withSales = rows.filter((r) => r.salesAmount !== null);
     const round2 = (n) => Math.round(n * 100) / 100;
+    const withCogs = rows.filter((r) => r.cogs !== null);
     // Same rule as a kiosk row: a total only exists once the sales it depends on do.
     const totalGross = withSales.length ? round2(sumRows(withSales, "salesAmount") - sumRows(withSales, "totalCosts")) : null;
     const withEbitda = rows.filter((r) => r.ebitda !== null);
@@ -152,14 +163,16 @@ function WeekBlock({ week, onSaved }) {
                                 <tr className="bg-panel/60 font-semibold text-ink">
                                     <td className={TOTAL_CELL}>Total</td>
                                     <td className={TOTAL_CELL}>{withSales.length ? moneyStr(sumRows(withSales, "salesAmount")) : "—"}</td>
-                                    <td className={TOTAL_CELL}>{moneyStr(sumRows(rows, "cogs"))}</td>
+                                    <td className={TOTAL_CELL}>{withCogs.length ? moneyStr(sumRows(withCogs, "cogs")) : "—"}</td>
                                     <td className={TOTAL_CELL}>{moneyStr(sumRows(rows, "wasteCost"))}</td>
                                     <td className={TOTAL_CELL}>{moneyStr(sumRows(rows, "damageCost"))}</td>
                                     <td className={TOTAL_CELL}>{moneyStr(sumRows(rows, "staffFoodCost"))}</td>
                                     <td className={TOTAL_CELL}>{moneyStr(sumRows(rows, "fixedCosts"))}</td>
                                     <td className={TOTAL_CELL}>{moneyStr(sumRows(rows, "miscCosts"))}</td>
                                     <ProfitCell value={totalGross} bold />
+                                    <td className={TOTAL_CELL}>{withSales.length ? moneyStr(sumRows(withSales, "royalty")) : "—"}</td>
                                     <td className={TOTAL_CELL}>{withLabour.length ? moneyStr(sumRows(withLabour, "labourCost")) : "—"}</td>
+                                    <td className={TOTAL_CELL}>{withLabour.length ? moneyStr(sumRows(withLabour, "totalLabour")) : "—"}</td>
                                     <ProfitCell value={totalEbitda} bold />
                                 </tr>
                             )}
@@ -189,16 +202,44 @@ function KioskWeekRow({ row, weekStart, onSaved }) {
         <tr className="transition-colors duration-100 hover:bg-panel/70">
             <td className={CELL + " font-medium text-ink"}>{row.kioskName}</td>
             <SalesCell row={row} weekStart={weekStart} onSaved={onSaved} />
-            <td className={CELL}>{moneyStr(row.cogs)}</td>
+            <CogsCell row={row} />
             <td className={CELL}>{moneyStr(row.wasteCost)}</td>
             <td className={CELL}>{moneyStr(row.damageCost)}</td>
             <td className={CELL}>{moneyStr(row.staffFoodCost)}</td>
             <CostCell row={row} weekStart={weekStart} field="fixedCosts" label="Fixed Costs" onSaved={onSaved} />
             <CostCell row={row} weekStart={weekStart} field="miscCosts" label="Misc Costs" onSaved={onSaved} />
             <ProfitCell value={row.grossProfit} />
+            <td className={CELL + " tabular-nums text-muted"}>{row.royalty !== null ? moneyStr(row.royalty) : "—"}</td>
             <LabourCell row={row} />
+            <td className={CELL + " tabular-nums text-muted"}>{row.totalLabour !== null ? moneyStr(row.totalLabour) : "—"}</td>
             <ProfitCell value={row.ebitda} />
         </tr>
+    );
+}
+
+/** COGS = opening stocktake + purchases - closing stocktake, for the period that closed this week (see
+ * profit.service.ts). Blank with an explanation when there's no closing stocktake yet this week; otherwise shown
+ * with the date range it covers and a warning if any item counted had no cost set (so it's easy to go fix). */
+function CogsCell({ row }) {
+    if (row.cogs === null) {
+        return (
+            <td className={CELL + " text-muted"}>
+                <span className="text-[0.8rem]">No closing stocktake</span>
+            </td>
+        );
+    }
+    return (
+        <td className={CELL + " tabular-nums"}>
+            {moneyStr(row.cogs)}
+            <div className="text-[0.68rem] font-normal text-muted">
+                {row.cogsOpeningDate} → {row.cogsClosingDate}
+            </div>
+            {row.cogsUncostedCount > 0 && (
+                <div className="text-[0.68rem] font-semibold text-warn-ink">
+                    {row.cogsUncostedCount} item{row.cogsUncostedCount === 1 ? "" : "s"} uncosted
+                </div>
+            )}
+        </td>
     );
 }
 

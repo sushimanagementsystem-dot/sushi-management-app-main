@@ -20,39 +20,89 @@ import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/
 // storage on every change and restored on load instead, so leaving and
 // coming back (even a full page reload) picks up exactly where it left
 // off — cleared only once the audit actually submits.
+//
+// IndexedDB, not localStorage: a full audit's evidence photos (even
+// compressed, see readFileForUpload) can add up past localStorage's
+// typical 5-10MB per-origin quota, especially on mobile browsers — once
+// that quota is hit, every further write throws and is silently dropped
+// (the user keeps seeing their answers on screen; only the save fails),
+// which is exactly the "an hour of work, then it's gone" report this is
+// fixing. IndexedDB's quota is a large fraction of free disk space, so
+// the same draft that used to overflow localStorage now fits comfortably.
+const DRAFT_DB_NAME = "sushi_kiosk_drafts";
+const DRAFT_STORE_NAME = "drafts";
+
+function openDraftDb() {
+    return new Promise((resolve, reject) => {
+        const req = window.indexedDB.open(DRAFT_DB_NAME, 1);
+        req.onupgradeneeded = () => {
+            if (!req.result.objectStoreNames.contains(DRAFT_STORE_NAME)) req.result.createObjectStore(DRAFT_STORE_NAME);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function idbGet(key) {
+    try {
+        const db = await openDraftDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(DRAFT_STORE_NAME, "readonly");
+            const req = tx.objectStore(DRAFT_STORE_NAME).get(key);
+            req.onsuccess = () => resolve(req.result ?? null);
+            req.onerror = () => reject(req.error);
+        });
+    } catch {
+        return null; // private browsing, storage disabled, or corrupt data — fall back to a blank form, never crash
+    }
+}
+
+async function idbSet(key, value) {
+    try {
+        const db = await openDraftDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(DRAFT_STORE_NAME, "readwrite");
+            tx.objectStore(DRAFT_STORE_NAME).put(value, key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch {
+        // Storage unavailable — the in-memory answers the user can still see and submit right now are
+        // unaffected; only "survives a page reload" is lost.
+    }
+}
+
+async function idbDelete(key) {
+    try {
+        const db = await openDraftDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(DRAFT_STORE_NAME, "readwrite");
+            tx.objectStore(DRAFT_STORE_NAME).delete(key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch {
+        // Nothing to clean up if storage was never usable in the first place.
+    }
+}
+
 function draftKey(slug) {
     return "monthly_audit_draft_" + slug;
 }
 
-function loadDraft(slug, businessDate) {
-    try {
-        const raw = window.localStorage.getItem(draftKey(slug));
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        // A draft from a different day (a prior, already-submitted audit
-        // window) is stale — never resurrect it into a new one.
-        if (!parsed || parsed.businessDate !== businessDate) return null;
-        return parsed;
-    } catch {
-        return null; // private browsing, storage disabled, or corrupt JSON — fall back to a blank form, never crash
-    }
+async function loadDraft(slug, businessDate) {
+    const parsed = await idbGet(draftKey(slug));
+    // A draft from a different day (a prior, already-submitted audit window) is stale — never resurrect it into a new one.
+    if (!parsed || parsed.businessDate !== businessDate) return null;
+    return parsed;
 }
 
-function saveDraft(slug, businessDate, answers, currentSection) {
-    try {
-        window.localStorage.setItem(draftKey(slug), JSON.stringify({ businessDate, answers, currentSection }));
-    } catch {
-        // Quota exceeded (a lot of evidence photos can add up) or storage unavailable — the in-memory answers
-        // the user can still see and submit right now are unaffected; only "survives a page reload" is lost.
-    }
+async function saveDraft(slug, businessDate, answers, currentSection) {
+    await idbSet(draftKey(slug), { businessDate, answers, currentSection });
 }
 
-function clearDraft(slug) {
-    try {
-        window.localStorage.removeItem(draftKey(slug));
-    } catch {
-        // Nothing to clean up if storage was never usable in the first place.
-    }
+async function clearDraft(slug) {
+    await idbDelete(draftKey(slug));
 }
 
 export default function MonthlyAuditPage() {
@@ -81,23 +131,25 @@ export default function MonthlyAuditPage() {
     useEffect(() => {
         if (!boot || !boot.ok || seeded.current) return;
         seeded.current = true;
-        const draft = loadDraft(slug, boot.businessDate);
-        const init = {};
-        (boot.questions || []).forEach((q) => {
-            const fromDraft = draft?.answers?.[q.id];
-            if (fromDraft) {
-                init[q.id] = fromDraft;
-                return;
-            }
-            const prev = boot.existingAnswers && boot.existingAnswers[q.id];
-            init[q.id] = {
-                answer: prev ? prev.answer : "",
-                photoData: null,
-                existingPhotoRef: prev ? prev.evidencePhotoReference || "" : "",
-            };
-        });
-        setAnswers(init);
-        if (draft && typeof draft.currentSection === "number") setCurrentSection(draft.currentSection);
+        (async () => {
+            const draft = await loadDraft(slug, boot.businessDate);
+            const init = {};
+            (boot.questions || []).forEach((q) => {
+                const fromDraft = draft?.answers?.[q.id];
+                if (fromDraft) {
+                    init[q.id] = fromDraft;
+                    return;
+                }
+                const prev = boot.existingAnswers && boot.existingAnswers[q.id];
+                init[q.id] = {
+                    answer: prev ? prev.answer : "",
+                    photoData: null,
+                    existingPhotoRef: prev ? prev.evidencePhotoReference || "" : "",
+                };
+            });
+            setAnswers(init);
+            if (draft && typeof draft.currentSection === "number") setCurrentSection(draft.currentSection);
+        })();
     }, [boot, slug]);
 
     // Every change (an answer picked, a photo attached, a section flipped) is persisted immediately — cheap,

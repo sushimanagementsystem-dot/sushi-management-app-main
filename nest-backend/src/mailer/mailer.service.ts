@@ -8,7 +8,8 @@ export type MailMessage = {
     cc?: string;
     subject: string;
     html: string;
-    attachments?: { filename: string; content: Buffer; contentType?: string }[];
+    // cid lets the html reference an attachment inline (<img src="cid:...">) instead of it showing as a download.
+    attachments?: { filename: string; content: Buffer; contentType?: string; cid?: string }[];
 };
 
 export type SmtpConfig = {

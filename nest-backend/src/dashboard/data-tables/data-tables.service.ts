@@ -15,6 +15,7 @@ type PrismaDelegate = {
     create: (args: unknown) => Promise<Record<string, unknown>>;
     updateMany: (args: unknown) => Promise<{ count: number }>;
     deleteMany: (args: unknown) => Promise<{ count: number }>;
+    count: (args: unknown) => Promise<number>;
 };
 
 /**
@@ -110,8 +111,12 @@ export class DataTablesService {
     /**
      * Hard-deletes a row — the only kind of delete this action performs.
      * Never trusts the frontend's own gating: re-derives hard_delete from
-     * table_schema, and refuses if any field_schema row anywhere still
-     * treats this table as a foreign-key target.
+     * table_schema, and checks THIS row specifically against every table
+     * that can reference it (see checkRowReferences) before deleting —
+     * not "could some row somewhere reference this table," which used to
+     * block every delete on product/stock_item even when the one row
+     * being deleted had no history at all (found live: a completely
+     * unused test product couldn't be removed either).
      */
     async deleteTableRow(tableName: string, row: Record<string, unknown>, actingUserId?: string) {
         const tableMeta = await this.getTableMeta(tableName);
@@ -121,12 +126,39 @@ export class DataTablesService {
         const fields = await this.getFieldSchema(tableName);
         const keyCols = this.keyColumns(fields, tableName);
 
-        const referencedBy = await this.getFieldsReferencing(tableName);
-        if (referencedBy.length) throw new BadRequestException("Cannot permanently delete: other columns reference this table.");
+        const blocker = await this.checkRowReferences(tableName, row, keyCols);
+        if (blocker) throw new BadRequestException(blocker);
 
         const result = await this.getDelegate(tableName).deleteMany({ where: keyWhere(keyCols, row) });
         if (result.count === 0) throw new NotFoundException("Row not found.");
         this.invalidateFor(tableName);
+    }
+
+    /**
+     * Whether THIS specific row (by its primary key) is still referenced
+     * by any other table — a real per-row check, not "does this table
+     * have any referencing columns at all" (every table with a
+     * reasonably central role, like product or stock_item, always has
+     * at least one of those — that used to make hard-delete permanently
+     * unusable for them, see deleteTableRow's comment). Only supports a
+     * single-column primary key, true of every hard_delete-eligible
+     * table today; a compound-key table gets a clear refusal instead of
+     * a wrong answer.
+     */
+    private async checkRowReferences(tableName: string, row: Record<string, unknown>, keyCols: string[]): Promise<string | null> {
+        const referencedBy = await this.getFieldsReferencing(tableName);
+        if (!referencedBy.length) return null;
+        if (keyCols.length !== 1) return "Cannot permanently delete: this table's key is not simple enough to check for references.";
+        const pkValue = row[keyCols[0]!];
+        for (const f of referencedBy) {
+            const count = await this.getDelegate(f.table_name).count({ where: { [f.column_name]: pkValue } });
+            if (count > 0) {
+                const refTableMeta = await this.getTableMeta(f.table_name);
+                const refLabel = (refTableMeta?.label as string | undefined) || f.table_name;
+                return `Cannot permanently delete: ${count} row${count === 1 ? "" : "s"} in "${refLabel}" still reference this.`;
+            }
+        }
+        return null;
     }
 
     /**
@@ -141,7 +173,6 @@ export class DataTablesService {
         if (!fields.length) throw new BadRequestException("Unknown or unconfigured table.");
         const keyCols = this.keyColumns(fields, tableName);
         const tableMeta = await this.getTableMeta(tableName);
-        const referencedBy = await this.getFieldsReferencing(tableName);
         const delegate = this.getDelegate(tableName);
 
         const results: RowChangeResult[] = [];
@@ -149,7 +180,8 @@ export class DataTablesService {
             try {
                 if (c.isDelete) {
                     if (!tableMeta?.hard_delete) throw new Error("Deleting rows is not enabled for this table.");
-                    if (referencedBy.length) throw new Error("Cannot permanently delete: other columns reference this table.");
+                    const blocker = await this.checkRowReferences(tableName, c.row, keyCols);
+                    if (blocker) throw new Error(blocker);
                     if (tableName === "user") await this.assertStaffRemovable(c.row, actingUserId);
                     const result = await delegate.deleteMany({ where: keyWhere(keyCols, c.row) });
                     if (result.count === 0) throw new Error("Row not found.");
@@ -178,6 +210,10 @@ export class DataTablesService {
     private async writeRow(tableName: string, fields: FieldSchemaRow[], keyCols: string[], isNew: boolean, clean: Record<string, unknown>): Promise<void> {
         const delegate = this.getDelegate(tableName);
         try {
+            if (tableName === "stock_item" && clean.sort_order !== null && clean.sort_order !== undefined) {
+                const excludeId = !isNew && keyCols.length === 1 ? (clean[keyCols[0]!] as string) : undefined;
+                await this.shiftStockItemSortOrder(Number(clean.sort_order), excludeId);
+            }
             if (isNew) {
                 const dup = await delegate.findFirst({ where: keyWhere(keyCols, clean) });
                 if (dup) throw new BadRequestException("A row with this key already exists.");
@@ -387,6 +423,25 @@ export class DataTablesService {
             if (!clean.email) throw new Error("Email is required.");
         }
         return clean;
+    }
+
+    /**
+     * Spreadsheet-style "insert a row": setting an item's Sheet Order to a
+     * number another active item already holds pushes that item (and
+     * everything after it) one place later, instead of leaving two items
+     * sitting on the same number — found live: a new item set to 104 just
+     * sat alongside the existing 104 rather than taking its place. Scoped
+     * to active items only (inactive ones sort to the end regardless of
+     * their stale number, so renumbering them achieves nothing); excludeId
+     * leaves the row being edited out of its own shift when it already had
+     * a number and is only moving to a new one.
+     */
+    private async shiftStockItemSortOrder(targetSortOrder: number, excludeId?: string): Promise<void> {
+        if (!Number.isFinite(targetSortOrder)) return;
+        await this.prisma.stockItem.updateMany({
+            where: { active: true, sort_order: { gte: targetSortOrder }, ...(excludeId ? { stock_item_id: { not: excludeId } } : {}) },
+            data: { sort_order: { increment: 1 } },
+        });
     }
 
     /** Auto-creates blank production_par rows for every kiosk of a newly

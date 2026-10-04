@@ -5,31 +5,32 @@ import { addDays, startOfTodayUtc, startOfWeekUtc, toDateStr } from "../../commo
 import { movementCost, productCostMap } from "../../common/movement-cost.util.js";
 import { profitFigures } from "./profit-calc.js";
 import { parseLabourReport } from "./labour-report.js";
-import type { Kiosk, Product } from "@prisma/client";
+import type { Kiosk, Product, StockItem } from "@prisma/client";
 import { BadRequestException } from "@nestjs/common";
 
 const COST_MOVEMENT_TYPES = ["EXPIRED_WASTE", "DAMAGE", "STAFF_FOOD"] as const;
 
-type WeekCosts = { wasteCost: number; damageCost: number; staffFoodCost: number; cogs: number };
+type WeekCosts = { wasteCost: number; damageCost: number; staffFoodCost: number };
+type CogsResult = { cogs: number | null; openingDate: string | null; closingDate: string | null; uncostedCount: number };
 
 /**
  * Profit tab — net profit per kiosk, per week. The original spec (§22,
  * "Weekly Sales Import") was marked "DEVELOPMENT" and never shipped an
  * automated sales feed (see KpiService's doc comment) — this ships the
  * simpler version actually asked for: sales entered manually per kiosk
- * per week, net profit computed as
+ * per week, net profit computed from the arithmetic in profit-calc.ts.
  *
- *   Sales − (COGS + Waste cost + Damage cost + Staff Food cost)
- *
- * (see profit-calc.ts for the current column arithmetic: Fixed and Misc costs
- * are typed in per kiosk per week, Gross Profit = Sales - all costs, and
- * EBITDA = Gross Profit - Labour from the weekly labour report.)
- *
- * where COGS is approved delivery-invoice line value for that week (the
- * same "money actually spent buying stock" figure the Action Inbox's
- * invoice review already approves), and waste/damage/staff-food costs are
- * the same product_movement-derived costs the KPI Dashboard already
- * computes — this only re-groups them by week instead of one flat range.
+ * COGS (confirmed with Evan, 2026-10-04): opening stocktake value +
+ * approved deliveries − closing stocktake value, for the period between
+ * two consecutive CONFIRMED stocktakes at a kiosk — i.e. real stock usage,
+ * which already includes waste, damage and staff food (all three leave the
+ * shelf between the two counts). Those three are still shown as their own
+ * columns, for visibility into what's inside COGS, but are never added to
+ * it a second time. A week with no closing stocktake shows a blank COGS —
+ * there's nothing to compute yet, not a zero. Items with no unit cost value
+ * at €0 in the calculation (not excluded — Evan wants COGS computed for
+ * everything, not silently incomplete) and are counted in `uncostedCount`
+ * so they're easy to find and price in Data Tables > Stock Item.
  */
 @Injectable()
 export class ProfitService {
@@ -54,14 +55,10 @@ export class ProfitService {
         // Movement and delivery dates can carry a time of day, so Sunday is "before Monday", not "<= Sunday midnight".
         const dayAfterEnd = addDays(queryEnd, 1);
 
-        const [costMovements, deliveryHeaders, salesRows, products, costRows, labourRows] = await Promise.all([
+        const [costMovements, salesRows, products, costRows, labourRows] = await Promise.all([
             this.prisma.productMovement.findMany({
                 where: { kiosk_id: { in: kioskIds }, movement_type: { in: [...COST_MOVEMENT_TYPES] }, movement_date: { gte: queryStart, lt: dayAfterEnd } },
                 select: { kiosk_id: true, movement_type: true, movement_date: true, cost: true, unit_cost: true, qty: true, product_id: true },
-            }),
-            this.prisma.deliveryHeader.findMany({
-                where: { kiosk_id: { in: kioskIds }, delivery_date: { gte: queryStart, lt: dayAfterEnd } },
-                select: { delivery_header_id: true, kiosk_id: true, delivery_date: true },
             }),
             this.prisma.weeklySales.findMany({
                 where: { kiosk_id: { in: kioskIds }, week_start: { gte: queryStart, lte: queryEnd } },
@@ -74,17 +71,9 @@ export class ProfitService {
         // Staff Food, Kiosk Comparison and KPI pages do, so the same waste / staff-food figure is subtracted here.
         const productCosts = productCostMap(products);
 
-        const headerById = new Map(deliveryHeaders.map((h) => [h.delivery_header_id, h]));
-        const invoiceLines = deliveryHeaders.length
-            ? await this.prisma.invoiceLine.findMany({
-                  where: { delivery_header_id: { in: deliveryHeaders.map((h) => h.delivery_header_id) }, status: "APPROVED" },
-                  select: { delivery_header_id: true, line_total: true },
-              })
-            : [];
-
-        // kioskId -> weekStartStr -> WeekCosts
+        // kioskId -> weekStartStr -> WeekCosts (waste/damage/staff food — shown as a breakdown, no longer added into COGS)
         const costsByKioskWeek = new Map<string, Map<string, WeekCosts>>();
-        const emptyWeek = (): WeekCosts => ({ wasteCost: 0, damageCost: 0, staffFoodCost: 0, cogs: 0 });
+        const emptyWeek = (): WeekCosts => ({ wasteCost: 0, damageCost: 0, staffFoodCost: 0 });
         const bucketFor = (kId: string, weekStr: string) => {
             let byWeek = costsByKioskWeek.get(kId);
             if (!byWeek) costsByKioskWeek.set(kId, (byWeek = new Map()));
@@ -101,13 +90,8 @@ export class ProfitService {
             else if (m.movement_type === "DAMAGE") bucket.damageCost += cost;
             else if (m.movement_type === "STAFF_FOOD") bucket.staffFoodCost += cost;
         }
-        for (const line of invoiceLines) {
-            const header = headerById.get(line.delivery_header_id);
-            if (!header) continue;
-            const weekStr = toDateStr(startOfWeekUtc(header.delivery_date));
-            const bucket = bucketFor(header.kiosk_id, weekStr);
-            bucket.cogs += line.line_total === null ? 0 : Number(line.line_total);
-        }
+
+        const cogsByKioskWeek = await this.computeStocktakeCogs(kioskIds, queryEnd);
 
         // kioskId -> weekStartStr -> {amount, note}
         const salesByKioskWeek = new Map<string, Map<string, { amount: number; note: string | null }>>();
@@ -134,18 +118,16 @@ export class ProfitService {
                 const weekEndStr = toDateStr(addDays(weekStart, 6));
                 const kioskRows = kioskIds.map((kId) => {
                     const costs = costsByKioskWeek.get(kId)?.get(weekStartStr) ?? emptyWeek();
+                    const cogsResult = cogsByKioskWeek.get(kId)?.get(weekStartStr) ?? { cogs: null, openingDate: null, closingDate: null, uncostedCount: 0 };
                     const sales = salesByKioskWeek.get(kId)?.get(weekStartStr) ?? null;
                     const typed = typedCostsByKioskWeek.get(`${kId}|${weekStartStr}`);
                     const labour = labourByKioskWeek.get(`${kId}|${weekStartStr}`);
                     const fixedCosts = num(typed?.fixed_costs);
                     const miscCosts = num(typed?.misc_costs);
                     const labourCost = num(labour?.labour_cost);
-                    const { totalCosts, grossProfit, ebitda } = profitFigures({
+                    const { totalCosts, royalty, totalLabour, grossProfit, ebitda } = profitFigures({
                         sales: sales ? sales.amount : null,
-                        cogs: costs.cogs,
-                        wasteCost: costs.wasteCost,
-                        damageCost: costs.damageCost,
-                        staffFoodCost: costs.staffFoodCost,
+                        cogs: cogsResult.cogs,
                         fixedCosts,
                         miscCosts,
                         labourCost,
@@ -155,17 +137,22 @@ export class ProfitService {
                         kioskName: nameById.get(kId) || kId,
                         salesAmount: sales ? sales.amount : null,
                         salesNote: sales ? sales.note : null,
-                        cogs: costs.cogs,
+                        cogs: cogsResult.cogs,
+                        cogsOpeningDate: cogsResult.openingDate,
+                        cogsClosingDate: cogsResult.closingDate,
+                        cogsUncostedCount: cogsResult.uncostedCount,
                         wasteCost: costs.wasteCost,
                         damageCost: costs.damageCost,
                         staffFoodCost: costs.staffFoodCost,
                         fixedCosts,
                         miscCosts,
                         totalCosts,
+                        royalty,
                         grossProfit,
                         labourHours: num(labour?.hours),
                         labourRate: num(labour?.hourly_rate),
                         labourCost,
+                        totalLabour,
                         ebitda,
                     };
                 });
@@ -178,6 +165,76 @@ export class ProfitService {
             endDate: toDateStr(queryEnd),
             weeks,
         };
+    }
+
+    /**
+     * COGS per kiosk per week: walks each kiosk's CONFIRMED stocktakes in
+     * date order and, for every consecutive pair, values opening and
+     * closing (counted_qty x the item's current_unit_cost, €0 for an item
+     * with no cost yet — see class doc) and adds every APPROVED invoice
+     * line delivered strictly between the two dates. That figure is filed
+     * under whichever week the CLOSING stocktake's date falls in — "this
+     * week's number" is "since the last time stock was counted," matching
+     * how Evan actually runs it (a Sunday evening or Monday morning count).
+     * A kiosk-week with no closing stocktake in it is simply absent from
+     * the returned map — the caller treats that as "nothing to show yet."
+     */
+    private async computeStocktakeCogs(kioskIds: string[], upTo: Date): Promise<Map<string, Map<string, CogsResult>>> {
+        const dayAfterUpTo = addDays(upTo, 1);
+        const [headers, invoiceLines, stockItems] = await Promise.all([
+            this.prisma.stocktakeHeader.findMany({
+                where: { kiosk_id: { in: kioskIds }, reconciliation_status: "CONFIRMED", stocktake_date: { lt: dayAfterUpTo } },
+                orderBy: { stocktake_date: "asc" },
+                include: { stocktake_lines: { select: { stock_item_id: true, counted_qty: true } } },
+            }),
+            this.prisma.invoiceLine.findMany({
+                where: { status: "APPROVED", delivery_header: { kiosk_id: { in: kioskIds }, delivery_date: { lt: dayAfterUpTo } } },
+                select: { line_total: true, delivery_header: { select: { kiosk_id: true, delivery_date: true } } },
+            }),
+            this.tableCache.getAll<StockItem>("stock_item"),
+        ]);
+        const unitCostById = new Map(stockItems.map((s) => [s.stock_item_id, s.current_unit_cost === null ? null : Number(s.current_unit_cost)]));
+
+        const headersByKiosk = new Map<string, typeof headers>();
+        for (const h of headers) (headersByKiosk.get(h.kiosk_id) ?? headersByKiosk.set(h.kiosk_id, []).get(h.kiosk_id)!).push(h);
+
+        const valuation = (lines: { stock_item_id: string; counted_qty: unknown }[]): { value: number; uncosted: Set<string> } => {
+            let value = 0;
+            const uncosted = new Set<string>();
+            for (const l of lines) {
+                const cost = unitCostById.get(l.stock_item_id);
+                if (cost === null || cost === undefined) {
+                    uncosted.add(l.stock_item_id);
+                    continue;
+                }
+                value += Number(l.counted_qty) * cost;
+            }
+            return { value, uncosted };
+        };
+
+        const result = new Map<string, Map<string, CogsResult>>();
+        for (const [kioskId, kioskHeaders] of headersByKiosk) {
+            const byWeek = new Map<string, CogsResult>();
+            for (let i = 1; i < kioskHeaders.length; i++) {
+                const opening = kioskHeaders[i - 1]!;
+                const closing = kioskHeaders[i]!;
+                const openingVal = valuation(opening.stocktake_lines);
+                const closingVal = valuation(closing.stocktake_lines);
+                const purchases = invoiceLines
+                    .filter((l) => l.delivery_header.kiosk_id === kioskId && l.delivery_header.delivery_date > opening.stocktake_date && l.delivery_header.delivery_date <= closing.stocktake_date)
+                    .reduce((sum, l) => sum + (l.line_total === null ? 0 : Number(l.line_total)), 0);
+                const uncostedCount = new Set([...openingVal.uncosted, ...closingVal.uncosted]).size;
+                const weekStr = toDateStr(startOfWeekUtc(closing.stocktake_date));
+                byWeek.set(weekStr, {
+                    cogs: Math.round((openingVal.value + purchases - closingVal.value) * 100) / 100,
+                    openingDate: toDateStr(opening.stocktake_date),
+                    closingDate: toDateStr(closing.stocktake_date),
+                    uncostedCount,
+                });
+            }
+            result.set(kioskId, byWeek);
+        }
+        return result;
     }
 
     /** Sets the fixed and/or misc cost for one kiosk-week (whichever is given; the other is left as it was). */

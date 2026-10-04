@@ -33,6 +33,7 @@ import { InvoiceFileService } from "./action-inbox/invoice-file.service.js";
 import { AuditReviewService } from "./action-inbox/audit-review.service.js";
 import { AuditResultController } from "./audit-result/audit-result.controller.js";
 import { AuditResultService } from "./audit-result/audit-result.service.js";
+import { AuditReportEmailService } from "./audit-result/audit-report-email.service.js";
 import { SiteConfigController } from "./site-config/site-config.controller.js";
 import { SiteConfigService } from "./site-config/site-config.service.js";
 import { BulkImportController } from "./bulk-import/bulk-import.controller.js";
@@ -85,6 +86,7 @@ import { PurchasingModule } from "../purchasing/purchasing.module.js";
         InvoiceFileService,
         AuditReviewService,
         AuditResultService,
+        AuditReportEmailService,
         SiteConfigService,
     ],
 })

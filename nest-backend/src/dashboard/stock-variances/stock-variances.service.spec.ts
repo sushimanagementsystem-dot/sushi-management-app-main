@@ -5,17 +5,20 @@ type Move = { kiosk_id: string; stock_item_id: string; movement_type: string; di
 const mv = (movement_type: string, direction: "IN" | "OUT", qty: number, at: string, reference_id: string | null = null): Move => ({ kiosk_id: "K1", stock_item_id: "S1", movement_type, direction, qty, movement_date: new Date(at), reference_id });
 
 /** One kiosk, one item, one COMPLETE stocktake on 09-17 counting `counted`. */
-function run(movements: Move[], counted: number, settings: Record<string, number> = {}) {
+function run(movements: Move[], counted: number, settings: Record<string, number> = {}, dismissedIds: string[] = [], includeDismissed = false) {
     const prisma = {
         stocktakeHeader: { findMany: async () => [{ stocktake_header_id: "H1", kiosk_id: "K1", stocktake_date: new Date("2026-09-17T00:00:00Z") }] },
         stocktakeLine: { findMany: async () => [{ stocktake_line_id: "L1", stocktake_header_id: "H1", stock_item_id: "S1", counted_qty: counted }] },
         stockMovement: { findMany: async () => movements },
+        stockVarianceDismissal: { findMany: async () => dismissedIds.map((id) => ({ stocktake_line_id: id })) },
     };
     const cache = {
         getAll: async (t: string) => (t === "kiosk" ? [{ kiosk_id: "K1", name: "One", active: true }] : [{ stock_item_id: "S1", name: "Chicken", count_unit: "BAG" }]),
     };
     const svc = new StockVariancesService(prisma as never, cache as never, { getNumber: async (k: string) => settings[k] ?? null } as never);
-    return svc.bootstrap(new Date("2026-09-01T00:00:00Z"), new Date("2026-09-30T00:00:00Z")) as Promise<{ variances: { expected: number; actual: number; difference: number }[] }>;
+    return svc.bootstrap(new Date("2026-09-01T00:00:00Z"), new Date("2026-09-30T00:00:00Z"), includeDismissed) as Promise<{
+        variances: { stocktakeLineId: string; expected: number; actual: number; difference: number }[];
+    }>;
 }
 
 const opening = mv("STOCKTAKE_ADJUSTMENT", "IN", 20, "2026-09-10T00:00:00Z", "L0"); // last week's confirmed count: 20 on hand
@@ -56,5 +59,13 @@ describe("StockVariancesService", () => {
 
     it("reads the thresholds from settings", async () => {
         expect((await run([mv("DELIVERY_IN", "IN", 30, "2026-09-01T00:00:00Z")], 22, { STOCKTAKE_VARIANCE_PCT: 20, STOCKTAKE_VARIANCE_MIN_UNITS: 2 })).variances).toHaveLength(1);
+    });
+
+    it("a dismissed variance is hidden by default, and reappears when includeDismissed is asked for", async () => {
+        const movements = [opening, mv("TRANSFER_OUT", "OUT", 2, "2026-09-12T00:00:00Z"), mv("DELIVERY_IN", "IN", 4, "2026-09-13T00:00:00Z")];
+        const shown = await run(movements, 6, {}, ["L1"]);
+        expect(shown.variances).toEqual([]);
+        const withDismissed = await run(movements, 6, {}, ["L1"], true);
+        expect(withDismissed.variances).toEqual([expect.objectContaining({ stocktakeLineId: "L1", difference: -16 })]);
     });
 });

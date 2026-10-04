@@ -86,12 +86,13 @@ model User {
   role    String // DEVELOPER | ADMIN | STAFF (see backend/core/Config.js ROLES)
   active  Boolean @default(true)
 
-  stock_transfers      StockTransfer[]
-  staff_food           StaffFood[]
-  requests             Request[]
-  submissions          Submission[]
-  audit_corrections    AuditCorrection[]
-  weekly_sales_entries WeeklySales[]
+  stock_transfers           StockTransfer[]
+  staff_food                StaffFood[]
+  requests                  Request[]
+  submissions               Submission[]
+  audit_corrections         AuditCorrection[]
+  weekly_sales_entries      WeeklySales[]
+  stock_variance_dismissals StockVarianceDismissal[]
 
   @@map("user")
 }
@@ -828,8 +829,28 @@ model StocktakeLine {
   stocktake_header StocktakeHeader @relation(fields: [stocktake_header_id], references: [stocktake_header_id])
   stock_item       StockItem       @relation(fields: [stock_item_id], references: [stock_item_id])
 
+  variance_dismissal StockVarianceDismissal?
+
   @@index([stocktake_header_id])
   @@map("stocktake_line")
+}
+
+// One row = one Stock Variances report line the owner has reviewed and
+// dismissed (see StockVariancesService) — "Stock Variances" is a computed
+// report, not a stored list, so there is nothing else to mark reviewed on;
+// this is the one piece of state the owner's "I've seen this" click needs.
+// Keyed on the stocktake_line that produced the variance: stable (the same
+// count's own real id, never recomputed) and automatically specific to one
+// kiosk + item + date, with no composite key to get wrong.
+model StockVarianceDismissal {
+  stocktake_line_id String   @id
+  dismissed_by      String?
+  dismissed_at      DateTime @default(now())
+
+  stocktake_line StocktakeLine @relation(fields: [stocktake_line_id], references: [stocktake_line_id])
+  dismissed_user User?         @relation(fields: [dismissed_by], references: [user_id])
+
+  @@map("stock_variance_dismissal")
 }
 
 model PurchasingBatch {

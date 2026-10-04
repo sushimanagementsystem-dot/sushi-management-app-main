@@ -635,8 +635,8 @@ function DetailModal({ ownerActionId, kiosks, stockItems, usersById, onClose, on
                     </div>
                 )}
 
-                <button type="button" className={DASH_BTN + " mt-4"} onClick={onClose}>
-                    Close
+                <button type="button" className={DASH_BTN_SECONDARY + " mt-4"} onClick={onClose}>
+                    Close window
                 </button>
             </div>
         </div>
@@ -717,9 +717,9 @@ function TriageEditor({ row, ownerActionId, onSaved }) {
         setEditMode(true);
     }
 
-    function save() {
+    function save(changes) {
         setSaving(true);
-        apiCall("update_owner_action", { ownerActionId, changes: fields })
+        apiCall("update_owner_action", { ownerActionId, changes: changes || fields })
             .then((res) => {
                 setSaving(false);
                 if (!res.ok) {
@@ -735,7 +735,19 @@ function TriageEditor({ row, ownerActionId, onSaved }) {
             });
     }
 
+    // One-click resolve: this is what "Close" means to an owner — set the
+    // status to CLOSED and save, no need to open Edit first. Added because
+    // the modal's own dismiss button used to say "Close" too (just hiding
+    // the popup, saving nothing) — an owner clicking THAT, expecting it to
+    // close the item, saw it come right back in the inbox. That dismiss
+    // button is now labelled "Close window" instead, so this is the only
+    // "Close" an owner sees.
+    function closeNow() {
+        save({ status: "CLOSED" });
+    }
+
     if (!editMode) {
+        const alreadyResolved = row.status === "CLOSED" || row.status === "RESOLVED" || row.status === "NOT_PROCEEDING";
         return (
             <div>
                 <ViewFields
@@ -747,9 +759,16 @@ function TriageEditor({ row, ownerActionId, onSaved }) {
                         ["Due date", row.due_date],
                     ]}
                 />
-                <button type="button" className={DASH_BTN} onClick={startEdit}>
-                    Edit
-                </button>
+                <div className="flex gap-[0.6rem]">
+                    <button type="button" className={DASH_BTN_SECONDARY} onClick={startEdit}>
+                        Edit
+                    </button>
+                    {!alreadyResolved && (
+                        <button type="button" disabled={saving} className={DASH_BTN} onClick={closeNow}>
+                            {saving ? "Closing…" : "Close"}
+                        </button>
+                    )}
+                </div>
             </div>
         );
     }
