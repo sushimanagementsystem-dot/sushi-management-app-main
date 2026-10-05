@@ -8,9 +8,10 @@ import { stockItemParDataset } from "./datasets/stock-item-par.js";
 import { productionParDataset } from "./datasets/production-par.js";
 import { defrostParDataset } from "./datasets/defrost-par.js";
 import { supplierItemDataset } from "./datasets/supplier-item.js";
+import { productPlanGroupDataset } from "./datasets/product-plan-group.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const BULK_DATASETS: BulkDataset<any>[] = [productionParDataset, stockItemParDataset, stockItemPriceDataset, supplierItemDataset, defrostParDataset];
+export const BULK_DATASETS: BulkDataset<any>[] = [productionParDataset, stockItemParDataset, stockItemPriceDataset, supplierItemDataset, defrostParDataset, productPlanGroupDataset];
 
 /**
  * The single bulk-edit workflow: Download Template -> edit in Excel -> Upload -> Validate -> Preview -> Apply.

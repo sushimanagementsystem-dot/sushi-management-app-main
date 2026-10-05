@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { addDays } from "../../common/date.util.js";
@@ -104,5 +104,39 @@ export class InvoicesListService {
             total,
             lines: shown,
         };
+    }
+
+    /**
+     * Permanently removes an invoice that can never be reviewed — e.g. AI extraction failed because the uploaded
+     * image itself is gone from storage, so there's nothing left to read, re-run, or confirm. Refuses to touch
+     * anything that already posted real stock: a DELIVERY_IN stock_movement is the one durable effect Confirm has,
+     * so its presence means this invoice is real history, not a dead draft, no matter what `status` currently says.
+     */
+    async deleteInvoice(deliveryHeaderId: string): Promise<void> {
+        const header = await this.prisma.deliveryHeader.findUnique({ where: { delivery_header_id: deliveryHeaderId } });
+        if (!header) throw new NotFoundException("Invoice not found.");
+
+        const lineIds = (await this.prisma.invoiceLine.findMany({ where: { delivery_header_id: deliveryHeaderId }, select: { invoice_line_id: true } })).map(
+            (l) => l.invoice_line_id,
+        );
+        const postedCount = lineIds.length
+            ? await this.prisma.stockMovement.count({ where: { movement_type: "DELIVERY_IN", reference_id: { in: lineIds } } })
+            : 0;
+        if (postedCount > 0) {
+            throw new BadRequestException(`Cannot delete: ${postedCount} stock movement(s) were already posted from this invoice. Undo the review first if it was confirmed by mistake.`);
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            if (header.submission_id) {
+                const action = await tx.ownerAction.findFirst({ where: { source_submission_id: header.submission_id, category: "INVOICE_REVIEW" } });
+                if (action) {
+                    await tx.activityLog.deleteMany({ where: { owner_action_id: action.owner_action_id } });
+                    await tx.ownerAction.delete({ where: { owner_action_id: action.owner_action_id } });
+                }
+            }
+            await tx.invoiceLine.deleteMany({ where: { delivery_header_id: deliveryHeaderId } });
+            await tx.deliveryFile.deleteMany({ where: { delivery_header_id: deliveryHeaderId } });
+            await tx.deliveryHeader.delete({ where: { delivery_header_id: deliveryHeaderId } });
+        });
     }
 }

@@ -6,6 +6,7 @@ import { EnumOptionService } from "../reference-data/enum-option.service.js";
 import { TableCacheService } from "../reference-data/table-cache.service.js";
 import { MailerService } from "../mailer/mailer.service.js";
 import { addDays, weekdayName } from "../common/date.util.js";
+import { isProductInProduction } from "../common/product.util.js";
 import type { ProductionPlan } from "./production-engine.types.js";
 
 type Need = Record<string, { menu: number; campaign: number; campaignProducts: string[] }>;
@@ -120,7 +121,11 @@ export class ProductionEmailService {
             const menuPieces = n.menu + n.campaign;
             const sampling = samplingUnits[cid] ?? 0;
             if (!menuPieces && !sampling) continue;
-            if (c.component_type === "NIGIRI") {
+            // NIGIRI and GYOZA are already counted in their own sellable unit (a nigiri piece, a gyoza portion) —
+            // dividing by units_per_prep_unit below would convert that into bags/trays instead, which is a
+            // kitchen-prep detail the separate Evening Defrost section already covers. Everything else here
+            // (MAKI, ROLL) is counted in raw pieces, where units_per_prep_unit genuinely means "how many to make".
+            if (c.component_type === "NIGIRI" || c.component_type === "GYOZA") {
                 list.push({ name: c.name, text: String(menuPieces + sampling) });
                 continue;
             }
@@ -269,7 +274,7 @@ export class ProductionEmailService {
             if (par.kiosk_id !== kiosk.kiosk_id) continue;
             const t = Number((par as unknown as Record<string, number>)[weekday]);
             const prod = productById.get(par.product_id);
-            if (prod?.active && Number.isFinite(t) && t > 0) makes[par.product_id] = t;
+            if (prod && isProductInProduction(prod) && Number.isFinite(t) && t > 0) makes[par.product_id] = t;
         }
         const pieces: Record<string, number> = {};
         for (const [pid, qty] of Object.entries(makes)) {

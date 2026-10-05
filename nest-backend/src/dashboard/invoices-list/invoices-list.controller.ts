@@ -17,4 +17,10 @@ export class InvoicesListController {
     detail(@Body() dto: InvoiceDetailDto) {
         return this.service.detail(dto.deliveryHeaderId);
     }
+
+    @Post("delete_invoice")
+    async delete(@Body() dto: InvoiceDetailDto) {
+        await this.service.deleteInvoice(dto.deliveryHeaderId);
+        return {};
+    }
 }

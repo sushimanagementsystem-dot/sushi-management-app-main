@@ -3,7 +3,9 @@ import { PrismaService } from "../../prisma/prisma.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { OwnerActionStateService, RESOLVED_STATUSES } from "./owner-action-state.service.js";
 import { UploadService } from "../../upload/upload.service.js";
+import { EnumOptionService } from "../../reference-data/enum-option.service.js";
 import { computeItemTrigger, loadConfirmedCounts } from "../../common/purchasing-trigger.util.js";
+import { stocktakeItems } from "../../common/stocktake-items.util.js";
 import type { Kiosk, OwnerAction, Prisma, StockItem, User } from "@prisma/client";
 
 const PRIORITY_RANK: Record<string, number> = { URGENT: 0, NORMAL: 1, LOW: 2 };
@@ -35,6 +37,7 @@ export class ActionInboxService {
         private readonly tableCache: TableCacheService,
         private readonly ownerActionState: OwnerActionStateService,
         private readonly upload: UploadService,
+        private readonly enumOptions: EnumOptionService,
     ) {}
 
     /**
@@ -73,7 +76,7 @@ export class ActionInboxService {
         // to answer "how many things need my attention right now," not a
         // historical tally, so it can't reuse the byStatus/byCategory
         // groupBys above (those are intentionally whole-table).
-        const [filteredRows, statusGroups, categoryGroups, urgentOpenCount, allKiosks, allUsers, allStockItems] = await Promise.all([
+        const [filteredRows, statusGroups, categoryGroups, urgentOpenCount, allKiosks, allUsers, allStockItems, stockCategories] = await Promise.all([
             this.prisma.ownerAction.findMany({ where }),
             this.prisma.ownerAction.groupBy({ by: ["status"], _count: { _all: true } }),
             this.prisma.ownerAction.groupBy({ by: ["category"], _count: { _all: true } }),
@@ -81,6 +84,7 @@ export class ActionInboxService {
             this.tableCache.getAll<Kiosk>("kiosk"),
             this.tableCache.getAll<User>("user"),
             this.tableCache.getAll<StockItem>("stock_item"),
+            this.enumOptions.getOptions("stock_category"),
         ]);
 
         const counts = { byStatus: {} as Record<string, number>, byCategory: {} as Record<string, number>, urgentOpen: urgentOpenCount };
@@ -107,7 +111,14 @@ export class ActionInboxService {
             counts,
             kiosks: allKiosks.filter((k) => k.active).map((k) => ({ id: k.kiosk_id, name: k.name })),
             users: allUsers.map((u) => ({ id: u.user_id, name: u.name })),
-            stockItems: allStockItems.filter((s) => s.active).map((s) => ({ id: s.stock_item_id, name: s.name, unit: s.count_unit })),
+            // Same scope as everywhere else "a real, purchasable stock item" is meant: the Stock Take list, not
+            // every active row — a Food Waste "(per 100g)" tracking-only item (Tuna, Sushi Rice...) was showing up
+            // here and could be picked for an invoice line, which invoice-ai.service.ts's own matching deliberately
+            // never does. Sorted by name so the picker's first-40-results cap (SearchPick) shows a meaningful,
+            // predictable slice before the owner even types anything, not whatever order the DB happened to return.
+            stockItems: stocktakeItems(allStockItems, stockCategories)
+                .map((s) => ({ id: s.stock_item_id, name: s.name, unit: s.count_unit }))
+                .sort((a, b) => a.name.localeCompare(b.name)),
         };
     }
 

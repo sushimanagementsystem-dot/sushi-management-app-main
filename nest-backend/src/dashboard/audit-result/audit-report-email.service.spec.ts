@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { AuditReportEmailService } from "./audit-report-email.service.js";
+import type { MailMessage } from "../../mailer/mailer.service.js";
 
 function build(overrides: { result?: Record<string, unknown>; kiosk?: Record<string, unknown> | null } = {}) {
     const result = {
@@ -17,7 +18,7 @@ function build(overrides: { result?: Record<string, unknown>; kiosk?: Record<str
 
     const auditResult = { bootstrap: vi.fn(async () => result) };
     const upload = { read: vi.fn(async () => ({ buffer: Buffer.from("fake-image-bytes"), mimeType: "image/jpeg", name: "evidence.jpg" })) };
-    const mailer = { sendMail: vi.fn(async () => {}) };
+    const mailer = { sendMail: vi.fn(async (_msg: MailMessage) => {}) };
     const tableCache = { getAll: async () => (kiosk ? [kiosk] : []) };
 
     const svc = new AuditReportEmailService(auditResult as never, upload as never, mailer as never, tableCache as never);
@@ -36,12 +37,12 @@ describe("AuditReportEmailService", () => {
         await svc.sendAuditReportEmail("R1", "K1");
         expect(upload.read).toHaveBeenCalledWith("/uploads/abc");
         expect(mailer.sendMail).toHaveBeenCalledTimes(1);
-        const call = mailer.sendMail.mock.calls[0][0];
+        const call = mailer.sendMail.mock.calls[0]![0];
         expect(call.to).toBe("kiosk1@example.com");
         expect(call.subject).toContain("Kiosk One");
         expect(call.subject).toContain("PASS");
         expect(call.attachments).toHaveLength(1);
-        expect(call.attachments[0].cid).toBe("audit-photo-A1");
+        expect(call.attachments![0]!.cid).toBe("audit-photo-A1");
         expect(call.html).toContain("cid:audit-photo-A1");
     });
 
@@ -50,7 +51,7 @@ describe("AuditReportEmailService", () => {
         upload.read.mockRejectedValueOnce(new Error("not found"));
         await svc.sendAuditReportEmail("R1", "K1");
         expect(mailer.sendMail).toHaveBeenCalledTimes(1);
-        const call = mailer.sendMail.mock.calls[0][0];
+        const call = mailer.sendMail.mock.calls[0]![0];
         expect(call.attachments).toHaveLength(0);
         expect(call.html).not.toContain("cid:");
     });
@@ -62,7 +63,7 @@ describe("AuditReportEmailService", () => {
             },
         });
         await svc.sendAuditReportEmail("R1", "K1");
-        const call = mailer.sendMail.mock.calls[0][0];
+        const call = mailer.sendMail.mock.calls[0]![0];
         expect(call.html).toContain("Fire extinguisher checked?");
         expect(call.html).toContain("Replace unit");
         expect(call.html).toContain("CRITICAL");

@@ -9,7 +9,8 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import SectionCard from "@/components/dashboard/SectionCard";
 import RefreshButton from "@/components/dashboard/RefreshButton";
 import DashSelect from "@/components/dashboard/DashSelect";
-import { useBootstrap } from "@/lib/queries";
+import { confirmModal, noticeModal } from "@/components/ConfirmModal";
+import { useApiMutation, useBootstrap } from "@/lib/queries";
 import { moneyStr, qtyStr } from "@/lib/kpiUtils";
 
 const STATUS_LABEL = { IN_REVIEW: "In review", REVIEWED: "Confirmed" };
@@ -99,7 +100,16 @@ function InvoicesBody() {
                     ) : (
                         <div className="flex flex-col gap-2">
                             {rows.map((r) => (
-                                <InvoiceRow key={r.deliveryHeaderId} row={r} open={openId === r.deliveryHeaderId} onToggle={() => setOpenId(openId === r.deliveryHeaderId ? null : r.deliveryHeaderId)} />
+                                <InvoiceRow
+                                    key={r.deliveryHeaderId}
+                                    row={r}
+                                    open={openId === r.deliveryHeaderId}
+                                    onToggle={() => setOpenId(openId === r.deliveryHeaderId ? null : r.deliveryHeaderId)}
+                                    onDeleted={() => {
+                                        setOpenId(null);
+                                        refetch();
+                                    }}
+                                />
                             ))}
                         </div>
                     )}
@@ -109,7 +119,7 @@ function InvoicesBody() {
     );
 }
 
-function InvoiceRow({ row, open, onToggle }) {
+function InvoiceRow({ row, open, onToggle, onDeleted }) {
     const failedFile = row.files.find((f) => f.aiStatus === "FAILED");
     const Chevron = open ? ChevronDown : ChevronRight;
     const { data: detail, isPending: detailLoading, error: detailError } = useBootstrap(
@@ -117,6 +127,22 @@ function InvoiceRow({ row, open, onToggle }) {
         open ? { deliveryHeaderId: row.deliveryHeaderId } : null,
     );
     const detailOk = detail && detail.ok !== false;
+    const deleteMutation = useApiMutation("delete_invoice", {
+        onSuccess: (res) => {
+            if (!res.ok) return noticeModal(res.error || "Delete failed.", "Can't delete");
+            onDeleted();
+        },
+        onError: () => noticeModal("Could not reach the server — the invoice was not deleted.", "Can't delete"),
+    });
+    async function deleteInvoice() {
+        const ok = await confirmModal(
+            "Permanently delete this invoice? This removes it and its lines for good — use this only for one that can never be reviewed (e.g. the image is gone and AI can't read it). This cannot be undone.",
+            "Delete invoice",
+            true,
+        );
+        if (!ok) return;
+        deleteMutation.mutate({ deliveryHeaderId: row.deliveryHeaderId });
+    }
     return (
         <div className="rounded-card border border-line bg-card shadow-elevate-1">
             <button type="button" onClick={onToggle} className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left">
@@ -142,14 +168,26 @@ function InvoiceRow({ row, open, onToggle }) {
                             {row.documentType}
                             {row.staffInvoiceNumber ? ` · Invoice no. ${row.staffInvoiceNumber}` : ""}
                         </div>
-                        {detailOk && detail.inReview && detail.inboxActionId && (
-                            <a
-                                href={`/dashboard/inbox/${detail.inboxActionId}`}
-                                className="rounded-lg bg-accent px-3 py-1.5 text-[0.82rem] font-semibold text-accent-ink no-underline hover:bg-accent/90"
-                            >
-                                Review in Action Inbox
-                            </a>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {detailOk && detail.inReview && detail.inboxActionId && (
+                                <a
+                                    href={`/dashboard/inbox/${detail.inboxActionId}`}
+                                    className="rounded-lg bg-accent px-3 py-1.5 text-[0.82rem] font-semibold text-accent-ink no-underline hover:bg-accent/90"
+                                >
+                                    Review in Action Inbox
+                                </a>
+                            )}
+                            {row.status === "IN_REVIEW" && (
+                                <button
+                                    type="button"
+                                    disabled={deleteMutation.isPending}
+                                    onClick={deleteInvoice}
+                                    className="rounded-lg border border-danger-border px-3 py-1.5 text-[0.82rem] font-semibold text-danger-ink hover:bg-danger-bg disabled:opacity-50"
+                                >
+                                    {deleteMutation.isPending ? "Deleting…" : "Delete invoice"}
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {detailLoading && <div className="my-3 text-[0.85rem] text-muted">Loading lines…</div>}

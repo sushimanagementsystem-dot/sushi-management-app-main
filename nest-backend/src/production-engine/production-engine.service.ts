@@ -5,6 +5,7 @@ import { TableCacheService } from "../reference-data/table-cache.service.js";
 import { SecondaryAllocationService } from "./secondary-allocation.service.js";
 import { weekdayName } from "../common/date.util.js";
 import { isPrimary, type ComponentMap, type ComponentNeed, type PlanLine, type ProductionPlan, type RecipeMap } from "./production-engine.types.js";
+import { isProductInProduction } from "../common/product.util.js";
 import type { Kiosk } from "@prisma/client";
 
 /**
@@ -51,7 +52,7 @@ export class ProductionEngineService {
         let lines: PlanLine[] = [];
         for (const par of pars) {
             const prod = productById.get(par.product_id);
-            if (!prod || !prod.active) continue;
+            if (!prod || !isProductInProduction(prod)) continue;
             const target = Number((par as unknown as Record<string, number>)[weekday]);
             if (!Number.isFinite(target) || target <= 0) continue;
             const counted = Number(counts[par.product_id] ?? 0);
