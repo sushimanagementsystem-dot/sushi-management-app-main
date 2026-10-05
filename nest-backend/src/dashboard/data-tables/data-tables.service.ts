@@ -1,22 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { EnumOptionService } from "../../reference-data/enum-option.service.js";
 import { TableCacheService } from "../../reference-data/table-cache.service.js";
 import { SettingsService } from "../../reference-data/settings.service.js";
-import { toModelName } from "../../common/model-name.util.js";
+import { delegateFor, type PrismaDelegate } from "../../common/prisma-delegate.util.js";
 import type { FieldSchemaRow, RowChange, RowChangeResult } from "./data-tables.types.js";
 import { explainWriteError } from "./write-error.js";
 import { explainUserBlockers, type UserHistoryCounts } from "./staff-removal.js";
 import { stocktakeCategoryIds } from "../../common/stocktake-items.util.js";
 import { orderFields, orderRows, type LayoutLookups } from "./data-tables.layout.js";
-
-type PrismaDelegate = {
-    findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
-    create: (args: unknown) => Promise<Record<string, unknown>>;
-    updateMany: (args: unknown) => Promise<{ count: number }>;
-    deleteMany: (args: unknown) => Promise<{ count: number }>;
-    count: (args: unknown) => Promise<number>;
-};
+import { AuditLogService, type AuditSnapshot } from "../audit-log/audit-log.service.js";
 
 /**
  * Generic read/write engine for the owner dashboard's editable data
@@ -40,6 +34,7 @@ export class DataTablesService {
         private readonly enumOptions: EnumOptionService,
         private readonly tableCache: TableCacheService,
         private readonly settings: SettingsService,
+        private readonly auditLog: AuditLogService,
     ) {}
 
     async bootstrapTablesPage(preferredTable?: string) {
@@ -117,8 +112,14 @@ export class DataTablesService {
      * block every delete on product/stock_item even when the one row
      * being deleted had no history at all (found live: a completely
      * unused test product couldn't be removed either).
+     *
+     * force=true skips that block and instead removes every referencing row
+     * first (see cascadeDeleteRow) — an owner-driven, explicitly-confirmed
+     * escalation for a row they want gone regardless of its history
+     * (e.g. a test/retired product with real but no-longer-wanted fridge
+     * count history), never the default path.
      */
-    async deleteTableRow(tableName: string, row: Record<string, unknown>, actingUserId?: string) {
+    async deleteTableRow(tableName: string, row: Record<string, unknown>, actingUserId?: string, force = false): Promise<{ auditLogId: string }> {
         const tableMeta = await this.getTableMeta(tableName);
         if (!tableMeta?.hard_delete) throw new BadRequestException("Deleting rows is not enabled for this table.");
         if (tableName === "user") await this.assertStaffRemovable(row, actingUserId);
@@ -126,12 +127,46 @@ export class DataTablesService {
         const fields = await this.getFieldSchema(tableName);
         const keyCols = this.keyColumns(fields, tableName);
 
+        if (force) {
+            const auditLogId = await this.cascadeDeleteRow(tableName, row, keyCols, actingUserId);
+            this.invalidateFor(tableName);
+            return { auditLogId };
+        }
+
         const blocker = await this.checkRowReferences(tableName, row, keyCols);
         if (blocker) throw new BadRequestException(blocker);
 
-        const result = await this.getDelegate(tableName).deleteMany({ where: keyWhere(keyCols, row) });
-        if (result.count === 0) throw new NotFoundException("Row not found.");
+        const delegate = this.getDelegate(tableName);
+        let auditLogId: string;
+        try {
+            auditLogId = await this.deleteRowTracked(tableName, row, keyCols, actingUserId);
+        } catch (err) {
+            // Same safety net as the bulk delete path (see bulkSaveTableRows) — checkRowReferences should always
+            // catch this first, but a raw database message must never be the fallback if it somehow doesn't.
+            const friendly = await explainWriteError(err, {
+                tableName,
+                isNew: false,
+                row,
+                labels: Object.fromEntries(fields.map((f) => [f.column_name, f.label || f.column_name])),
+                titleColumn: fields.find((f) => f.is_title_column)?.column_name,
+                findConflict: (where) => delegate.findFirst({ where }),
+            });
+            throw new BadRequestException(friendly.message);
+        }
         this.invalidateFor(tableName);
+        return { auditLogId };
+    }
+
+    /** A plain (non-cascading) delete, snapshotted into audit_log in the same transaction — so even the
+     * common case is undoable, not just Force delete. */
+    private async deleteRowTracked(tableName: string, row: Record<string, unknown>, keyCols: string[], performedBy?: string): Promise<string> {
+        return this.prisma.$transaction(async (tx) => {
+            const targetRow = await delegateFor(tx, tableName).findFirst({ where: keyWhere(keyCols, row) });
+            if (!targetRow) throw new NotFoundException("Row not found.");
+            const auditLogId = await this.auditLog.record(tx, tableName, "DELETE", { target: { table: tableName, row: targetRow }, cascaded: [] }, performedBy);
+            await delegateFor(tx, tableName).deleteMany({ where: keyWhere(keyCols, row) });
+            return auditLogId;
+        });
     }
 
     /**
@@ -144,21 +179,87 @@ export class DataTablesService {
      * single-column primary key, true of every hard_delete-eligible
      * table today; a compound-key table gets a clear refusal instead of
      * a wrong answer.
+     *
+     * Reads the REAL foreign keys from Postgres (information_schema), not
+     * field_schema's `ref_table` — field_schema only exists to drive the
+     * Data Tables UI's own reference pickers, so a table nobody made owner-
+     * editable (fridge_count, product_movement, staff_food, production_plan...)
+     * never gets a row there, and used to be invisible to this check. Found
+     * live: deleting "Benchwarmer" passed this check clean, then failed with
+     * a raw `fridge_count_product_id_fkey` Postgres error the owner saw
+     * verbatim — the exact outcome this check exists to prevent. Querying
+     * the database's own constraints can never drift out of date like that.
      */
     private async checkRowReferences(tableName: string, row: Record<string, unknown>, keyCols: string[]): Promise<string | null> {
-        const referencedBy = await this.getFieldsReferencing(tableName);
-        if (!referencedBy.length) return null;
-        if (keyCols.length !== 1) return "Cannot permanently delete: this table's key is not simple enough to check for references.";
+        const blockers = await this.findRowBlockers(tableName, row, keyCols);
+        if (blockers === "compound_key") return "Cannot permanently delete: this table's key is not simple enough to check for references.";
+        if (!blockers.length) return null;
+        const parts = blockers.map((b) => `${b.count} row${b.count === 1 ? "" : "s"} in "${b.label}"`);
+        return `Cannot permanently delete: ${parts.join(" and ")} still reference this. Use Force delete to remove those along with it — this cannot be undone.`;
+    }
+
+    /** Every real reference actually blocking this row's delete, with a count and owner-facing label each — the
+     * breakdown both checkRowReferences' message and forceDeleteRow's cascade are built from. */
+    private async findRowBlockers(tableName: string, row: Record<string, unknown>, keyCols: string[]): Promise<{ table_name: string; column_name: string; label: string; count: number }[] | "compound_key"> {
+        const referencedBy = await this.getRealForeignKeyReferences(tableName);
+        if (!referencedBy.length) return [];
+        if (keyCols.length !== 1) return "compound_key";
         const pkValue = row[keyCols[0]!];
+        const blockers: { table_name: string; column_name: string; label: string; count: number }[] = [];
         for (const f of referencedBy) {
             const count = await this.getDelegate(f.table_name).count({ where: { [f.column_name]: pkValue } });
             if (count > 0) {
                 const refTableMeta = await this.getTableMeta(f.table_name);
-                const refLabel = (refTableMeta?.label as string | undefined) || f.table_name;
-                return `Cannot permanently delete: ${count} row${count === 1 ? "" : "s"} in "${refLabel}" still reference this.`;
+                blockers.push({ ...f, label: (refTableMeta?.label as string | undefined) || prettyTableName(f.table_name), count });
             }
         }
-        return null;
+        return blockers;
+    }
+
+    /** Every (table, column) pair whose foreign key points at `tableName`'s primary key, straight from Postgres's
+     * own catalog — always complete, unlike field_schema's owner-editable-reference metadata (see checkRowReferences). */
+    private async getRealForeignKeyReferences(tableName: string): Promise<{ table_name: string; column_name: string }[]> {
+        return this.prisma.$queryRaw<{ table_name: string; column_name: string }[]>`
+            SELECT tc.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+                ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public' AND ccu.table_name = ${tableName}
+        `;
+    }
+
+    /**
+     * The Force delete path: removes every row in every real-FK-referencing table first, then the row itself, all
+     * in one transaction (so a failure partway through leaves nothing half-deleted). Only reachable after an owner
+     * saw checkRowReferences' breakdown and asked to proceed anyway — this never runs on its own.
+     *
+     * Every row this deletes (the target and every cascaded row) is read with findMany/findFirst BEFORE its
+     * deleteMany, so AuditLogService.record can snapshot exactly what existed — undo() recreates that snapshot
+     * verbatim, not a best-effort guess.
+     */
+    private async cascadeDeleteRow(tableName: string, row: Record<string, unknown>, keyCols: string[], performedBy?: string): Promise<string> {
+        if (keyCols.length !== 1) throw new BadRequestException("Cannot permanently delete: this table's key is not simple enough to check for references.");
+        const pkValue = row[keyCols[0]!];
+        const referencedBy = await this.getRealForeignKeyReferences(tableName);
+        return this.prisma.$transaction(async (tx) => {
+            const targetRow = await delegateFor(tx, tableName).findFirst({ where: keyWhere(keyCols, row) });
+            if (!targetRow) throw new NotFoundException("Row not found.");
+
+            const cascaded: AuditSnapshot["cascaded"] = [];
+            for (const f of referencedBy) {
+                const rows = await delegateFor(tx, f.table_name).findMany({ where: { [f.column_name]: pkValue } });
+                if (rows.length) cascaded.push({ table: f.table_name, rows });
+            }
+
+            const auditLogId = await this.auditLog.record(tx, tableName, "FORCE_DELETE", { target: { table: tableName, row: targetRow }, cascaded }, performedBy);
+
+            for (const c of cascaded) await delegateFor(tx, c.table).deleteMany({ where: { [referencedBy.find((f) => f.table_name === c.table)!.column_name]: pkValue } });
+            await delegateFor(tx, tableName).deleteMany({ where: keyWhere(keyCols, row) });
+
+            return auditLogId;
+        });
     }
 
     /**
@@ -180,12 +281,16 @@ export class DataTablesService {
             try {
                 if (c.isDelete) {
                     if (!tableMeta?.hard_delete) throw new Error("Deleting rows is not enabled for this table.");
+                    if (tableName === "user") await this.assertStaffRemovable(c.row, actingUserId);
+                    if (c.force) {
+                        const auditLogId = await this.cascadeDeleteRow(tableName, c.row, keyCols, actingUserId);
+                        results.push({ key: c.key, ok: true, auditLogId });
+                        continue;
+                    }
                     const blocker = await this.checkRowReferences(tableName, c.row, keyCols);
                     if (blocker) throw new Error(blocker);
-                    if (tableName === "user") await this.assertStaffRemovable(c.row, actingUserId);
-                    const result = await delegate.deleteMany({ where: keyWhere(keyCols, c.row) });
-                    if (result.count === 0) throw new Error("Row not found.");
-                    results.push({ key: c.key, ok: true });
+                    const auditLogId = await this.deleteRowTracked(tableName, c.row, keyCols, actingUserId);
+                    results.push({ key: c.key, ok: true, auditLogId });
                     continue;
                 }
 
@@ -193,7 +298,21 @@ export class DataTablesService {
                 await this.writeRow(tableName, fields, keyCols, c.isNew, clean);
                 results.push({ key: c.key, ok: true, row: clean });
             } catch (err) {
-                results.push({ key: c.key, ok: false, error: toUserMessage(err) });
+                // Same plain-language pass every save error already gets (see writeRow/explainWriteError) — a delete
+                // that slips past checkRowReferences for some reason the client doesn't know about yet must never
+                // surface a raw Postgres message like "Foreign key constraint violated on the constraint:
+                // `fridge_count_product_id_fkey`" (found live, on a real non-technical owner's screen). Safe to run
+                // on an already-friendly message too — explainWriteError only rewrites what it recognizes as a raw
+                // database error and passes anything else through unchanged.
+                const friendly = await explainWriteError(err, {
+                    tableName,
+                    isNew: !c.isDelete && c.isNew,
+                    row: c.row,
+                    labels: Object.fromEntries(fields.map((f) => [f.column_name, f.label || f.column_name])),
+                    titleColumn: fields.find((f) => f.is_title_column)?.column_name,
+                    findConflict: (where) => delegate.findFirst({ where }),
+                });
+                results.push({ key: c.key, ok: false, error: toUserMessage(friendly) });
             }
         }
         if (changes.length) this.invalidateFor(tableName);
@@ -319,11 +438,6 @@ export class DataTablesService {
         return all.filter((f) => f.table_name === tableName);
     }
 
-    private async getFieldsReferencing(tableName: string): Promise<FieldSchemaRow[]> {
-        const all = await this.tableCache.getAll<FieldSchemaRow>("field_schema");
-        return all.filter((f) => f.ref_table === tableName);
-    }
-
     private async getTableMeta(tableName: string): Promise<Record<string, unknown> | undefined> {
         const all = await this.tableCache.getAll<Record<string, unknown>>("table_schema");
         return all.find((t) => t.table_name === tableName);
@@ -343,7 +457,7 @@ export class DataTablesService {
     }
 
     private getDelegate(tableName: string): PrismaDelegate {
-        return (this.prisma as unknown as Record<string, PrismaDelegate>)[toModelName(tableName)];
+        return delegateFor(this.prisma, tableName);
     }
 
     /**
@@ -496,6 +610,12 @@ function keyWhere(keyCols: string[], row: Record<string, unknown>): Record<strin
     const where: Record<string, unknown> = {};
     for (const k of keyCols) where[k] = row[k];
     return where;
+}
+
+/** "fridge_count" -> "Fridge Count" — the fallback label for a table with no table_schema row of its own (every
+ * internal, never-owner-editable table a hard-delete can be blocked by: fridge_count, product_movement, ...). */
+function prettyTableName(tableName: string): string {
+    return tableName.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
 function isBlank(val: unknown): boolean {

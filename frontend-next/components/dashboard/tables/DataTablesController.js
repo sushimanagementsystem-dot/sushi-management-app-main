@@ -1147,6 +1147,10 @@ class DataGrid {
     destroy() {
         this.destroyed = true;
         this.shared.liveGridInstances.delete(this);
+        if (this._undoToast) {
+            this._undoToast.remove();
+            this._undoToast = null;
+        }
         if (this.tabulator) {
             this.tabulator.destroy();
             this.tabulator = null;
@@ -1388,6 +1392,88 @@ class DataGrid {
         }
     }
 
+    /** The one way past checkRowReferences' block (see data-tables.service.ts): an explicit, separate action with
+     * its own strong confirmation — never a retry of the same delete, so an owner can't land here by accident. */
+    appendForceDeleteButton_(card, textEl, table, row) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = DASH_BTN_DANGER + " mt-2";
+        btn.textContent = "Force delete anyway";
+        btn.addEventListener("click", () => {
+            confirmModal(textEl.textContent + " Force delete removes those rows too. You'll get a short-lived Undo right after, but don't rely on it.", "Force delete", true).then((yes) => {
+                if (!yes) return;
+                btn.disabled = true;
+                btn.textContent = "Deleting…";
+                apiCall("delete_table_row", { table, row, force: true })
+                    .catch(() => ({ ok: false, error: "Could not reach the server — nothing was deleted." }))
+                    .then((res) => {
+                        if (!res.ok) {
+                            btn.disabled = false;
+                            btn.textContent = "Force delete anyway";
+                            textEl.textContent = res.error || "Force delete failed.";
+                            return;
+                        }
+                        invalidateCachesFor(table);
+                        this.gridEl.innerHTML = "";
+                        this.load();
+                        if (res.auditLogId) this.showUndoToast_([res.auditLogId]);
+                    });
+            });
+        });
+        card.appendChild(btn);
+    }
+
+    /** "N row(s) deleted — Undo", floating over whatever the grid reloads to next. Every successful delete (plain
+     * or Force) gets one — see saveDirtyRows and appendForceDeleteButton_ — backed by the audit_log snapshot
+     * DataTablesService wrote in the same transaction as the delete (see data-tables.service.ts). Not a permanent
+     * "recently deleted" browser — once it's dismissed or times out, undoing needs the database directly. */
+    showUndoToast_(auditLogIds) {
+        if (this._undoToast) this._undoToast.remove();
+        const toast = document.createElement("div");
+        toast.className =
+            "fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-line bg-ink px-4 py-3 text-white shadow-elevate-2";
+        const text = document.createElement("span");
+        text.className = "text-[0.85rem]";
+        text.textContent = auditLogIds.length === 1 ? "1 row deleted." : auditLogIds.length + " rows deleted.";
+        const undoBtn = document.createElement("button");
+        undoBtn.type = "button";
+        undoBtn.className = "rounded-md bg-white/15 px-3 py-1.5 text-[0.8rem] font-semibold text-white hover:bg-white/25 disabled:opacity-50";
+        undoBtn.textContent = "Undo";
+        undoBtn.addEventListener("click", () => {
+            undoBtn.disabled = true;
+            undoBtn.textContent = "Undoing…";
+            Promise.all(auditLogIds.map((id) => apiCall("undo_delete", { auditLogId: id }).catch(() => ({ ok: false, error: "Could not reach the server." }))))
+                .then((results) => {
+                    toast.remove();
+                    if (this._undoToast === toast) this._undoToast = null;
+                    const failed = results.filter((r) => !r.ok);
+                    if (failed.length) alert("Could not undo everything: " + failed.map((f) => f.error || "unknown error").join("; "));
+                    invalidateCachesFor(this.tableName);
+                    if (!this.destroyed) this.load();
+                });
+        });
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "text-white/70 hover:text-white";
+        closeBtn.textContent = "✕";
+        closeBtn.setAttribute("aria-label", "Dismiss");
+        closeBtn.addEventListener("click", () => {
+            toast.remove();
+            if (this._undoToast === toast) this._undoToast = null;
+        });
+        toast.appendChild(text);
+        toast.appendChild(undoBtn);
+        toast.appendChild(closeBtn);
+        document.body.appendChild(toast);
+        this._undoToast = toast;
+        setTimeout(() => {
+            if (this._undoToast === toast) {
+                toast.remove();
+                this._undoToast = null;
+            }
+        }, 20000);
+    }
+
     showTableSaveError(message) {
         if (this.tabulator) {
             this.tabulator.destroy();
@@ -1425,6 +1511,7 @@ class DataGrid {
                 why.textContent = item.error;
                 card.appendChild(who);
                 card.appendChild(why);
+                if (item.force) this.appendForceDeleteButton_(card, why, item.force.table, item.force.row);
                 box.appendChild(card);
             });
             const footer = document.createElement("p");
@@ -1498,9 +1585,12 @@ class DataGrid {
         // internal id ("b6d99458-7701-..."), so the message says what failed.
         const titleColumn = (this.schema.find((f) => f.is_title_column === true) || {}).column_name || "name";
         const tableLabel = this.meta.label || tableName;
-        const describe = (table, key) => {
+        const findEntry = (table, key) => {
             const list = table === "enum_option" ? enumEntries : entries;
-            const entry = list.find(([k]) => k === key);
+            return list.find(([k]) => k === key);
+        };
+        const describe = (table, key) => {
+            const entry = findEntry(table, key);
             const row = entry ? entry[1].data || {} : {};
             const name = table === "enum_option" ? row.label : row[titleColumn];
             const kind = table === "enum_option" ? "Dropdown option" : tableLabel;
@@ -1510,15 +1600,31 @@ class DataGrid {
 
         Promise.all(batches).then((batchResults) => {
             const failures = [];
+            const deletedAuditLogIds = [];
             batchResults.forEach((br) => {
                 if (!br.res.ok) {
                     failures.push({ who: br.table === "enum_option" ? "Dropdown options" : tableLabel, error: br.res.error || "Something went wrong. Please try again." });
                     return;
                 }
                 (br.res.results || []).forEach((r) => {
-                    if (!r.ok) failures.push({ who: describe(br.table, r.key), error: r.error || "Something went wrong. Please try again." });
+                    if (r.ok) {
+                        // auditLogId is only set on a successful delete (see DataTablesService.deleteRowTracked /
+                        // cascadeDeleteRow) — a save never gets one, so this list is exactly "what got deleted".
+                        if (r.auditLogId) deletedAuditLogIds.push(r.auditLogId);
+                        return;
+                    }
+                    const entry = findEntry(br.table, r.key);
+                    // Only a blocked DELETE (never a save) offers Force delete — the message is checkRowReferences'
+                    // own text (see data-tables.service.ts), which already names exactly what else gets removed.
+                    const canForce = !!entry && entry[1].isDelete && /^Cannot permanently delete:/.test(r.error || "");
+                    failures.push({
+                        who: describe(br.table, r.key),
+                        error: r.error || "Something went wrong. Please try again.",
+                        force: canForce ? { table: br.table, row: entry[1].data } : null,
+                    });
                 });
             });
+            if (deletedAuditLogIds.length) this.showUndoToast_(deletedAuditLogIds);
             if (!failures.length) return;
 
             const content = {

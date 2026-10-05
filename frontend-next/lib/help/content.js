@@ -394,9 +394,9 @@ export const HELP = {
         affects: ["Data Tables > Product: Production Role", "Production email"],
     },
     "settings.foodWaste": {
-        title: "Food Waste Packaging",
-        what: "Decides which stock category the Food Waste form shows under PACKAGING.",
-        how: "The Food Waste list is the same list as the Weekly Stocktake; which items appear is controlled by 'Available for Food Waste' on each Stock Item. Everything not in the packaging category shows as FOOD.",
+        title: "Food Waste Categories",
+        what: "Decides which stock categories the Food Waste form shows under PACKAGING and under RICE.",
+        how: "The Food Waste list is the same list as the Weekly Stocktake; which items appear is controlled by 'Available for Food Waste' on each Stock Item. Everything not in either category below shows as FOOD.",
         affects: ["Kiosk Food Waste form", "Data Tables > Stock Item"],
     },
     "settings.sampling": {
@@ -525,8 +525,14 @@ export const HELP = {
     "setting.FOOD_WASTE_PACKAGING_CATEGORIES": {
         title: "Food Waste - Packaging Categories",
         what: "Which stock categories are shown as PACKAGING (rather than FOOD) in the Food Waste form.",
-        how: "Currently the Drystore - Packaging category. Every other category on the Stocktake list shows as FOOD. Which items appear at all is set by 'Available for Food Waste' on each Stock Item.",
+        how: "Currently the Drystore - Packaging category. Anything not in this or the RICE setting shows as FOOD. Which items appear at all is set by 'Available for Food Waste' on each Stock Item.",
         affects: ["Kiosk Food Waste form", "Data Tables > Stock Item"],
+    },
+    "setting.FOOD_WASTE_RICE_CATEGORIES": {
+        title: "Food Waste - RICE Categories",
+        what: "Which stock categories are shown as RICE (rather than FOOD) in the Food Waste form.",
+        how: "Currently the RICE (per 100g) category (Plain Rice, Sushi Rice). Set the price per gram for these under Dashboard > Product Prices > Food Waste Items (per 100g).",
+        affects: ["Kiosk Food Waste form", "Data Tables > Stock Item", "Product Prices"],
     },
     // Sampling
     "setting.SAMPLING_DAYS": {

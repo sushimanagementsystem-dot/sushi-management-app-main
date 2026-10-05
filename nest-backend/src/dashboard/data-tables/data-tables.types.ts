@@ -25,6 +25,10 @@ export type RowChange = {
     isNew: boolean;
     isDelete: boolean;
     row: Record<string, unknown>;
+    /** isDelete only: skip checkRowReferences and cascade-delete every referencing row first instead — see
+     * DataTablesService.cascadeDeleteRow. Only reachable after the owner saw the reference breakdown and asked to
+     * force it anyway. */
+    force?: boolean;
 };
 
-export type RowChangeResult = { key: string; ok: true; row?: Record<string, unknown> } | { key: string; ok: false; error: string };
+export type RowChangeResult = { key: string; ok: true; row?: Record<string, unknown>; auditLogId?: string } | { key: string; ok: false; error: string };

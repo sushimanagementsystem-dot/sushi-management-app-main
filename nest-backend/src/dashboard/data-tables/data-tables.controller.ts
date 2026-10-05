@@ -31,9 +31,8 @@ export class DataTablesController {
     }
 
     @Post("delete_table_row")
-    async deleteRow(@Body() dto: DeleteTableRowDto, @CurrentUser() user: AuthenticatedUser) {
-        await this.service.deleteTableRow(dto.table, dto.row, user.user_id);
-        return {};
+    deleteRow(@Body() dto: DeleteTableRowDto, @CurrentUser() user: AuthenticatedUser) {
+        return this.service.deleteTableRow(dto.table, dto.row, user.user_id, dto.force);
     }
 
     @Post("bulk_save_table_rows")

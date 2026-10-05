@@ -15,9 +15,11 @@ import type { Kiosk, StockItem } from "@prisma/client";
  * contains "per 100g" and stocktakeCategoryIds excludes anything worded
  * that way. Found live: Tuna/Salmon/Surimi/etc (the per-100g tracking
  * items from an earlier pass) were never selectable here at all. The only
- * grouping left is the two buckets Food Waste itself cares about —
- * everything not explicitly PACKAGING is FOOD, so a category never silently
- * disappears from the list just because a setting wasn't kept up to date.
+ * grouping left is the three buckets Food Waste itself cares about — RICE
+ * first (its own category, even though it's tracked "per 100g" the same
+ * way the FOOD per-100g items are), then PACKAGING, then everything else
+ * falls to FOOD, so a category never silently disappears from the list
+ * just because a setting wasn't kept up to date.
  */
 @Injectable()
 export class FoodWasteService {
@@ -27,11 +29,14 @@ export class FoodWasteService {
     ) {}
 
     async getBootstrapData(_kiosk: Kiosk) {
-        const [packagingCatsRaw, allItems] = await Promise.all([
+        const [packagingCatsRaw, riceCatsRaw, allItems] = await Promise.all([
             this.settings.get("FOOD_WASTE_PACKAGING_CATEGORIES"),
+            this.settings.get("FOOD_WASTE_RICE_CATEGORIES"),
             this.tableCache.getAll<StockItem>("stock_item"),
         ]);
-        const packagingCats = (packagingCatsRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const splitList = (raw: string | null) => (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const packagingCats = splitList(packagingCatsRaw);
+        const riceCats = splitList(riceCatsRaw);
 
         const mapped = allItems
             // ambient_duplicate_of set = a "Kiosk (ambient product only)" stocktake-only duplicate row (same physical
@@ -42,7 +47,7 @@ export class FoodWasteService {
                 id: r.stock_item_id,
                 name: r.name,
                 unit: r.count_unit,
-                cat: packagingCats.includes(r.stock_category_id) ? "PACKAGING" : "FOOD",
+                cat: riceCats.includes(r.stock_category_id) ? "RICE" : packagingCats.includes(r.stock_category_id) ? "PACKAGING" : "FOOD",
                 measurementType: r.measurement_type === "COUNT" ? "COUNT" : "WEIGHT_G",
             }));
 

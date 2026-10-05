@@ -29,12 +29,10 @@ const SETTINGS_SECTIONS = [
     },
     { title: "Component Batching", help: "settings.componentBatching", keys: ["PRAWN_KATSU_ROLLS_PER_BAG", "PRAWN_KATSU_COMPONENT_ID"] },
     { title: "Secondary Item Allocation", help: "settings.secondary", keys: ["SECONDARY_HISTORY_LOOKBACK_DAYS", "SANDO_STEP_PRODUCT_IDS", "SANDO_UNITS_PER_PREP"] },
-    // Only "Packaging" needs a pick list now — the Food Waste item list is
-    // the Stock Take list (see stocktake-items.util.ts), toggled per item via
-    // Stock Item → "Available for Food Waste"; anything not picked here as
-    // Packaging shows as Food. No separate "Food categories" setting to keep
-    // in sync with Stock Take any more.
-    { title: "Food Waste — Packaging Category", help: "settings.foodWaste", keys: ["FOOD_WASTE_PACKAGING_CATEGORIES"] },
+    // "Packaging" and "Rice" each need a pick list — the Food Waste item list itself is the Stock Take list (see
+    // stocktake-items.util.ts), toggled per item via Stock Item → "Available for Food Waste"; anything not picked
+    // here as Packaging or Rice shows as Food. No separate "Food categories" setting to keep in sync with Stock Take.
+    { title: "Food Waste — Categories", help: "settings.foodWaste", keys: ["FOOD_WASTE_PACKAGING_CATEGORIES", "FOOD_WASTE_RICE_CATEGORIES"] },
     { title: "Sampling", help: "settings.sampling", keys: ["SAMPLING_DAYS", "SAMPLING_SUSHI", "SAMPLING_KARAAGE_PER_FLAVOUR"] },
     { title: "Defrost & Waste Attribution", help: "settings.defrostWaste", keys: ["DEFROST_MEDIAN_WEEKS", "WASTE_ATTRIBUTION_DAYS_DEFAULT", "WASTE_ATTRIBUTION_DAYS_KCRB"] },
     { title: "Damage Review Thresholds", help: "settings.damage", keys: ["DAMAGE_REVIEW_UNITS_PER_100", "DAMAGE_REVIEW_PRODUCT_WEEK_UNITS", "DAMAGE_REVIEW_SUBMITTER_WEEK"] },
@@ -53,6 +51,7 @@ const SETTINGS_TYPES = {
     PRAWN_KATSU_COMPONENT_ID: "component_picker",
     SANDO_STEP_PRODUCT_IDS: "product_multi_picker",
     FOOD_WASTE_PACKAGING_CATEGORIES: "stock_category_multi_picker",
+    FOOD_WASTE_RICE_CATEGORIES: "stock_category_multi_picker",
 };
 
 const WEEKDAY_ORDER = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];

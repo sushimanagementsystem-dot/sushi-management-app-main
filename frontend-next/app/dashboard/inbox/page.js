@@ -1728,7 +1728,21 @@ function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel,
     return (
         <div>
             <RequestTableWrap>
-                <table className="w-full border-collapse text-[0.85rem]">
+                {/* table-layout: fixed + a colgroup, not content-based auto-sizing — Stock item is the one column an
+                    owner actually needs to read and fix on every line, but with the default auto layout it was the
+                    column most easily squeezed down to a few characters by Description/Source having longer text
+                    ("Stoc" was all that showed — see the client's screenshot). Fixed widths guarantee it stays
+                    legible regardless of what the AI put in the other columns. */}
+                <table className="w-full border-collapse text-[0.85rem]" style={{ tableLayout: "fixed" }}>
+                    <colgroup>
+                        <col style={{ width: "18%" }} />
+                        <col style={{ width: "28%" }} />
+                        <col style={{ width: "11%" }} />
+                        <col style={{ width: "13%" }} />
+                        <col style={{ width: "11%" }} />
+                        <col style={{ width: "10%" }} />
+                        <col style={{ width: "9%" }} />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th className={TH}>Description</th>
@@ -1760,7 +1774,7 @@ function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel,
                             return (
                                 <tr key={line.invoice_line_id} className={problem ? PROBLEM_ROW : ""}>
                                     <td className={TD}>
-                                        <input type="text" value={r._desc} onChange={(e) => updateRow(idx, { _desc: e.target.value })} />
+                                        <input type="text" className="w-full" value={r._desc} onChange={(e) => updateRow(idx, { _desc: e.target.value })} />
                                     </td>
                                     <td className={TD}>
                                         <StockItemPicker
@@ -1771,10 +1785,10 @@ function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel,
                                         {problem && <div className="mt-1 text-[0.75rem] font-semibold text-danger-ink">Needs attention: {problem}</div>}
                                     </td>
                                     <td className={TD}>
-                                        <input type="number" step="0.01" value={r._qty} onChange={(e) => updateRow(idx, { _qty: e.target.value })} />
+                                        <input type="number" step="0.01" className="w-full" value={r._qty} onChange={(e) => updateRow(idx, { _qty: e.target.value })} />
                                     </td>
                                     <td className={TD}>
-                                        <input type="number" step="0.01" value={r._cost} onChange={(e) => updateRow(idx, { _cost: e.target.value })} />
+                                        <input type="number" step="0.01" className="w-full" value={r._cost} onChange={(e) => updateRow(idx, { _cost: e.target.value })} />
                                     </td>
                                     <td className={TD}>{line.source}</td>
                                     <td className={TD}>{line.status}</td>

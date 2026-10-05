@@ -31,9 +31,15 @@ export class SaveTableRowDto extends TableNameDto {
 export class DeleteTableRowDto extends TableNameDto {
     @IsObject()
     row!: Record<string, unknown>;
+
+    /** Skips the reference check and deletes every referencing row first — only sent after the owner saw that
+     * breakdown (from a first, unforced attempt) and chose "Force delete anyway". */
+    @IsOptional()
+    @IsBoolean()
+    force?: boolean;
 }
 
 export class BulkSaveTableRowsDto extends TableNameDto {
     @IsArray()
-    changes!: { key: string; isNew: boolean; isDelete: boolean; row: Record<string, unknown> }[];
+    changes!: { key: string; isNew: boolean; isDelete: boolean; row: Record<string, unknown>; force?: boolean }[];
 }

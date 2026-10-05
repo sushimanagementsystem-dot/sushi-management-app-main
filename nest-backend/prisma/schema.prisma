@@ -543,6 +543,24 @@ model ProcessingErrorLog {
   @@map("processing_error_log")
 }
 
+// Snapshot of every Data Tables hard delete (plain or Force delete), written in the same transaction as the
+// delete itself — never a separate, racy write. `snapshot` carries everything undo() needs to recreate the rows
+// exactly: { target: { table, row }, cascaded: [{ table, rows }] } — cascaded is only non-empty for a Force
+// delete, one entry per referencing table that was cascade-deleted alongside the target row.
+model AuditLog {
+  audit_log_id String    @id @default(uuid())
+  table_name   String
+  action       String // DELETE | FORCE_DELETE
+  snapshot     Json
+  performed_by String?
+  performed_at DateTime  @default(now())
+  undone_at    DateTime?
+  undone_by    String?
+
+  @@index([table_name, performed_at])
+  @@map("audit_log")
+}
+
 // =====================================================================
 // Operational / transactional tables — one row per real business event.
 // =====================================================================

@@ -40,6 +40,8 @@ import { BulkImportController } from "./bulk-import/bulk-import.controller.js";
 import { BulkImportService } from "./bulk-import/bulk-import.service.js";
 import { InvoicesListController } from "./invoices-list/invoices-list.controller.js";
 import { InvoicesListService } from "./invoices-list/invoices-list.service.js";
+import { AuditLogController } from "./audit-log/audit-log.controller.js";
+import { AuditLogService } from "./audit-log/audit-log.service.js";
 import { PurchasingModule } from "../purchasing/purchasing.module.js";
 
 @Module({
@@ -61,6 +63,7 @@ import { PurchasingModule } from "../purchasing/purchasing.module.js";
         ActionInboxController,
         BulkImportController,
         InvoicesListController,
+        AuditLogController,
     ],
     providers: [
         DataTablesService,
@@ -88,6 +91,7 @@ import { PurchasingModule } from "../purchasing/purchasing.module.js";
         AuditResultService,
         AuditReportEmailService,
         SiteConfigService,
+        AuditLogService,
     ],
 })
 export class DashboardModule {}
