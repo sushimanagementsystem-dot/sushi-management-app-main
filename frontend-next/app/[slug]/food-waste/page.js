@@ -120,10 +120,11 @@ export default function FoodWastePage() {
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {lines.map((l) => (
                                 <LineCard key={l.key} onRemove={() => removeLine(l.key)}>
-                                    <div className="w-[6.5rem] flex-none">
+                                    <div className="w-[8.5rem] flex-none">
                                         <FieldLabel>Category</FieldLabel>
                                         <select
                                             value={l.category}
+                                            title={l.category || "All"}
                                             onChange={(e) => updateLine(l.key, { category: e.target.value, name: "" })}
                                         >
                                             <option value="">All</option>
