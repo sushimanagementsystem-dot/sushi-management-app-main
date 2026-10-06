@@ -2047,7 +2047,10 @@ function PurchasingRecommendationSection({ row, onChanged }) {
                                 <tr key={i}>
                                     <td className={TD}>{line.stockItemName}</td>
                                     <td className={TD}>
-                                        {line.recommended_packs !== "" && line.recommended_packs !== undefined
+                                        {/* null (not just "" / undefined) is what the backend actually sends for an item
+                                            still missing a par level or supplier mapping — without this check it rendered
+                                            as the literal text "null pack(s) = null BOX" (see PurchasingScanService). */}
+                                        {line.recommended_packs != null && line.recommended_packs !== ""
                                             ? line.recommended_packs + " pack(s) = " + line.recommended_qty + " " + line.unit
                                             : "—"}
                                     </td>
