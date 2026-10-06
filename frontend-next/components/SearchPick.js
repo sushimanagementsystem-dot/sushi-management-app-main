@@ -33,7 +33,21 @@ export default function SearchPick({ getItems, onSelect, placeholder, value }) {
         if (!open) return;
         const measure = () => {
             const r = inputRef.current?.getBoundingClientRect();
-            if (r) setRect({ top: r.bottom + 2, left: r.left, width: r.width });
+            if (!r) return;
+            // Always noticeably wider than the input itself, not just "at least as wide" — several call sites
+            // (Food Waste, Move Stock) keep this search box narrow since Category/Grams share the same row,
+            // which used to make the dropdown just as narrow and wrap long item names onto 2-3 lines (e.g.
+            // "BAMBOO ROLLING MAT"). A wider floating panel reads fine overlapping whatever's beside the input —
+            // it's a portal, not part of the row's layout — but it's clamped to the viewport width (minus a
+            // margin) so it can never run off either edge or force horizontal scroll on a narrow phone.
+            const MARGIN = 8;
+            const EXTRA_WIDTH = 80;
+            const MIN_WIDTH = 260;
+            const maxAvailableWidth = window.innerWidth - MARGIN * 2;
+            const width = Math.min(Math.max(r.width + EXTRA_WIDTH, MIN_WIDTH), maxAvailableWidth);
+            const maxLeft = window.innerWidth - width - MARGIN;
+            const left = Math.max(MARGIN, Math.min(r.left, maxLeft));
+            setRect({ top: r.bottom + 2, left, width });
         };
         measure();
         // Scrolling (the page, or the table's own horizontal scroll container) or resizing would leave a
