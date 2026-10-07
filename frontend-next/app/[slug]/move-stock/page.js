@@ -173,7 +173,7 @@ export default function MoveStockPage() {
                                 <div className="grid grid-cols-1 gap-3">
                                     {lines.map((l) => (
                                         <LineCard key={l.key} onRemove={() => removeLine(l.key)}>
-                                            <div className="w-[9.5rem] flex-none">
+                                            <div className="w-full sm:w-[9.5rem] sm:flex-none">
                                                 <FieldLabel>Category</FieldLabel>
                                                 <select
                                                     value={l.category}
@@ -213,7 +213,7 @@ export default function MoveStockPage() {
                                                     }}
                                                 />
                                             </div>
-                                            <div className="w-[6rem] flex-none">
+                                            <div className="w-full sm:w-[6rem] sm:flex-none">
                                                 <FieldLabel>{(() => { const u = (boot?.items || []).find((p) => p.name === l.name.trim())?.unit; return u ? "Qty (" + u + ")" : "Qty"; })()}</FieldLabel>
                                                 <input
                                                     type="number"

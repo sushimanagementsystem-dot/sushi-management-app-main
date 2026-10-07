@@ -120,7 +120,7 @@ export default function FoodWastePage() {
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             {lines.map((l) => (
                                 <LineCard key={l.key} onRemove={() => removeLine(l.key)}>
-                                    <div className="w-[8.5rem] flex-none">
+                                    <div className="w-full sm:w-[8.5rem] sm:flex-none">
                                         <FieldLabel>Category</FieldLabel>
                                         <select
                                             value={l.category}
@@ -160,7 +160,7 @@ export default function FoodWastePage() {
                                             }}
                                         />
                                     </div>
-                                    <div className="w-20 flex-none">
+                                    <div className="w-full sm:w-20 sm:flex-none">
                                         <FieldLabel>{byId[byName[l.name.trim()]]?.measurementType === "COUNT" ? "Each" : "Grams"}</FieldLabel>
                                         <input
                                             type="number"

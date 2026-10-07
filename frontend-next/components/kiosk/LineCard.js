@@ -25,7 +25,7 @@ import { X } from "lucide-react";
 export function LineCard({ children, onRemove }) {
     return (
         <div className="group relative rounded-card border border-line bg-card p-3 pr-9 shadow-elevate-1 transition-shadow duration-150 hover:shadow-elevate-2">
-            <div className="flex gap-2 [&>div>input]:w-full [&>div>select]:w-full">{children}</div>
+            <div className="flex flex-col gap-2 sm:flex-row [&>div>input]:w-full [&>div>select]:w-full">{children}</div>
             {onRemove && (
                 <button
                     type="button"
