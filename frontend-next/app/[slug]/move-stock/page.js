@@ -170,7 +170,7 @@ export default function MoveStockPage() {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <div className="grid grid-cols-1 gap-3">
                                     {lines.map((l) => (
                                         <LineCard key={l.key} onRemove={() => removeLine(l.key)}>
                                             <div className="w-[9.5rem] flex-none">
