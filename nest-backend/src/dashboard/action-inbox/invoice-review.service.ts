@@ -164,7 +164,9 @@ export class InvoiceReviewService {
         }
 
         return this.prisma.$transaction(async (tx) => {
-            const removed = approvedIds.length ? await tx.stockMovement.deleteMany({ where: { movement_type: "DELIVERY_IN", reference_id: { in: approvedIds } } }) : { count: 0 };
+            const removed = approvedIds.length
+                ? await tx.stockMovement.deleteMany({ where: { movement_type: { in: ["DELIVERY_IN", "DELIVERY_CORRECTION"] }, reference_id: { in: approvedIds } } })
+                : { count: 0 };
             await tx.invoiceLine.updateMany({ where: { delivery_header_id: deliveryHeaderId, status: { in: ["APPROVED", "REJECTED"] } }, data: { status: "DRAFT", approved_at: null, approved_by: null } });
             await tx.deliveryHeader.update({ where: { delivery_header_id: deliveryHeaderId }, data: { status: "IN_REVIEW" } });
 
@@ -178,6 +180,65 @@ export class InvoiceReviewService {
             }
             return { movementsRemoved: removed.count };
         }, { timeout: TX_TIMEOUT_MS });
+    }
+
+    /**
+     * Fixes a mistake on an already-APPROVED line without undoing the whole invoice — the path
+     * `undo()` itself points to when a later stocktake blocks it. Never rewrites the original
+     * DELIVERY_IN movement or the stocktake math that already ran against it; instead it updates
+     * the line's own qty/cost (so Invoices List/KPI/Profit, which read invoice_line directly,
+     * show the corrected number) and posts a separate stock_movement for just the difference,
+     * dated today. Kept as its own movement_type (DELIVERY_CORRECTION, not DELIVERY_IN) so a
+     * downward correction can't masquerade as a second delivery — stockBalanceAsOf (purchasing,
+     * stocktake reconciliation, variances) already respects `direction` for every movement_type,
+     * and KpiService's Stock Usage "Deliveries In" bucket now reads this type too. `undo()`
+     * cleans up both movement_types together if the line is ever undone later.
+     */
+    async correctLine(invoiceLineId: string, newQty: number, newUnitCost: number | null, correctedBy: string): Promise<{ movementPosted: boolean }> {
+        const line = await this.prisma.invoiceLine.findUnique({ where: { invoice_line_id: invoiceLineId } });
+        if (!line) throw new NotFoundException("Line not found.");
+        if (line.status !== "APPROVED") throw new BadRequestException("Only an approved line can be corrected this way — a draft line can just be edited directly.");
+        if (!line.stock_item_id) throw new BadRequestException("This line isn't matched to a stock item, so it never posted a stock movement to correct.");
+        if (!Number.isFinite(newQty) || newQty <= 0) throw new BadRequestException("Quantity must be a number greater than 0.");
+
+        const header = await this.prisma.deliveryHeader.findUnique({ where: { delivery_header_id: line.delivery_header_id } });
+        if (!header) throw new NotFoundException("Delivery not found.");
+
+        const oldQty = Number(line.qty);
+        const unitCost = newUnitCost ?? (line.unit_cost !== null ? Number(line.unit_cost) : null);
+        const newLineTotal = unitCost !== null ? Math.round(newQty * unitCost * 100) / 100 : null;
+        const deltaQty = Math.round((newQty - oldQty) * 1000) / 1000;
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.invoiceLine.update({
+                where: { invoice_line_id: invoiceLineId },
+                data: { qty: newQty, unit_cost: unitCost, line_total: newLineTotal },
+            });
+
+            if (deltaQty !== 0) {
+                const deltaCost = unitCost !== null ? Math.round(Math.abs(deltaQty) * unitCost * 100) / 100 : null;
+                await tx.stockMovement.create({
+                    data: {
+                        kiosk_id: header.kiosk_id,
+                        stock_item_id: line.stock_item_id as string,
+                        movement_type: "DELIVERY_CORRECTION",
+                        direction: deltaQty > 0 ? "IN" : "OUT",
+                        movement_date: new Date(),
+                        qty: Math.abs(deltaQty),
+                        unit_cost: unitCost,
+                        cost: deltaCost,
+                        reference_id: invoiceLineId,
+                    },
+                });
+            }
+
+            const action = await this.ownerActionState.findOwnerAction(tx, header.submission_id, "INVOICE_REVIEW");
+            if (action) {
+                await this.ownerActionState.logActivity(tx, action.owner_action_id, correctedBy, "invoice_line.qty", oldQty, newQty, "line corrected after approval");
+            }
+        }, { timeout: TX_TIMEOUT_MS });
+
+        return { movementPosted: deltaQty !== 0 };
     }
 
     /** Whole-invoice Decline: every remaining DRAFT line is REJECTED, nothing posted. */

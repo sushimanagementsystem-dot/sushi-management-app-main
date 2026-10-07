@@ -122,11 +122,36 @@ function InvoicesBody() {
 function InvoiceRow({ row, open, onToggle, onDeleted }) {
     const failedFile = row.files.find((f) => f.aiStatus === "FAILED");
     const Chevron = open ? ChevronDown : ChevronRight;
-    const { data: detail, isPending: detailLoading, error: detailError } = useBootstrap(
+    const { data: detail, isPending: detailLoading, error: detailError, refetch: refetchDetail } = useBootstrap(
         "bootstrap_invoice_detail",
         open ? { deliveryHeaderId: row.deliveryHeaderId } : null,
     );
     const detailOk = detail && detail.ok !== false;
+    const [correctingLineId, setCorrectingLineId] = useState(null);
+    const [correctQty, setCorrectQty] = useState("");
+    const [correctCost, setCorrectCost] = useState("");
+    const correctMutation = useApiMutation("correct_invoice_line", {
+        onSuccess: (res) => {
+            if (!res.ok) return noticeModal(res.error || "Correction failed.", "Can't correct line");
+            setCorrectingLineId(null);
+            refetchDetail();
+        },
+        onError: () => noticeModal("Could not reach the server — the line was not corrected.", "Can't correct line"),
+    });
+    function startCorrect(l) {
+        setCorrectingLineId(l.invoiceLineId);
+        setCorrectQty(String(l.qty));
+        setCorrectCost(l.unitCost !== null ? String(l.unitCost) : "");
+    }
+    function saveCorrect(l) {
+        const qty = Number(correctQty);
+        if (!Number.isFinite(qty) || qty <= 0) return noticeModal("Quantity must be a number greater than 0.", "Can't correct line");
+        correctMutation.mutate({
+            invoiceLineId: l.invoiceLineId,
+            qty,
+            unitCost: correctCost !== "" ? Number(correctCost) : undefined,
+        });
+    }
     const deleteMutation = useApiMutation("delete_invoice", {
         onSuccess: (res) => {
             if (!res.ok) return noticeModal(res.error || "Delete failed.", "Can't delete");
@@ -203,30 +228,80 @@ function InvoiceRow({ row, open, onToggle, onDeleted }) {
                                         <th className="border-b border-line px-2 py-1.5 text-right font-semibold">Unit cost</th>
                                         <th className="border-b border-line px-2 py-1.5 text-right font-semibold">Line total</th>
                                         <th className="border-b border-line px-2 py-1.5 font-semibold">Status</th>
+                                        <th className="border-b border-line px-2 py-1.5 font-semibold" />
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {detail.lines.length === 0 && (
                                         <tr>
-                                            <td colSpan={6} className="px-2 py-3 text-center text-muted">No lines on this invoice.</td>
+                                            <td colSpan={7} className="px-2 py-3 text-center text-muted">No lines on this invoice.</td>
                                         </tr>
                                     )}
-                                    {detail.lines.map((l) => (
-                                        <tr key={l.invoiceLineId} className={l.status === "DECLINED" ? "text-muted line-through" : ""}>
-                                            <td className="border-b border-line px-2 py-1.5">{l.description || "—"}</td>
-                                            <td className="border-b border-line px-2 py-1.5">{l.stockItemName || <span className="text-danger-ink">Not matched</span>}</td>
-                                            <td className="border-b border-line px-2 py-1.5 text-right">{qtyStr(l.qty)}</td>
-                                            <td className="border-b border-line px-2 py-1.5 text-right">{l.unitCost !== null ? moneyStr(l.unitCost) : "—"}</td>
-                                            <td className="border-b border-line px-2 py-1.5 text-right">{l.lineTotal !== null ? moneyStr(l.lineTotal) : "—"}</td>
-                                            <td className="border-b border-line px-2 py-1.5">{l.status}</td>
-                                        </tr>
-                                    ))}
+                                    {detail.lines.map((l) => {
+                                        const editing = correctingLineId === l.invoiceLineId;
+                                        return (
+                                            <tr key={l.invoiceLineId} className={l.status === "DECLINED" ? "text-muted line-through" : ""}>
+                                                <td className="border-b border-line px-2 py-1.5">{l.description || "—"}</td>
+                                                <td className="border-b border-line px-2 py-1.5">{l.stockItemName || <span className="text-danger-ink">Not matched</span>}</td>
+                                                <td className="border-b border-line px-2 py-1.5 text-right">
+                                                    {editing ? (
+                                                        <input type="number" step="0.01" className="w-20 text-right" value={correctQty} onChange={(e) => setCorrectQty(e.target.value)} />
+                                                    ) : (
+                                                        qtyStr(l.qty)
+                                                    )}
+                                                </td>
+                                                <td className="border-b border-line px-2 py-1.5 text-right">
+                                                    {editing ? (
+                                                        <input type="number" step="0.01" className="w-20 text-right" value={correctCost} onChange={(e) => setCorrectCost(e.target.value)} />
+                                                    ) : l.unitCost !== null ? (
+                                                        moneyStr(l.unitCost)
+                                                    ) : (
+                                                        "—"
+                                                    )}
+                                                </td>
+                                                <td className="border-b border-line px-2 py-1.5 text-right">{l.lineTotal !== null ? moneyStr(l.lineTotal) : "—"}</td>
+                                                <td className="border-b border-line px-2 py-1.5">{l.status}</td>
+                                                <td className="border-b border-line px-2 py-1.5 text-right whitespace-nowrap">
+                                                    {l.status === "APPROVED" &&
+                                                        (editing ? (
+                                                            <span className="flex items-center justify-end gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={correctMutation.isPending}
+                                                                    onClick={() => saveCorrect(l)}
+                                                                    className="rounded-lg bg-accent px-2 py-1 text-[0.78rem] font-semibold text-accent-ink hover:bg-accent/90 disabled:opacity-50"
+                                                                >
+                                                                    {correctMutation.isPending ? "Saving…" : "Save"}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={correctMutation.isPending}
+                                                                    onClick={() => setCorrectingLineId(null)}
+                                                                    className="rounded-lg border border-line px-2 py-1 text-[0.78rem] font-semibold text-muted hover:bg-panel"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            </span>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => startCorrect(l)}
+                                                                className="rounded-lg border border-line px-2 py-1 text-[0.78rem] font-semibold text-accent hover:bg-panel"
+                                                            >
+                                                                Correct
+                                                            </button>
+                                                        ))}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                                 {detail.lines.length > 0 && (
                                     <tfoot>
                                         <tr>
                                             <td colSpan={4} className="px-2 py-2 text-right font-semibold text-ink">Invoice total</td>
                                             <td className="px-2 py-2 text-right text-base font-bold text-ink">{moneyStr(detail.total)}</td>
+                                            <td />
                                             <td />
                                         </tr>
                                     </tfoot>

@@ -12,6 +12,7 @@ import { AuditReviewService } from "./audit-review.service.js";
 import { InvoiceFileService } from "./invoice-file.service.js";
 import {
     BootstrapActionInboxDto,
+    CorrectInvoiceLineDto,
     DeliveryHeaderIdDto,
     InvoiceLineIdDto,
     OwnerActionIdDto,
@@ -149,6 +150,12 @@ export class ActionInboxController {
     async declineInvoiceReview(@Body() dto: DeliveryHeaderIdDto, @CurrentUser() user: AuthenticatedUser) {
         await this.invoices.decline(dto.deliveryHeaderId, user.user_id);
         return {};
+    }
+
+    /** Fixes a mistake on an already-approved line when Undo is refused (a later stocktake already reconciled against it) — see InvoiceReviewService.correctLine. */
+    @Post("correct_invoice_line")
+    correctInvoiceLine(@Body() dto: CorrectInvoiceLineDto, @CurrentUser() user: AuthenticatedUser) {
+        return this.invoices.correctLine(dto.invoiceLineId, dto.qty, dto.unitCost ?? null, user.user_id);
     }
 
     @Post("review_audit_answer")

@@ -382,6 +382,7 @@ export class KpiService {
         for (const m of between) {
             const qty = Number(m.qty) || 0;
             if (m.movement_type === "DELIVERY_IN") deliveriesIn += qty;
+            if (m.movement_type === "DELIVERY_CORRECTION") deliveriesIn += m.direction === "IN" ? qty : -qty;
             if (m.movement_type === "TRANSFER_IN") transfersIn += qty;
             if (m.movement_type === "TRANSFER_OUT") transfersOut += qty;
         }

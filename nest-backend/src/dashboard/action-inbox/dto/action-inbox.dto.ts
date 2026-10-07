@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsObject, IsOptional, IsString, Max, Min, MinLength } from "class-validator";
+import { IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsNumber, IsObject, IsOptional, IsPositive, IsString, Max, Min, MinLength } from "class-validator";
 
 export class BootstrapActionInboxDto {
     @IsOptional()
@@ -122,6 +122,16 @@ export class InvoiceLineIdDto {
     @IsString()
     @MinLength(1)
     invoiceLineId!: string;
+}
+
+export class CorrectInvoiceLineDto extends InvoiceLineIdDto {
+    @IsNumber()
+    @IsPositive()
+    qty!: number;
+
+    @IsOptional()
+    @IsNumber()
+    unitCost?: number;
 }
 
 export class ReviewAuditAnswerDto {
