@@ -14,12 +14,14 @@ export class StockTransferReviewService {
         private readonly ownerActionState: OwnerActionStateService,
     ) {}
 
-    /** Edit source/destination kiosk, qty, or note on a stock_transfer
-     * while still PENDING. */
+    /** Edit source/destination kiosk, qty, or note on a stock_transfer while PENDING or APPROVED — safe either way
+     * since apply() (the only place that posts a real stock_movement) requires APPROVED and runs strictly after
+     * this, so nothing real exists yet to go stale. Once APPLIED, refused: that's the same "don't rewrite posted
+     * history" boundary InvoiceReviewService draws around a confirmed delivery. */
     async update(transferId: string, changes: Record<string, unknown>) {
         const existing = await this.prisma.stockTransfer.findUnique({ where: { transfer_id: transferId } });
         if (!existing) throw new NotFoundException("Transfer not found.");
-        if (existing.status !== "PENDING") throw new BadRequestException("Only pending transfers can be edited.");
+        if (existing.status !== "PENDING" && existing.status !== "APPROVED") throw new BadRequestException("Only a pending or approved (not yet applied) transfer can be edited.");
 
         const editable = ["source_kiosk_id", "destination_kiosk_id", "qty", "note"] as const;
         const patch: Record<string, unknown> = {};

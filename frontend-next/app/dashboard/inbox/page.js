@@ -1133,7 +1133,9 @@ function TransferSection({ row, kiosks, onChanged }) {
     const transfers = row.transfers || [];
     const [editMode, setEditMode] = useState(false);
     if (!transfers.length) return <p className="text-muted">No linked transfers found.</p>;
-    const hasPending = transfers.some((t) => t.status === "PENDING");
+    // Editable while PENDING or APPROVED — not once APPLIED, since that's when a real stock
+    // movement has posted (see StockTransferReviewService.update/apply).
+    const hasEditable = transfers.some((t) => t.status === "PENDING" || t.status === "APPROVED");
 
     return editMode ? (
         <TransferEditor
@@ -1148,7 +1150,7 @@ function TransferSection({ row, kiosks, onChanged }) {
     ) : (
         <div>
             <TransferView transfers={transfers} kiosks={kiosks} row={row} onChanged={onChanged} />
-            {hasPending && (
+            {hasEditable && (
                 <button type="button" className={DASH_BTN + " mt-3"} onClick={() => setEditMode(true)}>
                     Edit
                 </button>
@@ -1260,10 +1262,11 @@ function TransferView({ transfers, kiosks, onChanged }) {
 }
 
 function TransferEditor({ transfers, kiosks, onCancel, onSaved }) {
+    const editable = (t) => t.status === "PENDING" || t.status === "APPROVED";
     const [edits, setEdits] = useState(() => {
         const m = {};
         transfers.forEach((t) => {
-            if (t.status === "PENDING") m[t.transfer_id] = { source: t.source_kiosk_id || "", dest: t.destination_kiosk_id || "" };
+            if (editable(t)) m[t.transfer_id] = { source: t.source_kiosk_id || "", dest: t.destination_kiosk_id || "", qty: String(t.qty) };
         });
         return m;
     });
@@ -1272,15 +1275,19 @@ function TransferEditor({ transfers, kiosks, onCancel, onSaved }) {
     function save() {
         const tasks = [];
         transfers.forEach((t) => {
-            if (t.status !== "PENDING") return;
+            if (!editable(t)) return;
             const e = edits[t.transfer_id];
-            if (e.source !== (t.source_kiosk_id || "") || e.dest !== (t.destination_kiosk_id || "")) {
-                tasks.push(() =>
-                    apiCall("update_stock_transfer", {
-                        transferId: t.transfer_id,
-                        changes: { source_kiosk_id: e.source, destination_kiosk_id: e.dest },
-                    }),
-                );
+            const qty = Number(e.qty);
+            if (!Number.isFinite(qty) || qty <= 0) {
+                tasks.push(() => Promise.resolve({ ok: false, error: `${t.stockItemName || t.stock_item_id}: quantity must be a number greater than 0.` }));
+                return;
+            }
+            const changes = {};
+            if (e.source !== (t.source_kiosk_id || "")) changes.source_kiosk_id = e.source;
+            if (e.dest !== (t.destination_kiosk_id || "")) changes.destination_kiosk_id = e.dest;
+            if (qty !== Number(t.qty)) changes.qty = qty;
+            if (Object.keys(changes).length) {
+                tasks.push(() => apiCall("update_stock_transfer", { transferId: t.transfer_id, changes }));
             }
         });
         setSaving(true);
@@ -1311,11 +1318,21 @@ function TransferEditor({ transfers, kiosks, onCancel, onSaved }) {
                         {transfers.map((t) => (
                             <tr key={t.transfer_id}>
                                 <td className={TD}>{t.stockItemName || t.stock_item_id}</td>
-                                <td className={TD}>
-                                    {t.qty} {t.count_unit}
-                                </td>
-                                {t.status === "PENDING" ? (
+                                {editable(t) ? (
                                     <>
+                                        <td className={TD}>
+                                            <span className="flex items-center gap-1">
+                                                <input
+                                                    type="number"
+                                                    step="any"
+                                                    min="0"
+                                                    className="w-20"
+                                                    value={edits[t.transfer_id].qty}
+                                                    onChange={(e) => setEdits((m) => ({ ...m, [t.transfer_id]: { ...m[t.transfer_id], qty: e.target.value } }))}
+                                                />
+                                                {t.count_unit}
+                                            </span>
+                                        </td>
                                         <td className={TD}>
                                             <KioskPicker
                                                 kiosks={kiosks}
@@ -1333,6 +1350,9 @@ function TransferEditor({ transfers, kiosks, onCancel, onSaved }) {
                                     </>
                                 ) : (
                                     <>
+                                        <td className={TD}>
+                                            {t.qty} {t.count_unit}
+                                        </td>
                                         <td className={TD}>{kioskName(kiosks, t.source_kiosk_id)}</td>
                                         <td className={TD}>{kioskName(kiosks, t.destination_kiosk_id)}</td>
                                     </>
