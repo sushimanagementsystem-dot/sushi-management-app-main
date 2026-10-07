@@ -140,11 +140,11 @@ export default function MoveStockPage() {
 
                         {!loading && (
                             <>
-                                <div className="mb-[0.9rem] flex items-center gap-[0.6rem]">
-                                    <div className="flex-1 rounded-lg border border-line bg-card p-[0.7rem] text-center">
+                                <div className="mb-[0.9rem] flex flex-col gap-[0.6rem] sm:flex-row sm:items-center">
+                                    <div className="min-w-0 flex-1 rounded-lg border border-line bg-card p-[0.7rem] text-center">
                                         <div className="text-[0.7rem] uppercase tracking-[0.05em] text-muted">From</div>
                                         <select
-                                            className="m-0"
+                                            className="m-0 w-full min-w-0"
                                             value={source}
                                             onChange={(e) => setSource(e.target.value)}
                                         >
@@ -156,10 +156,13 @@ export default function MoveStockPage() {
                                             ))}
                                         </select>
                                     </div>
-                                    <div className="text-[1.3rem] text-muted">→</div>
-                                    <div className="flex-1 rounded-lg border border-line bg-card p-[0.7rem] text-center">
+                                    <div className="self-center text-[1.3rem] text-muted sm:rotate-0">
+                                        <span className="block sm:hidden">↓</span>
+                                        <span className="hidden sm:block">→</span>
+                                    </div>
+                                    <div className="min-w-0 flex-1 rounded-lg border border-line bg-card p-[0.7rem] text-center">
                                         <div className="text-[0.7rem] uppercase tracking-[0.05em] text-muted">To</div>
-                                        <select className="m-0" value={dest} onChange={(e) => setDest(e.target.value)}>
+                                        <select className="m-0 w-full min-w-0" value={dest} onChange={(e) => setDest(e.target.value)}>
                                             <option value="">Not sure — owner will decide</option>
                                             {kiosksFor(source).map((k) => (
                                                 <option key={k.id} value={k.id}>
