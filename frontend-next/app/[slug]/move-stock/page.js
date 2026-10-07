@@ -140,7 +140,7 @@ export default function MoveStockPage() {
 
                         {!loading && (
                             <>
-                                <div className="mb-[0.9rem] flex items-center gap-[0.6rem] sm:mx-auto sm:max-w-md">
+                                <div className="mb-[0.9rem] flex items-center gap-[0.6rem]">
                                     <div className="flex-1 rounded-lg border border-line bg-card p-[0.7rem] text-center">
                                         <div className="text-[0.7rem] uppercase tracking-[0.05em] text-muted">From</div>
                                         <select
@@ -230,7 +230,7 @@ export default function MoveStockPage() {
                                     ))}
                                 </div>
 
-                                <div className="sm:mx-auto sm:max-w-md">
+                                <div>
                                     {boot?.reasons?.length > 0 && (
                                         <>
                                             <label className="mb-1 ml-[0.1rem] block text-[0.8rem] text-muted">
