@@ -17,16 +17,16 @@ function build(products: Record<string, unknown>[], pars: Record<string, unknown
 const par = (product_id: string) => ({ kiosk_id: "K1", product_id });
 const kiosk = { kiosk_id: "K1" } as never;
 
-describe("FridgeCountService.getBootstrapData — Retired products", () => {
-    it("does not ask staff to count a product marked Retired, even while still Active", async () => {
-        const svc = build([{ product_id: "P1", name: "Salmon Nigiri", active: true, production_role: "RETIRED", product_category_id: "PC1" }], [par("P1")]);
+describe("FridgeCountService.getBootstrapData", () => {
+    it("still asks staff to count a Retired product, since it stays on the morning fridge count", async () => {
+        const svc = build([{ product_id: "P1", name: "Spicy Salmon Faves", active: true, production_role: "RETIRED", product_category_id: "PC1" }], [par("P1")]);
         const res = await svc.getBootstrapData(kiosk);
-        expect(res.products).toEqual([]);
+        expect(res.products).toEqual([expect.objectContaining({ id: "P1", name: "Spicy Salmon Faves" })]);
     });
 
-    it("still lists an active, non-retired product with a par set", async () => {
-        const svc = build([{ product_id: "P2", name: "California Roll", active: true, production_role: "PRIMARY", product_category_id: "PC1" }], [par("P2")]);
+    it("does not list an inactive product", async () => {
+        const svc = build([{ product_id: "P2", name: "Old Item", active: false, production_role: "PRIMARY", product_category_id: "PC1" }], [par("P2")]);
         const res = await svc.getBootstrapData(kiosk);
-        expect(res.products).toEqual([expect.objectContaining({ id: "P2", name: "California Roll" })]);
+        expect(res.products).toEqual([]);
     });
 });

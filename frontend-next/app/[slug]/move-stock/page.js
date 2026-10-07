@@ -213,8 +213,8 @@ export default function MoveStockPage() {
                                                     }}
                                                 />
                                             </div>
-                                            <div className="w-[4.6rem] flex-none">
-                                                <FieldLabel>Qty</FieldLabel>
+                                            <div className="w-[6rem] flex-none">
+                                                <FieldLabel>{(() => { const u = (boot?.items || []).find((p) => p.name === l.name.trim())?.unit; return u ? "Qty (" + u + ")" : "Qty"; })()}</FieldLabel>
                                                 <input
                                                     type="number"
                                                     min="1"
