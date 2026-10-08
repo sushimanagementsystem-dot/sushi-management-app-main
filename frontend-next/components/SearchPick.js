@@ -24,6 +24,7 @@ export default function SearchPick({ getItems, onSelect, placeholder, value }) {
     const [open, setOpen] = useState(false);
     const [rect, setRect] = useState(null);
     const inputRef = useRef(null);
+    const listRef = useRef(null);
 
     useEffect(() => {
         setQuery(value || "");
@@ -52,8 +53,15 @@ export default function SearchPick({ getItems, onSelect, placeholder, value }) {
         measure();
         // Scrolling (the page, or the table's own horizontal scroll container) or resizing would leave a
         // stale-positioned dropdown floating in the wrong place — closing is simpler and safer than
-        // re-tracking every possible scroll ancestor.
-        const close = () => setOpen(false);
+        // re-tracking every possible scroll ancestor. But this listener runs in the capture phase, so it
+        // also fires for a scroll *inside the results list itself* (its own overflow-y-auto, scrolled to
+        // see items past the visible ~40vh) — that scroll never moves the fixed-position panel, so closing
+        // it there was simply a bug: the list vanished the moment someone tried to scroll through it, with
+        // nothing to reopen it but refocusing the input from scratch.
+        const close = (e) => {
+            if (listRef.current && e.target instanceof Node && listRef.current.contains(e.target)) return;
+            setOpen(false);
+        };
         window.addEventListener("scroll", close, true);
         window.addEventListener("resize", close);
         return () => {
@@ -84,6 +92,7 @@ export default function SearchPick({ getItems, onSelect, placeholder, value }) {
                 rect &&
                 createPortal(
                     <div
+                        ref={listRef}
                         style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
                         className="z-50 max-h-[40vh] overflow-y-auto rounded border border-line bg-white shadow-[0_6px_16px_rgba(16,24,40,0.12)]"
                     >
