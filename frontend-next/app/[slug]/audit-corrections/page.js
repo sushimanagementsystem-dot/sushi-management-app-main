@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { AlertTriangle, Camera, CheckCircle2, Clock, Send } from "lucide-react";
 import { kickProcessing, requireKioskToken } from "@/lib/api";
@@ -22,6 +22,34 @@ function isOverdue(deadline) {
     return new Date(deadline + "T23:59:59") < new Date();
 }
 
+// In-progress note/photo for whichever item is being fixed, kept in
+// localStorage so navigating to the menu and back resumes where staff left
+// off instead of losing what they typed — per-kiosk, not per-action, since
+// only one card is ever expanded at a time on this page. Best-effort only:
+// wrapped in try/catch because a private-browsing tab or a full/blocked
+// storage quota must never break the form itself.
+function draftKey(slug) {
+    return "audit_correction_draft_" + slug;
+}
+
+function loadDraft(slug) {
+    try {
+        const raw = localStorage.getItem(draftKey(slug));
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function saveDraft(slug, draft) {
+    try {
+        if (draft) localStorage.setItem(draftKey(slug), JSON.stringify(draft));
+        else localStorage.removeItem(draftKey(slug));
+    } catch {
+        // best-effort — nothing to recover from here
+    }
+}
+
 /**
  * A list of this kiosk's open audit fails, each fixed and submitted
  * independently — no "which action are you fixing?" dropdown. Per spec:
@@ -35,17 +63,22 @@ export default function AuditCorrectionsPage() {
     const { slug } = useParams();
     const menuHref = "/" + slug + "/home";
     const [token, setToken] = useState(null);
-    const [expandedId, setExpandedId] = useState(null);
-    const [note, setNote] = useState("");
-    const [photo, setPhoto] = useState(null);
+    const [expandedId, setExpandedId] = useState(() => loadDraft(slug)?.actionId ?? null);
+    const [note, setNote] = useState(() => loadDraft(slug)?.note ?? "");
+    const [photo, setPhoto] = useState(() => loadDraft(slug)?.photo ?? null);
     const [formError, setFormError] = useState("");
     const [justSubmittedId, setJustSubmittedId] = useState(null);
-    const clientKey = useRef(makeClientKey());
 
     useEffect(() => {
         const t = requireKioskToken();
         if (t) setToken(t);
     }, []);
+
+    // Keep the draft in step with what's on screen — cleared automatically
+    // the moment there's nothing to resume (collapsed, cancelled, or submitted).
+    useEffect(() => {
+        saveDraft(slug, expandedId ? { actionId: expandedId, note, photo } : null);
+    }, [slug, expandedId, note, photo]);
 
     const {
         data: boot,
@@ -53,6 +86,19 @@ export default function AuditCorrectionsPage() {
         error: bootError,
         refetch,
     } = useBootstrap("bootstrap_audit_correction", token && { token }, { enabled: !!token });
+
+    // A resumed draft can point at an action that's no longer OPEN (owner
+    // already resolved it, or it was submitted from another device since) —
+    // drop it rather than show a stale form for something that's gone.
+    useEffect(() => {
+        if (!boot?.ok || !expandedId) return;
+        if (!(boot.actions || []).some((a) => a.id === expandedId && a.status === "OPEN")) {
+            setExpandedId(null);
+            setNote("");
+            setPhoto(null);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [boot]);
 
     const submitMutation = useApiMutation("submit", {
         onSuccess: (res, vars) => {
@@ -94,7 +140,11 @@ export default function AuditCorrectionsPage() {
             token: token,
             formType: "AUDIT_CORRECTION",
             payload: {
-                client_key: clientKey.current,
+                // A fresh key per correction, not one shared for the whole page visit — this page lets staff submit
+                // several independent corrections (one per open audit question) without reloading, and the backend's
+                // resubmit-dedup (PipelineService.clearPriorAttempts) keys off this value: sharing it across different
+                // corrective_action_ids made each new submission silently wipe the previous one's saved note/photo.
+                client_key: makeClientKey(),
                 business_date: boot.businessDate,
                 corrective_action_id: actionId,
                 correction_note: t,
