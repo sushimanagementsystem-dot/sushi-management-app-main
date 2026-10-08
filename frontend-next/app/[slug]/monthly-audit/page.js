@@ -418,6 +418,7 @@ export default function MonthlyAuditPage() {
                     <button
                         className="flex w-full items-center justify-center gap-1.5 rounded-card border border-accent bg-accent p-[0.8rem] text-base font-bold text-accent-ink sm:mx-auto sm:max-w-sm"
                         onClick={submitAudit}
+                        disabled={submitMutation.isPending}
                     >
                         <Send size={16} strokeWidth={2.2} />
                         Submit audit

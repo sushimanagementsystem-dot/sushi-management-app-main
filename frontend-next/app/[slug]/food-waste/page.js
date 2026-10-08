@@ -202,6 +202,7 @@ export default function FoodWastePage() {
                     <button
                         className="flex w-full items-center justify-center gap-1.5 border-accent bg-accent font-bold text-accent-ink shadow-elevate-1 transition-transform duration-150 hover:-translate-y-px active:translate-y-0 sm:mx-auto sm:max-w-sm"
                         onClick={submitWaste}
+                        disabled={submitMutation.isPending}
                     >
                         <Send size={15} strokeWidth={2.2} />
                         Submit

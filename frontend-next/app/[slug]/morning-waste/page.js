@@ -179,6 +179,7 @@ export default function MorningWastePage() {
                         <button
                             className="flex w-full items-center justify-center gap-1.5 border-accent bg-accent font-bold text-accent-ink shadow-elevate-1 transition-transform duration-150 hover:-translate-y-px active:translate-y-0"
                             onClick={() => submitWaste(false)}
+                            disabled={submitMutation.isPending}
                         >
                             <Send size={15} strokeWidth={2.2} />
                             Submit waste
@@ -187,6 +188,7 @@ export default function MorningWastePage() {
                             <button
                                 className="mt-[0.5rem] flex w-full items-center justify-center gap-1.5 border-ink bg-ink font-bold text-white transition-transform duration-150 hover:-translate-y-px active:translate-y-0"
                                 onClick={() => submitWaste(true)}
+                                disabled={submitMutation.isPending}
                             >
                                 <ShieldCheck size={15} strokeWidth={2.2} />
                                 No waste today

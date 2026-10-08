@@ -48,11 +48,25 @@ export class MonthlyAuditProcessor implements SubmissionProcessor<MonthlyAuditPa
         return p;
     }
 
+    /**
+     * A resubmit's own Action Inbox card (see process()'s ownerAction.create below) is tied to the PRIOR attempt's
+     * submission_id, not this table's own rows, so the generic processor.tables cleanup never reaches it. Without
+     * this, every resubmit left its old AUDIT_REVIEW card behind — OPEN, pointing at answers clearExtra had just
+     * deleted — piling up as dead duplicates the owner could never clear (found live: 6 of them for one kiosk/day,
+     * one real double-tap away from happening again since the Submit button has no disabled-while-pending guard).
+     */
     async clearExtra(tx: Prisma.TransactionClient, oldSubmissionIds: string[]): Promise<void> {
         const oldResponses = await tx.auditResponse.findMany({ where: { submission_id: { in: oldSubmissionIds } } });
         const responseIds = oldResponses.map((r) => r.audit_response_id);
         if (responseIds.length) {
             await tx.auditAnswer.deleteMany({ where: { audit_response_id: { in: responseIds } } });
+        }
+
+        const oldActions = await tx.ownerAction.findMany({ where: { category: "AUDIT_REVIEW", source_submission_id: { in: oldSubmissionIds } } });
+        if (oldActions.length) {
+            const oldActionIds = oldActions.map((a) => a.owner_action_id);
+            await tx.activityLog.deleteMany({ where: { owner_action_id: { in: oldActionIds } } });
+            await tx.ownerAction.deleteMany({ where: { owner_action_id: { in: oldActionIds } } });
         }
     }
 
