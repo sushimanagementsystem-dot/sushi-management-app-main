@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { startTransition, useRef, useState, ViewTransition } from "react";
 import { createPortal } from "react-dom";
 import { Download, FileSpreadsheet, Upload, X } from "lucide-react";
 import { apiCall, readFileAsBase64, saveBase64File } from "@/lib/api";
@@ -41,7 +41,7 @@ export function BulkImportButton({ dataset, beforeOpen, onApplied }) {
             await noticeModal("Save or discard your unsaved edits in the table first, then start the bulk update.", "Unsaved edits");
             return;
         }
-        setOpen(true);
+        startTransition(() => setOpen(true));
     }
 
     return (
@@ -54,7 +54,11 @@ export function BulkImportButton({ dataset, beforeOpen, onApplied }) {
                 <FileSpreadsheet size={15} strokeWidth={2.25} />
                 Bulk update: {dataset.label}
             </button>
-            {open && <BulkImportWindow dataset={dataset} onApplied={onApplied} onClose={() => setOpen(false)} />}
+            {open && (
+                <ViewTransition enter="modal-scale-in" exit="modal-scale-out">
+                    <BulkImportWindow dataset={dataset} onApplied={onApplied} onClose={() => startTransition(() => setOpen(false))} />
+                </ViewTransition>
+            )}
         </>
     );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState, ViewTransition } from "react";
 import { Check, X, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import DashboardShell from "@/components/DashboardShell";
@@ -290,7 +290,11 @@ function TaskCompletionSection() {
                                                 <td key={k.id} className="whitespace-nowrap border-b border-line px-[0.9rem] py-2 text-center">
                                                     <button
                                                         type="button"
-                                                        onClick={() => setDetailCell({ kioskId: k.id, kioskName: k.name, taskKey: task.key, label: task.label })}
+                                                        onClick={() =>
+                                                            startTransition(() =>
+                                                                setDetailCell({ kioskId: k.id, kioskName: k.name, taskKey: task.key, label: task.label }),
+                                                            )
+                                                        }
                                                         title={`${k.name} — ${task.label}: ${done ? "view submitted data" : "not completed"}`}
                                                         className={
                                                             // grid place-items-center, not flex — a lone small SVG as the
@@ -321,7 +325,11 @@ function TaskCompletionSection() {
                 </div>
             )}
 
-            {detailCell && <TaskDetailModal date={date} cell={detailCell} onClose={() => setDetailCell(null)} />}
+            {detailCell && (
+                <ViewTransition enter="modal-scale-in" exit="modal-scale-out">
+                    <TaskDetailModal date={date} cell={detailCell} onClose={() => startTransition(() => setDetailCell(null))} />
+                </ViewTransition>
+            )}
         </SectionCard>
     );
 }

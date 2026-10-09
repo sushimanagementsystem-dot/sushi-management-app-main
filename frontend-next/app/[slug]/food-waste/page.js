@@ -8,6 +8,7 @@ import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import SearchPick from "@/components/SearchPick";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FieldLabel, LineCard } from "@/components/kiosk/LineCard";
@@ -109,7 +110,8 @@ export default function FoodWastePage() {
         <>
             <PageTitle title="Food Waste" />
             <KioskTopbar icon="⚖️" title="Food Waste" menuHref={menuHref} />
-            <Wrap className="sm:max-w-2xl md:max-w-3xl">
+            <KioskPageTransition>
+                <Wrap className="sm:max-w-2xl md:max-w-3xl">
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         <FormNote>
@@ -195,7 +197,8 @@ export default function FoodWastePage() {
                 )}
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} />}
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
 
             {!loading && !success && (
                 <StickyActionBar>

@@ -8,6 +8,7 @@ import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import SearchPick from "@/components/SearchPick";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import PhotoBox from "@/components/kiosk/PhotoBox";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
@@ -91,7 +92,8 @@ export default function DamagedProductPage() {
         <>
             <PageTitle title="Damaged Product" />
             <KioskTopbar icon="📸" title="Damaged Product" menuHref={menuHref} />
-            <Wrap>
+            <KioskPageTransition>
+                <Wrap>
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         <FormNote>
@@ -169,7 +171,8 @@ export default function DamagedProductPage() {
                 )}
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} onLogAnother={logAnother} />}
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
 
             {!loading && !success && (
                 <StickyActionBar>

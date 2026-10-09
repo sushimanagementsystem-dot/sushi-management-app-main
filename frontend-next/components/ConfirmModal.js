@@ -1,6 +1,62 @@
 "use client";
 
 import { createRoot } from "react-dom/client";
+import { startTransition, useState, ViewTransition } from "react";
+
+/**
+ * Imperative-promise modals (confirmModal/noticeModal below) each mount
+ * their own ad-hoc React root straight into document.body, outside the
+ * app's own component tree — there's no router/Suspense transition to
+ * piggyback on for the open/close animation, so mountAnimatedModal gives
+ * each one its own tiny bit of state instead. `open` flips via
+ * startTransition, which is what actually activates the <ViewTransition>
+ * (a bare setState does not) — and critically, the <ViewTransition>
+ * itself is conditionally rendered (`{open && <ViewTransition>...}`), not
+ * left mounted with its children swapped; a VT only fires enter/exit when
+ * the boundary itself is inserted/removed, not when content changes
+ * underneath an always-mounted one. requestClose() then waits VT_EXIT_MS
+ * (matching globals.css's --duration-exit) before the real cleanup
+ * (root.unmount() + resolve()) runs, so the panel visibly animates out
+ * instead of vanishing mid-animation. External call sites never see any
+ * of this — confirmModal/noticeModal's own exported signatures and
+ * behavior (including their original resolve timing) are unchanged.
+ */
+const VT_EXIT_MS = 150;
+
+/** Mounts `backdropProps` (the fixed-inset-0 overlay's own props, e.g. onClick-to-close)
+ * wrapping `panel` (the actual dialog box), animated. Returns requestClose(afterExit). */
+function mountAnimatedModal(backdropClassName, panel, backdropExtraProps) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    let setOpenRef = null;
+    function Bridge() {
+        const [open, setOpen] = useState(true);
+        setOpenRef = setOpen;
+        return (
+            <div className={backdropClassName} {...backdropExtraProps}>
+                {open && (
+                    <ViewTransition enter="modal-scale-in" exit="modal-scale-out">
+                        {panel}
+                    </ViewTransition>
+                )}
+            </div>
+        );
+    }
+    root.render(<Bridge />);
+
+    function requestClose(afterExit) {
+        startTransition(() => setOpenRef(false));
+        setTimeout(() => {
+            root.unmount();
+            container.remove();
+            afterExit();
+        }, VT_EXIT_MS);
+    }
+
+    return requestClose;
+}
 
 /**
  * Styled yes/no confirmation, reusing the same modal look as dashboard "add
@@ -17,40 +73,29 @@ import { createRoot } from "react-dom/client";
  */
 export function confirmModal(message, confirmLabel, danger) {
     return new Promise((resolve) => {
-        const container = document.createElement("div");
-        document.body.appendChild(container);
-        const root = createRoot(container);
-
-        const cleanup = (result) => {
-            root.unmount();
-            container.remove();
-            resolve(result);
-        };
-
         // Below 720px this becomes a bottom sheet (full width, anchored to
         // the bottom edge) instead of a small floating card — same pattern
         // as the Data Tables and Action Inbox detail modals.
-        root.render(
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(20,24,30,0.45)] backdrop-blur-[2px] max-[720px]:items-end">
-                <div className="w-[26rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)] overflow-y-auto rounded-card bg-card p-[1.4rem] shadow-elevate-3 max-[720px]:w-full max-[720px]:max-w-full max-[720px]:max-h-[88vh] max-[720px]:rounded-b-none max-[720px]:rounded-t-[1.2rem] max-[720px]:p-[1.1rem]">
-                    <p>{message}</p>
-                    <div className="mt-[0.8rem] flex justify-end gap-[0.6rem] max-[720px]:flex-col-reverse">
-                        <button
-                            className="rounded-lg border-none bg-line px-4 py-[0.6rem] text-[0.9rem] font-semibold text-ink max-[720px]:min-h-[2.75rem]"
-                            onClick={() => cleanup(false)}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            className={
-                                "rounded-lg border-none px-4 py-[0.6rem] text-[0.9rem] font-semibold max-[720px]:min-h-[2.75rem] " +
-                                (danger ? "bg-danger-ink text-white hover:bg-danger-ink/90" : "bg-accent text-accent-ink")
-                            }
-                            onClick={() => cleanup(true)}
-                        >
-                            {confirmLabel || "Leave"}
-                        </button>
-                    </div>
+        const requestClose = mountAnimatedModal(
+            "fixed inset-0 z-50 flex items-center justify-center bg-[rgba(20,24,30,0.45)] backdrop-blur-[2px] max-[720px]:items-end",
+            <div className="w-[26rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)] overflow-y-auto rounded-card bg-card p-[1.4rem] shadow-elevate-3 max-[720px]:w-full max-[720px]:max-w-full max-[720px]:max-h-[88vh] max-[720px]:rounded-b-none max-[720px]:rounded-t-[1.2rem] max-[720px]:p-[1.1rem]">
+                <p>{message}</p>
+                <div className="mt-[0.8rem] flex justify-end gap-[0.6rem] max-[720px]:flex-col-reverse">
+                    <button
+                        className="rounded-lg border-none bg-line px-4 py-[0.6rem] text-[0.9rem] font-semibold text-ink max-[720px]:min-h-[2.75rem]"
+                        onClick={() => requestClose(() => resolve(false))}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        className={
+                            "rounded-lg border-none px-4 py-[0.6rem] text-[0.9rem] font-semibold max-[720px]:min-h-[2.75rem] " +
+                            (danger ? "bg-danger-ink text-white hover:bg-danger-ink/90" : "bg-accent text-accent-ink")
+                        }
+                        onClick={() => requestClose(() => resolve(true))}
+                    >
+                        {confirmLabel || "Leave"}
+                    </button>
                 </div>
             </div>,
         );
@@ -65,68 +110,56 @@ export function confirmModal(message, confirmLabel, danger) {
  */
 export function noticeModal(message, title, options = {}) {
     return new Promise((resolve) => {
-        const container = document.createElement("div");
-        document.body.appendChild(container);
-        const root = createRoot(container);
-        const finish = (result) => {
-            root.unmount();
-            container.remove();
-            resolve(result);
-        };
-        const close = () => finish(false);
-
+        const close = () => requestClose(() => resolve(false));
         const lines = String(message || "Something went wrong.").split("\n");
-        root.render(
+
+        const requestClose = mountAnimatedModal(
+            "fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(20,24,30,0.45)] backdrop-blur-[2px] max-[720px]:items-end",
             <div
-                className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(20,24,30,0.45)] backdrop-blur-[2px] max-[720px]:items-end"
-                onClick={close}
-                onKeyDown={(e) => e.key === "Escape" && close()}
+                role="alertdialog"
+                aria-modal="true"
+                className="w-[30rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)] overflow-y-auto rounded-card bg-card p-[1.4rem] shadow-elevate-3 max-[720px]:w-full max-[720px]:max-w-full max-[720px]:max-h-[88vh] max-[720px]:rounded-b-none max-[720px]:rounded-t-[1.2rem] max-[720px]:p-[1.1rem]"
+                onClick={(e) => e.stopPropagation()}
             >
-                <div
-                    role="alertdialog"
-                    aria-modal="true"
-                    className="w-[30rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)] overflow-y-auto rounded-card bg-card p-[1.4rem] shadow-elevate-3 max-[720px]:w-full max-[720px]:max-w-full max-[720px]:max-h-[88vh] max-[720px]:rounded-b-none max-[720px]:rounded-t-[1.2rem] max-[720px]:p-[1.1rem]"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <h3 className="m-0 mb-[0.6rem] text-[1.05rem] font-bold tracking-[-0.01em] text-ink">{title || "Something needs attention"}</h3>
-                    <div className="text-[0.92rem] leading-snug text-ink">
-                        {lines.map((ln, i) =>
-                            ln.startsWith("• ") ? (
-                                <div key={i} className="mt-1.5 rounded-lg bg-panel px-3 py-2">
-                                    {ln.slice(2)}
-                                </div>
-                            ) : ln.trim() === "" ? (
-                                <div key={i} className="h-2" />
-                            ) : (
-                                <p key={i} className="m-0 mt-1">
-                                    {ln}
-                                </p>
-                            ),
-                        )}
-                    </div>
-                    <div className="mt-[1rem] flex justify-end gap-[0.6rem] max-[720px]:flex-col-reverse">
+                <h3 className="m-0 mb-[0.6rem] text-[1.05rem] font-bold tracking-[-0.01em] text-ink">{title || "Something needs attention"}</h3>
+                <div className="text-[0.92rem] leading-snug text-ink">
+                    {lines.map((ln, i) =>
+                        ln.startsWith("• ") ? (
+                            <div key={i} className="mt-1.5 rounded-lg bg-panel px-3 py-2">
+                                {ln.slice(2)}
+                            </div>
+                        ) : ln.trim() === "" ? (
+                            <div key={i} className="h-2" />
+                        ) : (
+                            <p key={i} className="m-0 mt-1">
+                                {ln}
+                            </p>
+                        ),
+                    )}
+                </div>
+                <div className="mt-[1rem] flex justify-end gap-[0.6rem] max-[720px]:flex-col-reverse">
+                    <button
+                        autoFocus={!options.actionLabel}
+                        className={
+                            "rounded-lg border-none px-5 py-[0.6rem] text-[0.9rem] font-semibold max-[720px]:min-h-[2.75rem] " +
+                            (options.actionLabel ? "bg-line text-ink" : "bg-accent text-accent-ink")
+                        }
+                        onClick={close}
+                    >
+                        {options.actionLabel ? "Close" : "OK"}
+                    </button>
+                    {options.actionLabel && (
                         <button
-                            autoFocus={!options.actionLabel}
-                            className={
-                                "rounded-lg border-none px-5 py-[0.6rem] text-[0.9rem] font-semibold max-[720px]:min-h-[2.75rem] " +
-                                (options.actionLabel ? "bg-line text-ink" : "bg-accent text-accent-ink")
-                            }
-                            onClick={close}
+                            autoFocus
+                            className="rounded-lg border-none bg-accent px-5 py-[0.6rem] text-[0.9rem] font-semibold text-accent-ink max-[720px]:min-h-[2.75rem]"
+                            onClick={() => requestClose(() => resolve(true))}
                         >
-                            {options.actionLabel ? "Close" : "OK"}
+                            {options.actionLabel}
                         </button>
-                        {options.actionLabel && (
-                            <button
-                                autoFocus
-                                className="rounded-lg border-none bg-accent px-5 py-[0.6rem] text-[0.9rem] font-semibold text-accent-ink max-[720px]:min-h-[2.75rem]"
-                                onClick={() => finish(true)}
-                            >
-                                {options.actionLabel}
-                            </button>
-                        )}
-                    </div>
+                    )}
                 </div>
             </div>,
+            { onClick: close, onKeyDown: (e) => e.key === "Escape" && close() },
         );
     });
 }

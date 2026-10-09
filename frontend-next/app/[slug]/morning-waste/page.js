@@ -7,6 +7,7 @@ import { kickProcessing, requireKioskToken } from "@/lib/api";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
@@ -113,7 +114,8 @@ export default function MorningWastePage() {
                 enter a quantity for products that were actually wasted/out of
                 date, leaving everything else blank, instead of searching for
                 and adding one line per product. */}
-            <Wrap className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
+            <KioskPageTransition>
+                <Wrap className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         {resubmitBanner && (
@@ -171,7 +173,8 @@ export default function MorningWastePage() {
                 )}
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} />}
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
 
             {!loading && !success && (
                 <StickyActionBar>

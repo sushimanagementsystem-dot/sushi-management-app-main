@@ -14,6 +14,130 @@
  * since that's config, not hand-written CSS rules.
  */
 
+/**
+ * View Transition recipes (React's <ViewTransition>, native
+ * document.startViewTransition under the hood). Kept as plain global CSS,
+ * not Tailwind utilities — these target ::view-transition-* pseudo-
+ * elements, which Tailwind has no utility syntax for. Unsupported
+ * browsers (pre-Chromium 125 / Firefox 144 / Safari 18.2) just never
+ * create these pseudo-elements, so every <ViewTransition> degrades to a
+ * plain, instant mount/unmount with zero fallback code needed.
+ */
+:root {
+    --duration-exit: 150ms;
+    --duration-enter: 210ms;
+    --duration-move: 320ms;
+}
+
+@keyframes vt-fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+@keyframes vt-slide {
+    from {
+        translate: var(--vt-slide-offset);
+    }
+    to {
+        translate: 0;
+    }
+}
+@keyframes vt-scale-down {
+    from {
+        transform: scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: scale(0.92);
+        opacity: 0;
+    }
+}
+@keyframes vt-scale-up {
+    from {
+        transform: scale(0.92);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Fade — lateral/non-hierarchical transitions (dashboard sidebar sections, auth flow). */
+::view-transition-old(.fade-out) {
+    animation: var(--duration-exit) ease-in vt-fade reverse;
+}
+::view-transition-new(.fade-in) {
+    animation: var(--duration-enter) ease-out var(--duration-exit) both vt-fade;
+}
+
+/* Directional slide — hierarchical kiosk menu <-> form navigation. */
+::view-transition-old(.nav-forward) {
+    --vt-slide-offset: -40px;
+    animation:
+        var(--duration-exit) ease-in both vt-fade reverse,
+        var(--duration-move) ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-forward) {
+    --vt-slide-offset: 40px;
+    animation:
+        var(--duration-enter) ease-out var(--duration-exit) both vt-fade,
+        var(--duration-move) ease-in-out both vt-slide;
+}
+::view-transition-old(.nav-back) {
+    --vt-slide-offset: 40px;
+    animation:
+        var(--duration-exit) ease-in both vt-fade reverse,
+        var(--duration-move) ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-back) {
+    --vt-slide-offset: -40px;
+    animation:
+        var(--duration-enter) ease-out var(--duration-exit) both vt-fade,
+        var(--duration-move) ease-in-out both vt-slide;
+}
+
+/* Scale — modal enter/exit (ConfirmModal, notice modal, dashboard overlays). */
+::view-transition-old(.modal-scale-out) {
+    animation: var(--duration-exit) ease-in vt-scale-down;
+}
+::view-transition-new(.modal-scale-in) {
+    animation: var(--duration-enter) ease-out vt-scale-up;
+}
+
+/* Shared-element morph — Action Inbox card <-> detail panel. */
+::view-transition-group(.vt-morph) {
+    animation-duration: var(--duration-move);
+}
+::view-transition-image-pair(.vt-morph) {
+    animation-name: vt-morph-blur;
+}
+@keyframes vt-morph-blur {
+    30% {
+        filter: blur(2px);
+    }
+}
+
+/* Persistent chrome isolation — kiosk topbar + dashboard sidebar stay put
+   instead of being swept into the page content's transition snapshot. */
+::view-transition-group(persistent-chrome) {
+    animation: none;
+    z-index: 100;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(*),
+    ::view-transition-new(*),
+    ::view-transition-group(*),
+    ::view-transition-image-pair(*) {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+    }
+}
+
 @media print {
     /* Every dashboard page's own content wrapper uses this exact
        overflow-y-auto class as its viewport-height scroll region —

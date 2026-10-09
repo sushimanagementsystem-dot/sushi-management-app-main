@@ -8,6 +8,7 @@ import { kickProcessing, readFileForUpload, requireKioskToken } from "@/lib/api"
 import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
@@ -257,12 +258,14 @@ export default function MonthlyAuditPage() {
             <>
                 <PageTitle title="Monthly Audit" />
                 <KioskTopbar icon="🔍" title="Monthly Audit" menuHref={menuHref} />
+                <KioskPageTransition>
                 <Wrap>
                     <ResubmitBanner>{boot.lockedReason}</ResubmitBanner>
-                    <Link href={menuHref} className="text-accent">
+                    <Link href={menuHref} transitionTypes={["nav-back"]} className="text-accent">
                         Back to menu
                     </Link>
                 </Wrap>
+                </KioskPageTransition>
             </>
         );
     }
@@ -277,6 +280,7 @@ export default function MonthlyAuditPage() {
                 scrolling/paging a 59-question audit takes. Capped at 2
                 columns (not 3) — a 3rd column left too little room for the
                 Yes/No/NA buttons and evidence-photo box to stay readable. */}
+            <KioskPageTransition>
             <Wrap className="sm:max-w-2xl md:max-w-3xl">
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
@@ -412,6 +416,7 @@ export default function MonthlyAuditPage() {
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} />}
             </Wrap>
+            </KioskPageTransition>
 
             {!loading && !success && (
                 <StickyActionBar filled={answeredCount} total={totalCount}>

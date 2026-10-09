@@ -6,10 +6,21 @@ import Link from "next/link";
  * `.topbar` class shared by every pages/kiosk/*.html page. Uses next/link
  * — this "‹ Menu" link is on every single kiosk form page, so a plain <a>
  * here meant every "back to menu" tap did a full page reload.
+ *
+ * `viewTransitionName: "persistent-chrome"` + globals.css's matching
+ * isolation rule keeps this bar static while KioskPageTransition slides
+ * the content below it — every kiosk page renders its own KioskTopbar
+ * instance (no shared layout), but view transitions match by name at the
+ * DOM/snapshot level, independent of React's mount/unmount.
+ * transitionTypes tags this as the "going back" direction so
+ * KioskPageTransition's type-keyed exit/enter picks the right slide.
  */
 export default function KioskTopbar({ icon, title, menuHref }) {
     return (
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-ink px-4 py-[0.85rem] text-white">
+        <div
+            style={{ viewTransitionName: "persistent-chrome" }}
+            className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-ink px-4 py-[0.85rem] text-white"
+        >
             <span className="flex items-center gap-2 text-[1rem] font-semibold tracking-[-0.01em]">
                 <span aria-hidden className="text-[1.05rem] leading-none opacity-90">
                     {icon}
@@ -19,6 +30,7 @@ export default function KioskTopbar({ icon, title, menuHref }) {
             {menuHref && (
                 <Link
                     href={menuHref}
+                    transitionTypes={["nav-back"]}
                     className="max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap text-[0.8rem] font-medium text-white/70 hover:text-white/95"
                 >
                     ‹ Menu

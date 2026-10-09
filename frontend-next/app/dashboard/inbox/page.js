@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState, ViewTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
     FileText,
@@ -236,7 +236,7 @@ function InboxBody() {
         const initial = idFromPath();
         if (initial) setActiveId(initial);
         function onPop() {
-            setActiveId(idFromPath() || null);
+            startTransition(() => setActiveId(idFromPath() || null));
         }
         window.addEventListener("popstate", onPop);
         return () => window.removeEventListener("popstate", onPop);
@@ -257,12 +257,12 @@ function InboxBody() {
     const pageCount = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
 
     function openCard(id) {
-        setActiveId(id);
+        startTransition(() => setActiveId(id));
         window.history.pushState(null, "", "/dashboard/inbox/" + id + window.location.search);
     }
 
     function closeModal() {
-        setActiveId(null);
+        startTransition(() => setActiveId(null));
         window.history.replaceState(null, "", "/dashboard/inbox" + window.location.search);
         refetch();
     }
@@ -308,14 +308,16 @@ function InboxBody() {
             )}
 
             {activeId && (
-                <DetailModal
-                    ownerActionId={activeId}
-                    kiosks={res?.ok ? res.kiosks || [] : []}
-                    stockItems={res?.ok ? res.stockItems || [] : []}
-                    usersById={usersById}
-                    onClose={closeModal}
-                    onChanged={refreshAfterAction}
-                />
+                <ViewTransition enter="modal-scale-in" exit="modal-scale-out">
+                    <DetailModal
+                        ownerActionId={activeId}
+                        kiosks={res?.ok ? res.kiosks || [] : []}
+                        stockItems={res?.ok ? res.stockItems || [] : []}
+                        usersById={usersById}
+                        onClose={closeModal}
+                        onChanged={refreshAfterAction}
+                    />
+                </ViewTransition>
             )}
         </div>
     );

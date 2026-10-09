@@ -7,6 +7,7 @@ import { kickProcessing, requireKioskToken } from "@/lib/api";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import PhotoBox from "@/components/kiosk/PhotoBox";
 import { FormNote, ResultError, Spinner } from "@/components/kiosk/FormBits";
@@ -157,7 +158,8 @@ export default function AuditCorrectionsPage() {
         <>
             <PageTitle title="Audit Corrections" />
             <KioskTopbar icon="🛠️" title="Audit Corrections" menuHref={menuHref} />
-            <Wrap className="sm:max-w-2xl">
+            <KioskPageTransition>
+                <Wrap className="sm:max-w-2xl">
                 <FormNote>
                     Fix each item below and submit evidence — it stays &quot;awaiting approval&quot;
                     until the owner reviews and clears it in the dashboard.
@@ -202,7 +204,8 @@ export default function AuditCorrectionsPage() {
 
                 <Spinner loading={loading} />
                 <ResultError>{error}</ResultError>
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
         </>
     );
 }

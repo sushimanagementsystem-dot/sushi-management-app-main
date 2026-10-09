@@ -8,6 +8,7 @@ import { useApiMutation, useBootstrap } from "@/lib/queries";
 import { confirmModal } from "@/components/ConfirmModal";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
@@ -106,7 +107,8 @@ export default function WeeklyStocktakePage() {
                 multi-hour stocktake pain. A laptop/tablet can show several
                 items per row instead, so the whole count fits in far less
                 scrolling. */}
-            <Wrap className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
+            <KioskPageTransition>
+                <Wrap className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         {boot?.alreadySubmitted && (
@@ -157,7 +159,8 @@ export default function WeeklyStocktakePage() {
                 )}
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} />}
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
 
             {!loading && !success && (
                 <StickyActionBar filled={filled} total={total}>

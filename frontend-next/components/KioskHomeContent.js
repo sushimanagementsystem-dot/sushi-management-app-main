@@ -19,6 +19,7 @@ import { getStoredSessionToken, requireKioskToken } from "@/lib/api";
 import { useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import BtnCard from "@/components/kiosk/BtnCard";
 
@@ -96,6 +97,7 @@ export default function KioskHomeContent() {
                 menu, not a form: on a laptop-width screen it should use the
                 room to lay tiles out in a grid instead of staying a single
                 narrow column stretched down the middle of the page. */}
+            <KioskPageTransition>
             <Wrap className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
                 {showMenu &&
                     MENU_GROUPS.map((group) => (
@@ -117,6 +119,7 @@ export default function KioskHomeContent() {
                         </div>
                     ))}
             </Wrap>
+            </KioskPageTransition>
         </>
     );
 }

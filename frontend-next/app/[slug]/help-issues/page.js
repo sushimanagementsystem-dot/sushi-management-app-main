@@ -7,6 +7,7 @@ import { kickProcessing, requireKioskToken } from "@/lib/api";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import PhotoBox from "@/components/kiosk/PhotoBox";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
@@ -95,7 +96,8 @@ export default function HelpIssuesPage() {
         <>
             <PageTitle title="Help / Issues" />
             <KioskTopbar icon="🆘" title="Help / Issues" menuHref={menuHref} />
-            <Wrap className="sm:max-w-2xl">
+            <KioskPageTransition>
+                <Wrap className="sm:max-w-2xl">
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         <FormNote>
@@ -187,7 +189,8 @@ export default function HelpIssuesPage() {
                 )}
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} onLogAnother={logAnother} />}
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
 
             {!loading && !success && type && (
                 <StickyActionBar>

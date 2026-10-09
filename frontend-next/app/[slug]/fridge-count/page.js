@@ -7,6 +7,7 @@ import { kickProcessing, requireKioskToken } from "@/lib/api";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
@@ -110,7 +111,8 @@ export default function FridgeCountPage() {
                 anything but a phone (the same shape of problem behind V1's
                 multi-hour stocktake pain). A laptop/tablet can show several
                 products per row instead. */}
-            <Wrap className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
+            <KioskPageTransition>
+                <Wrap className="sm:max-w-2xl md:max-w-4xl lg:max-w-5xl">
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         {boot?.alreadySubmitted && (
@@ -186,7 +188,8 @@ export default function FridgeCountPage() {
                 )}
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} />}
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
 
             {!loading && !success && (
                 <StickyActionBar filled={filled} total={total}>

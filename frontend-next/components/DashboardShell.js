@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, startTransition, useContext, useEffect, useRef, useState, ViewTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -157,7 +157,12 @@ export default function DashboardShell({ activeKey, children }) {
     useEffect(() => {
         let cancelled = false;
         requireRole("dashboard", router).then((ok) => {
-            if (!cancelled) setAllowed(ok);
+            // startTransition so this mount activates the content area's
+            // <ViewTransition> (a plain setState doesn't) — the role check
+            // resolves slightly after the route itself swaps in, so this is
+            // its own small reveal transition, not part of the navigation
+            // transition above.
+            if (!cancelled) startTransition(() => setAllowed(ok));
         });
         return () => {
             cancelled = true;
@@ -194,18 +199,22 @@ export default function DashboardShell({ activeKey, children }) {
     // cache — React Query, TableCacheService's warm connections — thrown
     // away) on every single dashboard section switch. router.push keeps
     // navigation client-side like the rest of the app.
+    // Wrapped in startTransition so the content-area <ViewTransition> below
+    // actually activates — a plain router.push() is a regular update, not
+    // a Transition, and View Transitions only fire for
+    // startTransition/useDeferredValue/Suspense-driven changes.
     const handleNavClick = (e, href) => {
         e.preventDefault();
         if (guardRef.current && guardRef.current()) {
             confirmModal("You have unsaved changes. Leave without saving?").then((leave) => {
                 if (leave) {
                     guardRef.current = null;
-                    router.push(href);
+                    startTransition(() => router.push(href));
                 }
             });
             return;
         }
-        router.push(href);
+        startTransition(() => router.push(href));
     };
 
     return (
@@ -216,6 +225,7 @@ export default function DashboardShell({ activeKey, children }) {
         // scrolled into view.
         <div className="flex h-screen bg-bg max-[720px]:h-auto max-[720px]:min-h-screen max-[720px]:flex-col print:h-auto print:overflow-visible">
             <nav
+                style={{ viewTransitionName: "persistent-chrome" }}
                 className={
                     // print:hidden — the sidebar has no place in a printout.
                     "print:hidden " +
@@ -387,11 +397,18 @@ export default function DashboardShell({ activeKey, children }) {
                 style={{ display: allowed ? "flex" : "none" }}
             >
                 {allowed && (
-                    <div className="mx-auto flex w-full min-h-0 max-w-[90rem] flex-1 flex-col">
-                        <UnsavedGuardContext.Provider value={(fn) => (guardRef.current = fn)}>
-                            {children}
-                        </UnsavedGuardContext.Provider>
-                    </div>
+                    // Sidebar sections are lateral (sibling tabs, not a
+                    // hierarchy), so a plain cross-fade — not a directional
+                    // slide — communicates "new content" without implying
+                    // depth. default="none" keeps this from firing on
+                    // unrelated transitions (Suspense resolves, revalidation).
+                    <ViewTransition enter="fade-in" exit="fade-out" default="none">
+                        <div className="mx-auto flex w-full min-h-0 max-w-[90rem] flex-1 flex-col">
+                            <UnsavedGuardContext.Provider value={(fn) => (guardRef.current = fn)}>
+                                {children}
+                            </UnsavedGuardContext.Provider>
+                        </div>
+                    </ViewTransition>
                 )}
             </main>
         </div>

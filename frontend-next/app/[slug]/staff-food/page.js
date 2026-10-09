@@ -8,6 +8,7 @@ import { useApiMutation, useBootstrap } from "@/lib/queries";
 import PageTitle from "@/components/PageTitle";
 import SearchPick from "@/components/SearchPick";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
+import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
 import Wrap from "@/components/kiosk/Wrap";
 import { FormActions, FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
 
@@ -79,7 +80,8 @@ export default function StaffFoodPage() {
         <>
             <PageTitle title="Staff Food" />
             <KioskTopbar icon="🍱" title="Staff Food" menuHref={menuHref} />
-            <Wrap>
+            <KioskPageTransition>
+                <Wrap>
                 {!success && (
                     <div className={submitMutation.isPending ? "pointer-events-none opacity-60" : ""}>
                         <FormNote>Record your own authorised meal — one product per person per shift.</FormNote>
@@ -158,7 +160,8 @@ export default function StaffFoodPage() {
                 )}
 
                 {success && <SuccessPanel message={success} menuHref={menuHref} />}
-            </Wrap>
+                </Wrap>
+            </KioskPageTransition>
         </>
     );
 }

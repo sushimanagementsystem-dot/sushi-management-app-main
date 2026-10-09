@@ -20,7 +20,7 @@
  */
 
 import { TabulatorFull as Tabulator } from "tabulator-tables";
-import { apiCall } from "@/lib/api";
+import { apiCall, storeKioskToken } from "@/lib/api";
 import { confirmModal } from "@/components/ConfirmModal";
 import { makeSearchPick } from "./vanillaSearchPick";
 import { createHelpButton } from "@/lib/help/popover";
@@ -729,13 +729,15 @@ function refBadgeHtml(label) {
  * delegated cellClick rather than each button carrying its own listener
  * (Tabulator re-runs formatters on every redraw, so listeners attached
  * here would leak). */
-function actionsButtonsHtml(showView, showDelete) {
+function actionsButtonsHtml(showView, showDelete, showLoginAs) {
     const eye =
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
     const pencil =
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>';
     const trash =
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+    const logIn =
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>';
     const btn = (action, title, icon, hoverCls) =>
         '<button type="button" data-row-action="' +
         action +
@@ -750,6 +752,11 @@ function actionsButtonsHtml(showView, showDelete) {
     if (showView) html += btn("view", "View", eye, "hover:bg-panel hover:text-ink");
     html += btn("edit", "Edit", pencil, "hover:bg-accent-soft hover:text-accent");
     if (showDelete) html += btn("delete", "Delete", trash, "hover:bg-danger-bg hover:text-danger-ink");
+    // Dev/owner convenience — opens that kiosk's staff-form view in a new
+    // tab, signed in with its real token straight from this row (no /enter
+    // link, no QR code), so testing a kiosk form doesn't cost switching
+    // devices or hunting down its link. Only on the Kiosk table.
+    if (showLoginAs) html += btn("login-as-kiosk", "Open as this kiosk", logIn, "hover:bg-teal-soft hover:text-teal");
     html += "</span>";
     return html;
 }
@@ -1937,7 +1944,8 @@ class DataGrid {
     buildActionsColumn() {
         const showView = this.meta.has_detail_view === true;
         const showDelete = this.meta.hard_delete === true;
-        const buttonCount = 1 + (showView ? 1 : 0) + (showDelete ? 1 : 0);
+        const showLoginAs = this.tableName === "kiosk";
+        const buttonCount = 1 + (showView ? 1 : 0) + (showDelete ? 1 : 0) + (showLoginAs ? 1 : 0);
         return [
             {
                 title: "Actions",
@@ -1947,7 +1955,7 @@ class DataGrid {
                 hozAlign: "center",
                 headerHozAlign: "center",
                 headerSort: false,
-                formatter: () => actionsButtonsHtml(showView, showDelete),
+                formatter: () => actionsButtonsHtml(showView, showDelete, showLoginAs),
                 cellClick: (e, cell) => {
                     const btn = e.target.closest("[data-row-action]");
                     if (!btn) return;
@@ -1956,9 +1964,22 @@ class DataGrid {
                     if (action === "view") this.openDetailView(cell.getRow());
                     else if (action === "edit") this.toggleEditMode();
                     else if (action === "delete") this.handleDeleteRow(cell.getRow());
+                    else if (action === "login-as-kiosk") this.loginAsKiosk(cell.getRow());
                 },
             },
         ];
+    }
+
+    /** Stores this row's real kiosk token exactly like /enter does (see
+     * app/enter/page.js) and opens the kiosk's staff-form home in a new
+     * tab — skipping the ?token= link/QR round-trip since the owner is
+     * already looking at the token in this very row. */
+    loginAsKiosk(rowComponent) {
+        const row = rowComponent.getData();
+        const slug = String(row.kiosk_id || "").toLowerCase();
+        if (!slug || !row.token) return;
+        storeKioskToken(slug, row.token, row.name || slug);
+        window.open("/" + slug + "/home", "_blank", "noopener");
     }
 
     openDetailView(rowComponent, opts) {

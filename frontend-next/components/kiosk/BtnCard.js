@@ -15,6 +15,11 @@ import { ChevronRight } from "lucide-react";
  * omit it for the plain muted circle used elsewhere (e.g. the kiosk/
  * dashboard picker on "/").
  *
+ * transitionTypes=["nav-forward"] tags every tap as "going deeper" for
+ * KioskPageTransition's type-keyed slide (on the root picker's use of this
+ * component for "/" -> "/dashboard" or "/[slug]/home", the type is simply
+ * unused — no KioskPageTransition sits on those targets, so it's a no-op).
+ *
  * Two layouts in one component, switched at `sm:` (640px) — below that,
  * a full-width row (icon-left, label, chevron: the natural shape for a
  * thumb-scrolled list on a phone); at and above it, a centered tile
@@ -29,6 +34,7 @@ export default function BtnCard({ href, Icon, children, onClick, chipClassName }
         <Link
             href={href}
             onClick={onClick}
+            transitionTypes={["nav-forward"]}
             className="group relative flex w-full items-center gap-3.5 overflow-hidden rounded-card border border-line bg-card p-4 text-[0.95rem] font-medium text-ink no-underline shadow-elevate-1 transition-all duration-150 hover:-translate-y-px hover:border-accent/30 hover:shadow-elevate-2 active:translate-y-0 active:scale-[0.985] active:bg-panel sm:h-full sm:flex-col sm:items-center sm:gap-2.5 sm:p-5 sm:text-center sm:hover:-translate-y-1"
         >
             {/* Accent edge — a left bar sliding down for the list row, a

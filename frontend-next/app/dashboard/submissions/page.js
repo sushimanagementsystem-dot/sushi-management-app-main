@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { startTransition, useState, ViewTransition } from "react";
 import {
     Trash2,
     Snowflake,
@@ -402,7 +402,11 @@ function SubmissionsTable({ res, kioskIds }) {
                                                             dailyTasks={dailyTasks}
                                                             otherTasks={otherTasks}
                                                             detail={day.detail?.[id]}
-                                                            onOpenDetail={(formType, lines) => setOpenDetail({ dateLabel: (multi ? nameOf(id) + ", " : "") + dateLabel, formType, lines })}
+                                                            onOpenDetail={(formType, lines) =>
+                                                                startTransition(() =>
+                                                                    setOpenDetail({ dateLabel: (multi ? nameOf(id) + ", " : "") + dateLabel, formType, lines }),
+                                                                )
+                                                            }
                                                         />
                                                     </td>
                                                 );
@@ -417,12 +421,14 @@ function SubmissionsTable({ res, kioskIds }) {
             </SectionCard>
 
             {openDetail && (
-                <SubmissionDetailModal
-                    dateLabel={openDetail.dateLabel}
-                    formType={openDetail.formType}
-                    lines={openDetail.lines}
-                    onClose={() => setOpenDetail(null)}
-                />
+                <ViewTransition enter="modal-scale-in" exit="modal-scale-out">
+                    <SubmissionDetailModal
+                        dateLabel={openDetail.dateLabel}
+                        formType={openDetail.formType}
+                        lines={openDetail.lines}
+                        onClose={() => startTransition(() => setOpenDetail(null))}
+                    />
+                </ViewTransition>
             )}
         </>
     );
