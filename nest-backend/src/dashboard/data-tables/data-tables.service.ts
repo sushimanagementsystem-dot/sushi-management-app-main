@@ -388,14 +388,15 @@ export class DataTablesService {
 
     /** Puts a table's rows in their fixed display order (see data-tables.layout.ts). Reads only cached tables, so it costs no extra queries. */
     private async arrangeRows(tableName: string, rows: Record<string, unknown>[], includeInactive = false): Promise<Record<string, unknown>[]> {
-        // Default view: active items only, so the list stays the simple,
-        // current Stock Take list rather than a mix of current and retired
-        // items. includeInactive flips this to the Archived view instead —
-        // the two never mix, so "is this item live or not" is never
-        // ambiguous from the list alone.
+        // The Stock Item Data Table always shows active AND inactive items
+        // together (an inactive item is still a real stock item that may
+        // need its price corrected, etc. — found live: an owner marked an
+        // item inactive and it vanished from this list entirely, with no
+        // way to edit it short of the separate Archived modal). Only the
+        // Weekly Stocktake form itself (weekly-stocktake.service.ts) filters
+        // by active, since that's the list staff actually count.
         if (tableName === "stock_item") {
-            const all = await this.stockTakeItemRows();
-            rows = all.filter((i) => (i as { active?: boolean }).active === !includeInactive);
+            rows = await this.stockTakeItemRows();
         }
         if (tableName === "stock_item_par") {
             const ids = new Set((await this.stockTakeItemRows()).map((i) => String(i.stock_item_id)));

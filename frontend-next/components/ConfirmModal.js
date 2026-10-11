@@ -1,58 +1,69 @@
 "use client";
 
 import { createRoot } from "react-dom/client";
-import { startTransition, useState, ViewTransition } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Imperative-promise modals (confirmModal/noticeModal below) each mount
  * their own ad-hoc React root straight into document.body, outside the
- * app's own component tree — there's no router/Suspense transition to
- * piggyback on for the open/close animation, so mountAnimatedModal gives
- * each one its own tiny bit of state instead. `open` flips via
- * startTransition, which is what actually activates the <ViewTransition>
- * (a bare setState does not) — and critically, the <ViewTransition>
- * itself is conditionally rendered (`{open && <ViewTransition>...}`), not
- * left mounted with its children swapped; a VT only fires enter/exit when
- * the boundary itself is inserted/removed, not when content changes
- * underneath an always-mounted one. requestClose() then waits VT_EXIT_MS
- * (matching globals.css's --duration-exit) before the real cleanup
- * (root.unmount() + resolve()) runs, so the panel visibly animates out
- * instead of vanishing mid-animation. External call sites never see any
- * of this — confirmModal/noticeModal's own exported signatures and
- * behavior (including their original resolve timing) are unchanged.
+ * app's own component tree — no router/Suspense transition to piggyback
+ * on. An earlier version tried driving the open/close animation through
+ * React's <ViewTransition> here, but that API's snapshot/timing model is
+ * built around the main app tree (router navigations, Suspense) and
+ * fought with this root's own manual mount/unmount, producing a visible
+ * glitch on close (closes, snaps back, closes again). Plain CSS
+ * transitions tied directly to a `closing` boolean are simpler and fully
+ * reliable for this specific "animate an imperative overlay in and out"
+ * shape. External call sites never see any of this — confirmModal/
+ * noticeModal's own exported signatures and behavior are unchanged.
  */
-const VT_EXIT_MS = 150;
+// Must match the literal `duration-150` Tailwind classes below — Tailwind's
+// JIT scanner needs the class name written out statically in this file to
+// generate it, so these two stay in sync by hand rather than being derived
+// from one shared constant via string interpolation (see BtnCard.js's own
+// comment on the same constraint for chip colors).
+const TRANSITION_MS = 150;
 
-/** Mounts `backdropProps` (the fixed-inset-0 overlay's own props, e.g. onClick-to-close)
- * wrapping `panel` (the actual dialog box), animated. Returns requestClose(afterExit). */
+/** Mounts `panel` inside an animated backdrop (`backdropClassName` + optional
+ * `backdropExtraProps`, e.g. onClick-to-close). Returns requestClose(afterExit),
+ * which plays the exit transition before running the real cleanup. */
 function mountAnimatedModal(backdropClassName, panel, backdropExtraProps) {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
-    let setOpenRef = null;
+    let requestCloseRef = () => {};
     function Bridge() {
-        const [open, setOpen] = useState(true);
-        setOpenRef = setOpen;
+        const [visible, setVisible] = useState(false); // false -> true plays the enter transition
+        const [closing, setClosing] = useState(false);
+
+        useEffect(() => {
+            // Mounted at opacity-0/scale-95; flip on the next frame so the
+            // transition actually plays instead of starting already-settled.
+            const raf = requestAnimationFrame(() => setVisible(true));
+            return () => cancelAnimationFrame(raf);
+        }, []);
+
+        requestCloseRef = (afterExit) => {
+            setClosing(true);
+            setTimeout(afterExit, TRANSITION_MS);
+        };
+
+        const shown = visible && !closing;
         return (
-            <div className={backdropClassName} {...backdropExtraProps}>
-                {open && (
-                    <ViewTransition enter="modal-scale-in" exit="modal-scale-out">
-                        {panel}
-                    </ViewTransition>
-                )}
+            <div className={backdropClassName + " transition-opacity duration-150 ease-out " + (shown ? "opacity-100" : "opacity-0")} {...backdropExtraProps}>
+                <div className={"transition-[transform,opacity] duration-150 ease-out " + (shown ? "scale-100 opacity-100" : "scale-95 opacity-0")}>{panel}</div>
             </div>
         );
     }
     root.render(<Bridge />);
 
     function requestClose(afterExit) {
-        startTransition(() => setOpenRef(false));
-        setTimeout(() => {
+        requestCloseRef(() => {
             root.unmount();
             container.remove();
             afterExit();
-        }, VT_EXIT_MS);
+        });
     }
 
     return requestClose;

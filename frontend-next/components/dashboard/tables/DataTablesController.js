@@ -2214,13 +2214,13 @@ class DataGrid {
 
     // --- Archived/Inactive Items modal (Stock Item only) ----------------
 
-    /** A deliberately plain list, not another full grid — name, category, and one Restore button each. Everything
+    /** A real table (name, category, unit, Restore button each) with a live search filter. Everything
      * else about an inactive item (price, par, food-waste flag) is still reachable by restoring it first. */
     openArchivedModal() {
         const overlay = document.createElement("div");
         overlay.className = MODAL_OVERLAY;
         const box = document.createElement("div");
-        box.className = modalBoxClass("w-[32rem]");
+        box.className = modalBoxClass("w-[38rem]");
         const heading = document.createElement("h3");
         heading.className = "mb-1 mt-0 flex items-center gap-1.5 text-lg font-bold tracking-[-0.01em]";
         heading.innerHTML = "<span>Archived/Inactive Items</span>";
@@ -2228,9 +2228,16 @@ class DataGrid {
         if (headingHelp) heading.appendChild(headingHelp);
         box.appendChild(heading);
         const introText = document.createElement("p");
-        introText.className = "mb-4 text-[0.85rem] text-muted";
+        introText.className = "mb-3 text-[0.85rem] text-muted";
         introText.textContent = "Switched off, so they don't show up anywhere items are picked from. Restore one to bring it back.";
         box.appendChild(introText);
+
+        const searchInput = document.createElement("input");
+        searchInput.type = "search";
+        searchInput.placeholder = "Search archived items…";
+        searchInput.className = "mb-3 w-full max-w-[20rem] py-1.5 px-2.5 text-[0.8rem]";
+        box.appendChild(searchInput);
+
         const listEl = document.createElement("div");
         listEl.textContent = "Loading…";
         box.appendChild(listEl);
@@ -2248,55 +2255,105 @@ class DataGrid {
             return opt ? opt.label : id;
         };
 
-        const renderList = (rows) => {
+        let allRows = [];
+        let searchText = "";
+
+        const buildRow = (row) => {
+            const tr = document.createElement("tr");
+            tr.className = "border-b border-line last:border-b-0";
+
+            const nameCell = document.createElement("td");
+            nameCell.className = "py-2 pr-3 font-medium text-ink";
+            nameCell.textContent = row.name || row.stock_item_id;
+            tr.appendChild(nameCell);
+
+            const catCell = document.createElement("td");
+            catCell.className = "py-2 pr-3 text-muted";
+            catCell.textContent = categoryLabel(row.stock_category_id);
+            tr.appendChild(catCell);
+
+            const unitCell = document.createElement("td");
+            unitCell.className = "py-2 pr-3 text-muted";
+            unitCell.textContent = row.count_unit || "";
+            tr.appendChild(unitCell);
+
+            const actionCell = document.createElement("td");
+            actionCell.className = "py-2 text-right";
+            const restoreBtn = document.createElement("button");
+            restoreBtn.type = "button";
+            restoreBtn.className = DASH_BTN_SMALL;
+            restoreBtn.textContent = "Restore";
+            const errEl = document.createElement("div");
+            errEl.className = "mt-1 text-[0.75rem] text-danger-ink";
+            restoreBtn.addEventListener("click", async () => {
+                restoreBtn.disabled = true;
+                restoreBtn.textContent = "Restoring…";
+                errEl.textContent = "";
+                // save_table_row writes the whole row, not a partial patch — every other
+                // field has to come along unchanged, or the server's required-field check
+                // rejects it (that's why restoring was silently failing before this fix).
+                const res = await apiCall("save_table_row", { table: "stock_item", isNew: false, row: { ...row, active: true } }).catch(() => ({ ok: false, error: "Could not reach the server." }));
+                if (!res.ok) {
+                    restoreBtn.disabled = false;
+                    restoreBtn.textContent = "Restore";
+                    errEl.textContent = res.error || "Restore failed.";
+                    return;
+                }
+                invalidateCachesFor(this.tableName);
+                allRows = allRows.filter((r) => r.stock_item_id !== row.stock_item_id);
+                renderList();
+                this.load();
+            });
+            actionCell.appendChild(restoreBtn);
+            actionCell.appendChild(errEl);
+            tr.appendChild(actionCell);
+            return tr;
+        };
+
+        const renderList = () => {
             listEl.innerHTML = "";
-            if (!rows.length) {
+            if (!allRows.length) {
                 listEl.textContent = "Nothing archived.";
                 return;
             }
-            rows.forEach((row) => {
-                const line = document.createElement("div");
-                line.className = "flex items-center justify-between gap-3 border-b border-line py-2 text-[0.85rem] last:border-b-0";
-                const text = document.createElement("div");
-                text.innerHTML = "<div class='font-medium text-ink'>" + (row.name || row.stock_item_id) + "</div><div class='text-muted'>" + categoryLabel(row.stock_category_id) + "</div>";
-                line.appendChild(text);
-                const restoreBtn = document.createElement("button");
-                restoreBtn.type = "button";
-                restoreBtn.className = DASH_BTN_SMALL;
-                restoreBtn.textContent = "Restore";
-                const errEl = document.createElement("div");
-                errEl.className = "text-[0.75rem] text-danger-ink";
-                restoreBtn.addEventListener("click", async () => {
-                    restoreBtn.disabled = true;
-                    restoreBtn.textContent = "Restoring…";
-                    errEl.textContent = "";
-                    // save_table_row writes the whole row, not a partial patch — every other
-                    // field has to come along unchanged, or the server's required-field check
-                    // rejects it (that's why restoring was silently failing before this fix).
-                    const res = await apiCall("save_table_row", { table: "stock_item", isNew: false, row: { ...row, active: true } }).catch(() => ({ ok: false, error: "Could not reach the server." }));
-                    if (!res.ok) {
-                        restoreBtn.disabled = false;
-                        restoreBtn.textContent = "Restore";
-                        errEl.textContent = res.error || "Restore failed.";
-                        return;
-                    }
-                    invalidateCachesFor(this.tableName);
-                    line.remove();
-                    if (!listEl.children.length) listEl.textContent = "Nothing archived.";
-                    this.load();
-                });
-                line.appendChild(restoreBtn);
-                line.appendChild(errEl);
-                listEl.appendChild(line);
-            });
+            const filtered = !searchText
+                ? allRows
+                : allRows.filter((row) => (String(row.name || "") + " " + categoryLabel(row.stock_category_id) + " " + String(row.count_unit || "")).toLowerCase().includes(searchText));
+            if (!filtered.length) {
+                listEl.textContent = "No archived items match your search.";
+                return;
+            }
+            const table = document.createElement("table");
+            table.className = "w-full text-[0.85rem]";
+            const thead = document.createElement("thead");
+            thead.innerHTML =
+                "<tr class='border-b border-line text-left text-muted'>" +
+                "<th class='py-1.5 pr-3 font-medium'>Name</th>" +
+                "<th class='py-1.5 pr-3 font-medium'>Category</th>" +
+                "<th class='py-1.5 pr-3 font-medium'>Unit</th>" +
+                "<th class='py-1.5'></th></tr>";
+            table.appendChild(thead);
+            const tbody = document.createElement("tbody");
+            filtered.forEach((row) => tbody.appendChild(buildRow(row)));
+            table.appendChild(tbody);
+            listEl.appendChild(table);
         };
+
+        searchInput.addEventListener("input", () => {
+            searchText = searchInput.value.trim().toLowerCase();
+            renderList();
+        });
 
         apiCall("list_table_rows", { table: "stock_item", includeInactive: true }).then((res) => {
             if (!res.ok) {
                 listEl.textContent = res.error || "Could not load archived items.";
                 return;
             }
-            renderList(res.rows.sort((a, b) => String(a.name).localeCompare(String(b.name))));
+            // The Data Table's own stock_item list no longer hides inactive rows itself (an inactive
+            // item still needs its price edited etc.), so list_table_rows now returns active AND
+            // inactive rows regardless of includeInactive — this modal still only wants the inactive ones.
+            allRows = res.rows.filter((row) => row.active === false).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            renderList();
         });
     }
 
