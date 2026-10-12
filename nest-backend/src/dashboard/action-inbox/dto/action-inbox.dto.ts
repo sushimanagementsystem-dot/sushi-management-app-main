@@ -118,6 +118,12 @@ export class SaveInvoiceLineDto extends DeliveryHeaderIdDto {
     line!: Record<string, unknown>;
 }
 
+export class UpdateInvoiceDeliveryDateDto extends DeliveryHeaderIdDto {
+    @IsString()
+    @MinLength(1)
+    deliveryDate!: string;
+}
+
 export class InvoiceLineIdDto {
     @IsString()
     @MinLength(1)

@@ -24,6 +24,7 @@ import {
     StocktakeHeaderIdDto,
     StocktakeLineIdDto,
     TransferIdsDto,
+    UpdateInvoiceDeliveryDateDto,
     UpdateOwnerActionDto,
     UpdateRequestDto,
     UpdateStockTransferDto,
@@ -121,6 +122,13 @@ export class ActionInboxController {
     async deleteInvoiceLine(@Body() dto: InvoiceLineIdDto) {
         await this.invoices.deleteLine(dto.invoiceLineId);
         return {};
+    }
+
+    /** Owner correction for the invoice's own date (AI auto-detects it on upload — see InvoiceAiService — but may
+     * miss or misread it, so this stays editable while the invoice is still IN_REVIEW). */
+    @Post("update_invoice_delivery_date")
+    updateInvoiceDeliveryDate(@Body() dto: UpdateInvoiceDeliveryDateDto, @CurrentUser() user: AuthenticatedUser) {
+        return this.invoices.updateDeliveryDate(dto.deliveryHeaderId, dto.deliveryDate, user.user_id);
     }
 
     /** Runs the AI on an invoice's stored files again — for invoices whose first attempt failed (see InvoiceAiService.reextract). */

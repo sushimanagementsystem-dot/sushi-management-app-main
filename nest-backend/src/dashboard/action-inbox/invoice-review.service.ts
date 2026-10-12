@@ -61,6 +61,32 @@ export class InvoiceReviewService {
         return { row: clean };
     }
 
+    /**
+     * Lets the owner correct the invoice's own date — whether AI misread it, missed it entirely (see
+     * InvoiceAiService.extractLines/sanitizeInvoiceDate), or the invoice has no AI extraction at all. Restricted
+     * to IN_REVIEW like every other edit here: once confirmed, delivery_date has already been used to post
+     * stock_movement.movement_date and to decide which stocktake period it falls in (see StocktakeReviewService),
+     * so changing it after the fact would desync those without a matching correction — out of scope for this,
+     * same as every other field here being locked post-review.
+     */
+    async updateDeliveryDate(deliveryHeaderId: string, newDate: string, changedBy: string): Promise<{ deliveryDate: string }> {
+        const header = await this.prisma.deliveryHeader.findUnique({ where: { delivery_header_id: deliveryHeaderId } });
+        if (!header) throw new NotFoundException("Delivery not found.");
+        if (header.status !== "IN_REVIEW") throw new BadRequestException("This invoice has already been reviewed.");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) throw new BadRequestException("Enter a valid date.");
+        const parsed = new Date(newDate + "T00:00:00Z");
+        if (Number.isNaN(parsed.getTime())) throw new BadRequestException("Enter a valid date.");
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.deliveryHeader.update({ where: { delivery_header_id: deliveryHeaderId }, data: { delivery_date: parsed } });
+            const action = await this.ownerActionState.findOwnerAction(tx, header.submission_id, "INVOICE_REVIEW");
+            if (action) {
+                await this.ownerActionState.logActivity(tx, action.owner_action_id, changedBy, "delivery_header.delivery_date", header.delivery_date.toISOString().slice(0, 10), newDate);
+            }
+        });
+        return { deliveryDate: newDate };
+    }
+
     async deleteLine(invoiceLineId: string): Promise<void> {
         const line = await this.prisma.invoiceLine.findUnique({ where: { invoice_line_id: invoiceLineId } });
         if (!line) throw new NotFoundException("Line not found.");

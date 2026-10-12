@@ -17,7 +17,9 @@ export type ExtractedLine = { description_raw: string; supplier_item_code: strin
 export type ResolvedLine = ExtractedLine & { stock_item_id: string | null };
 /** One uploaded page — `url` is the /uploads/<id> path stored on delivery_file.drive_file_id. */
 export type InvoiceFileRef = { url: string; page: number | null };
-export type ExtractionResult = { ok: true; lines: ResolvedLine[] } | { ok: false; error: string };
+/** The date printed on the invoice itself (yyyy-mm-dd), as opposed to whatever day it happened to be uploaded —
+ * null when the document doesn't show one or it isn't legible, never a guess (see extractInvoice). */
+export type ExtractionResult = { ok: true; lines: ResolvedLine[]; invoiceDate: string | null } | { ok: false; error: string };
 export type ExtractionSummary = { ranOk: boolean; lineCount: number; errorSummary: string };
 
 const NOT_SET_UP = "AI extraction is not set up yet: an owner needs to add the Anthropic API key under Dashboard → Site Configuration → AI (Claude). Enter this invoice manually, then use Re-run AI extraction once the key is added.";
@@ -69,9 +71,9 @@ export class InvoiceAiService {
     /** Reads every page with Claude, then resolves each line to a stock item. No transaction needed. */
     async extract(files: InvoiceFileRef[], supplierId: string | null): Promise<ExtractionResult> {
         try {
-            const extracted = await this.extractLines(files);
+            const { lines: extracted, invoiceDate } = await this.extractLines(files);
             const lines = await this.resolveStockItems(extracted, supplierId);
-            return { ok: true, lines };
+            return { ok: true, lines, invoiceDate };
         } catch (err) {
             const error = describeError(err);
             this.logger.warn(`Invoice extraction failed: ${error}`);
@@ -155,7 +157,7 @@ export class InvoiceAiService {
 
     /** Sends every page as an image/document content block (page order), one
      * request, output_config.format constraining the response to valid JSON. */
-    private async extractLines(files: InvoiceFileRef[]): Promise<ExtractedLine[]> {
+    private async extractLines(files: InvoiceFileRef[]): Promise<{ lines: ExtractedLine[]; invoiceDate: string | null }> {
         const sorted = [...files].sort((a, b) => (a.page ?? 0) - (b.page ?? 0));
 
         const content: Anthropic.Messages.ContentBlockParam[] = [];
@@ -182,7 +184,7 @@ export class InvoiceAiService {
 
         content.push({
             type: "text",
-            text: "Extract every line item from this delivery invoice or delivery note. The pages may be phone photos (tilted, creased, in shadow) and belong to ONE document in page order — do not repeat a line that continues across pages. For each line, give the raw description exactly as printed, the supplier's own item code if one is printed (empty string if none), quantity, unit cost, and line total. If a numeric value is not printed or not legible, use 0 rather than guessing. Do not include tax, subtotal, or total summary rows as line items.",
+            text: "Extract every line item from this delivery invoice or delivery note. The pages may be phone photos (tilted, creased, in shadow) and belong to ONE document in page order — do not repeat a line that continues across pages. For each line, give the raw description exactly as printed, the supplier's own item code if one is printed (empty string if none), quantity, unit cost, and line total. If a numeric value is not printed or not legible, use 0 rather than guessing. Do not include tax, subtotal, or total summary rows as line items. Also find the invoice/delivery date printed on the document itself (not today's date) and give it as invoice_date in yyyy-mm-dd format — if no date is printed or it isn't legible, use an empty string rather than guessing.",
         });
 
         const { api, model } = await this.claude();
@@ -196,6 +198,7 @@ export class InvoiceAiService {
                     schema: {
                         type: "object",
                         properties: {
+                            invoice_date: { type: "string" },
                             lines: {
                                 type: "array",
                                 items: {
@@ -212,7 +215,7 @@ export class InvoiceAiService {
                                 },
                             },
                         },
-                        required: ["lines"],
+                        required: ["invoice_date", "lines"],
                         additionalProperties: false,
                     },
                 },
@@ -224,7 +227,7 @@ export class InvoiceAiService {
         const block = message.content.find((b) => b.type === "text");
         if (!block || block.type !== "text") throw new InvoiceAiError("AI returned an unreadable answer. Use Re-run AI extraction, or enter the invoice manually.");
 
-        let parsed: { lines?: unknown };
+        let parsed: { lines?: unknown; invoice_date?: unknown };
         try {
             parsed = JSON.parse(block.text);
         } catch {
@@ -232,13 +235,14 @@ export class InvoiceAiService {
         }
         const raw = Array.isArray(parsed.lines) ? parsed.lines : [];
         // The schema guarantees shape; this only guards numbers against NaN/negative garbage so a bad read can't poison the draft.
-        return raw.map((l: Partial<Record<keyof ExtractedLine, unknown>>) => ({
+        const lines = raw.map((l: Partial<Record<keyof ExtractedLine, unknown>>) => ({
             description_raw: String(l.description_raw ?? "").trim(),
             supplier_item_code: String(l.supplier_item_code ?? "").trim(),
             qty: nonNegative(l.qty),
             unit_cost: nonNegative(l.unit_cost),
             line_total: nonNegative(l.line_total),
         }));
+        return { lines, invoiceDate: sanitizeInvoiceDate(parsed.invoice_date) };
     }
 
     /**
@@ -351,6 +355,19 @@ export function invoiceReviewTitle(ranOk: boolean, lineCount: number): string {
 function nonNegative(v: unknown): number {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Guards against a garbled or hallucinated invoice_date ever reaching delivery_header.delivery_date — only a
+ * real yyyy-mm-dd, not in the future and not implausibly old, survives; anything else falls back to the upload
+ * date instead (see DeliveryInvoiceProcessor), the same way a missing date already did. */
+function sanitizeInvoiceDate(v: unknown): string | null {
+    if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+    const d = new Date(v + "T00:00:00Z");
+    if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v) return null;
+    const earliest = new Date("2015-01-01T00:00:00Z");
+    const latest = new Date(Date.now() + 2 * 86400000); // small slack for timezone edge cases
+    if (d < earliest || d > latest) return null;
+    return v;
 }
 
 /** Turns a vendor/SDK failure into a sentence an owner can act on — never the raw JSON body. */

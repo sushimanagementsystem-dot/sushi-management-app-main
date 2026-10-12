@@ -1402,8 +1402,30 @@ function InvoiceSection({ row, stockItems, onChanged }) {
     const [busy, setBusy] = useState(false);
     const [aiRunning, setAiRunning] = useState(false);
     const [aiMessage, setAiMessage] = useState("");
+    const [dateEditing, setDateEditing] = useState(false);
+    const [dateValue, setDateValue] = useState("");
+    const [dateSaving, setDateSaving] = useState(false);
+    const [dateError, setDateError] = useState("");
     if (!header) return <p className="text-muted">Linked delivery not found.</p>;
     const inReview = header.status === "IN_REVIEW";
+
+    // AI reads this off the invoice itself on upload (falls back to the upload date if it can't find one) —
+    // this just lets the owner correct it, same as any other field here, while it's still IN_REVIEW.
+    function startDateEdit() {
+        setDateValue((header.delivery_date || "").slice(0, 10));
+        setDateError("");
+        setDateEditing(true);
+    }
+    function saveDate() {
+        if (!dateValue) return setDateError("Enter a date.");
+        setDateSaving(true);
+        apiCall("update_invoice_delivery_date", { deliveryHeaderId: header.delivery_header_id, deliveryDate: dateValue }).then((res) => {
+            setDateSaving(false);
+            if (!res.ok) return setDateError(res.error || "Could not save.");
+            setDateEditing(false);
+            onChanged();
+        });
+    }
     // Every page version. Only the current (is_active) ones are what AI reads and what the review is about; replaced ones are
     // kept — never deleted — and listed under "Previous versions" so they can be recovered or audited.
     const allFiles = row.deliveryFiles || [];
@@ -1472,9 +1494,33 @@ function InvoiceSection({ row, stockItems, onChanged }) {
 
     return (
         <div>
-            <p className="mb-2 text-muted">
-                {row.supplierName || ""} — {header.document_type} — {header.delivery_date} — status: {header.status}
+            <p className="mb-1 text-muted">
+                {row.supplierName || ""} — {header.document_type} — status: {header.status}
             </p>
+            <div className="mb-2 flex items-center gap-1.5 text-muted">
+                <span>Invoice date:</span>
+                {dateEditing ? (
+                    <>
+                        <input type="date" value={dateValue} onChange={(e) => setDateValue(e.target.value)} className="py-0.5 px-1.5 text-[0.85rem]" />
+                        <button type="button" disabled={dateSaving} className={DASH_BTN_SECONDARY + " px-2 py-0.5 text-[0.8rem]"} onClick={saveDate}>
+                            {dateSaving ? "Saving…" : "Save"}
+                        </button>
+                        <button type="button" disabled={dateSaving} className={DASH_BTN_SECONDARY + " px-2 py-0.5 text-[0.8rem]"} onClick={() => setDateEditing(false)}>
+                            Cancel
+                        </button>
+                        {dateError && <span className="text-danger-ink">{dateError}</span>}
+                    </>
+                ) : (
+                    <>
+                        <span className="text-ink">{(header.delivery_date || "").slice(0, 10)}</span>
+                        {inReview && (
+                            <button type="button" className="underline" onClick={startDateEdit}>
+                                Edit
+                            </button>
+                        )}
+                    </>
+                )}
+            </div>
             {files.map((f, i) => (
                 <InvoiceFilePage
                     key={f.delivery_file_id || i}

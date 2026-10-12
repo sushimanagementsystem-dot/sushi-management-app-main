@@ -92,11 +92,23 @@ export class DeliveryInvoiceProcessor implements SubmissionProcessor<DeliveryInv
         const p = ctx.payload;
         const supplier = await tx.supplier.findUnique({ where: { supplier_id: p.supplier_id } });
 
+        // prepare() always runs first; the fallback only guards a processor invoked without it.
+        const extraction = (ctx.extra.extraction as ExtractionResult | undefined) ?? { ok: false as const, error: "AI extraction did not run. Enter this invoice manually." };
+
+        // Prefer the date AI read off the invoice itself over the upload day — a
+        // staff member can upload a delivery days after it happened (found
+        // live: a 29/09 invoice uploaded 6/10 was logged in the wrong week's
+        // purchases). Falls back to the upload date, same as before, whenever
+        // AI didn't run, couldn't find a date, or it failed sanity-checking
+        // (see InvoiceAiService.extractLines) — the owner can still correct
+        // it by hand in Invoice Review either way.
+        const deliveryDate = extraction.ok && extraction.invoiceDate ? new Date(extraction.invoiceDate + "T00:00:00Z") : ctx.businessDate;
+
         const header = await tx.deliveryHeader.create({
             data: {
                 submission_id: ctx.submission.submission_id,
                 kiosk_id: ctx.kiosk.kiosk_id,
-                delivery_date: ctx.businessDate,
+                delivery_date: deliveryDate,
                 supplier_id: supplier?.supplier_id ?? p.supplier_id,
                 document_type: p.document_type,
                 as_expected: p.as_expected === true,
@@ -114,8 +126,6 @@ export class DeliveryInvoiceProcessor implements SubmissionProcessor<DeliveryInv
             fileRows.push(row);
         }
 
-        // prepare() always runs first; the fallback only guards a processor invoked without it.
-        const extraction = (ctx.extra.extraction as ExtractionResult | undefined) ?? { ok: false as const, error: "AI extraction did not run. Enter this invoice manually." };
         const ai = await this.invoiceAi.persist(tx, header.delivery_header_id, fileRows.map((f) => f.delivery_file_id), extraction);
 
         await tx.deliveryHeader.update({ where: { delivery_header_id: header.delivery_header_id }, data: { status: "IN_REVIEW" } });
