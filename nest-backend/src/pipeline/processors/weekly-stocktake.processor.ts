@@ -64,6 +64,7 @@ export class WeeklyStocktakeProcessor implements SubmissionProcessor<StocktakePa
         const expected = items.length;
         const received = items.filter((it) => counts[it.stock_item_id] !== undefined).length;
         const complete = received >= expected;
+        const dateStr = toDateStr(ctx.businessDate);
 
         const prevHeader = await tx.stocktakeHeader.findFirst({
             where: { kiosk_id: ctx.kiosk.kiosk_id, completion_status: "COMPLETE", stocktake_date: { lt: ctx.businessDate } },
@@ -103,7 +104,28 @@ export class WeeklyStocktakeProcessor implements SubmissionProcessor<StocktakePa
             }));
         if (lineRows.length) await tx.stocktakeLine.createMany({ data: lineRows });
 
-        if (!complete) return "INCOMPLETE";
+        // Incomplete submissions used to end here with nothing in Action
+        // Inbox — the header saved, but the owner had no way to see the
+        // stocktake even happened or what was missing (found live: three
+        // kiosks submitted the same day and none showed up anywhere the
+        // owner was looking). Still surfaced as STOCKTAKE_REVIEW so the
+        // existing detail view/Confirm/Decline just works — it already
+        // displays completion_status and whatever lines did come in.
+        if (!complete) {
+            const missingNames = items.filter((it) => counts[it.stock_item_id] === undefined).map((it) => it.name);
+            await tx.ownerAction.create({
+                data: {
+                    source_submission_id: ctx.submission.submission_id,
+                    kiosk_id: ctx.kiosk.kiosk_id,
+                    category: "STOCKTAKE_REVIEW",
+                    title: `Stocktake incomplete — ${ctx.kiosk.kiosk_id} ${dateStr} (${missingNames.length} of ${expected} item(s) missing)`,
+                    status: "OPEN",
+                    priority: "URGENT",
+                    owner_note: "Missing counts: " + missingNames.join(", "),
+                },
+            });
+            return "INCOMPLETE";
+        }
 
         const flagged: string[] = [];
         if (prevHeader) {
@@ -120,7 +142,6 @@ export class WeeklyStocktakeProcessor implements SubmissionProcessor<StocktakePa
             }
         }
 
-        const dateStr = toDateStr(ctx.businessDate);
         await tx.ownerAction.create({
             data: {
                 source_submission_id: ctx.submission.submission_id,
