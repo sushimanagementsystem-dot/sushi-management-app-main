@@ -93,3 +93,90 @@ describe("AuditReviewService.reviewAnswer — report email gating", () => {
         expect(errorLogs[0]).toMatchObject({ stage: "send audit report email", kiosk_id: "K1" });
     });
 });
+
+type Correction = { audit_correction_id: string; corrective_action_id: string; owner_action_id: string | null };
+type CorrectiveActionRow = { corrective_action_id: string; status: string };
+
+/** A tiny in-memory database for reviewCorrection — several corrections (and their corrective_actions) can
+ * share one owner_action_id, as AuditCorrectionProcessor now groups them. */
+function buildForCorrectionReview(corrections: Correction[], correctiveActions: CorrectiveActionRow[]) {
+    const caUpdates: Record<string, unknown>[] = [];
+    const advanceCalls: { ownerActionId: string; complete: boolean }[] = [];
+
+    const tx = {
+        correctiveAction: {
+            update: async ({ where, data }: { where: { corrective_action_id: string }; data: Record<string, unknown> }) => {
+                caUpdates.push({ where, data });
+                const ca = correctiveActions.find((c) => c.corrective_action_id === where.corrective_action_id)!;
+                ca.status = data.status as string;
+            },
+            findMany: async ({ where }: { where: { corrective_action_id: { in: string[] } } }) => correctiveActions.filter((c) => where.corrective_action_id.in.includes(c.corrective_action_id)),
+        },
+        auditCorrection: {
+            findMany: async ({ where }: { where: { owner_action_id: string } }) => corrections.filter((c) => c.owner_action_id === where.owner_action_id),
+        },
+    };
+    const prisma = {
+        auditCorrection: { findUnique: async ({ where }: { where: { audit_correction_id: string } }) => corrections.find((c) => c.audit_correction_id === where.audit_correction_id) ?? null },
+        $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    };
+    const ownerActionState = {
+        logActivity: async () => {},
+        advanceOwnerActionOnAction: async (_tx: unknown, ownerActionId: string, opts: { complete: boolean }) => void advanceCalls.push({ ownerActionId, complete: opts.complete }),
+    };
+    const svc = new AuditReviewService(prisma as never, {} as never, ownerActionState as never, {} as never);
+    return { svc, correctiveActions, caUpdates, advanceCalls };
+}
+
+describe("AuditReviewService.reviewCorrection — grouped corrections on one Action Inbox card", () => {
+    it("resolves the card once the only pending correction on it is accepted", async () => {
+        const { svc, advanceCalls, correctiveActions } = buildForCorrectionReview(
+            [{ audit_correction_id: "AC1", corrective_action_id: "CA1", owner_action_id: "OA1" }],
+            [{ corrective_action_id: "CA1", status: "REPLACEMENT_SUBMITTED" }],
+        );
+        await svc.reviewCorrection("AC1", "ACCEPT", "owner1");
+        expect(correctiveActions[0]).toMatchObject({ status: "CLOSED" });
+        expect(advanceCalls).toEqual([{ ownerActionId: "OA1", complete: true }]);
+    });
+
+    it("does NOT resolve the card while a sibling correction is still awaiting review", async () => {
+        const { svc, advanceCalls } = buildForCorrectionReview(
+            [
+                { audit_correction_id: "AC1", corrective_action_id: "CA1", owner_action_id: "OA1" },
+                { audit_correction_id: "AC2", corrective_action_id: "CA2", owner_action_id: "OA1" },
+            ],
+            [
+                { corrective_action_id: "CA1", status: "REPLACEMENT_SUBMITTED" },
+                { corrective_action_id: "CA2", status: "REPLACEMENT_SUBMITTED" },
+            ],
+        );
+        await svc.reviewCorrection("AC1", "ACCEPT", "owner1");
+        expect(advanceCalls).toEqual([{ ownerActionId: "OA1", complete: false }]);
+    });
+
+    it("resolves the card once the last pending correction is decided, even by REJECT", async () => {
+        const { svc, advanceCalls, correctiveActions } = buildForCorrectionReview(
+            [
+                { audit_correction_id: "AC1", corrective_action_id: "CA1", owner_action_id: "OA1" },
+                { audit_correction_id: "AC2", corrective_action_id: "CA2", owner_action_id: "OA1" },
+            ],
+            [
+                { corrective_action_id: "CA1", status: "CLOSED" }, // already decided earlier
+                { corrective_action_id: "CA2", status: "REPLACEMENT_SUBMITTED" },
+            ],
+        );
+        await svc.reviewCorrection("AC2", "REJECT", "owner1");
+        expect(correctiveActions[1]).toMatchObject({ status: "OPEN" });
+        expect(advanceCalls).toEqual([{ ownerActionId: "OA1", complete: true }]);
+    });
+
+    it("updates the corrective_action but touches no owner_action for pre-grouping data (owner_action_id null)", async () => {
+        const { svc, advanceCalls, correctiveActions } = buildForCorrectionReview(
+            [{ audit_correction_id: "AC1", corrective_action_id: "CA1", owner_action_id: null }],
+            [{ corrective_action_id: "CA1", status: "REPLACEMENT_SUBMITTED" }],
+        );
+        await svc.reviewCorrection("AC1", "ACCEPT", "owner1");
+        expect(correctiveActions[0]).toMatchObject({ status: "CLOSED" });
+        expect(advanceCalls).toEqual([]);
+    });
+});

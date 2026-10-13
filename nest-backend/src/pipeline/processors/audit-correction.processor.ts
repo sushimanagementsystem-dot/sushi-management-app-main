@@ -62,10 +62,36 @@ export class AuditCorrectionProcessor implements SubmissionProcessor<AuditCorrec
 
         const priorCycles = action ? await tx.auditCorrection.count({ where: { corrective_action_id: action.corrective_action_id } }) : 0;
 
+        // Every correction this kiosk submits lands on the SAME Action Inbox card, not one card each — a kiosk
+        // fixing 10 failed items used to create 10 separate cards with nothing tying them together. Reuses
+        // whichever AUDIT_CORRECTION_REVIEW card for this kiosk is still open; only starts a new one if there
+        // isn't one (e.g. the owner already cleared the last batch).
+        let reviewActionId: string | null = null;
+        if (validationStatus === "VALID" && action) {
+            const openGroup = await tx.ownerAction.findFirst({
+                where: { kiosk_id: ctx.kiosk.kiosk_id, category: "AUDIT_CORRECTION_REVIEW", status: { in: ["OPEN", "IN_PROGRESS", "WAITING_FOR_OWNER"] } },
+            });
+            reviewActionId = openGroup
+                ? openGroup.owner_action_id
+                : (
+                      await tx.ownerAction.create({
+                          data: {
+                              source_submission_id: ctx.submission.submission_id,
+                              kiosk_id: ctx.kiosk.kiosk_id,
+                              category: "AUDIT_CORRECTION_REVIEW",
+                              title: `Audit corrections — ${ctx.kiosk.name}`,
+                              status: "OPEN",
+                              priority: "NORMAL",
+                          },
+                      })
+                  ).owner_action_id;
+        }
+
         await tx.auditCorrection.create({
             data: {
                 submission_id: ctx.submission.submission_id,
                 corrective_action_id: action?.corrective_action_id ?? p.corrective_action_id,
+                owner_action_id: reviewActionId,
                 kiosk_id: ctx.kiosk.kiosk_id,
                 staff_member_id: ctx.submission.user_id,
                 correction_cycle: priorCycles + 1,
@@ -80,26 +106,6 @@ export class AuditCorrectionProcessor implements SubmissionProcessor<AuditCorrec
         await tx.correctiveAction.update({
             where: { corrective_action_id: action.corrective_action_id },
             data: { status: "REPLACEMENT_SUBMITTED" },
-        });
-
-        // Without this, a validly-submitted correction had nowhere for the
-        // owner to see it — AuditReviewService.reviewCorrection() looks up
-        // an AUDIT_CORRECTION_REVIEW owner_action by this exact submission's
-        // id, but nothing ever created one, so replacement evidence
-        // silently vanished into REPLACEMENT_SUBMITTED with no way to
-        // review/accept/reject it. Every other reviewable form (stock
-        // transfer, delivery invoice, damage, help/issue) creates its
-        // owner_action here in its own processor; this one just never did.
-        const question = await tx.auditQuestion.findUnique({ where: { audit_question_id: action.audit_question_id } });
-        await tx.ownerAction.create({
-            data: {
-                source_submission_id: ctx.submission.submission_id,
-                kiosk_id: ctx.kiosk.kiosk_id,
-                category: "AUDIT_CORRECTION_REVIEW",
-                title: `Audit correction — ${ctx.kiosk.kiosk_id} — ${question?.question_text ?? action.audit_question_id}`,
-                status: "OPEN",
-                priority: "NORMAL",
-            },
         });
 
         return "PROCESSED";

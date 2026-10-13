@@ -230,7 +230,20 @@ export class ActionInboxService {
                     const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
                     out.supplierName = supplier?.name ?? "";
                     out.deliveryFiles = await this.describeInvoiceFiles(files);
-                    out.invoiceLines = lines.map((l) => ({ ...l, stockItemName: l.stock_item_id ? (itemById.get(l.stock_item_id)?.name ?? "") : "" }));
+                    // stockItemUnit/suggestedUnitCost: AI extraction sometimes can't find a sensible unit cost
+                    // (e.g. an invoice priced per kg for an item we track per box, with no fixed kg-per-box
+                    // ratio to convert by — salmon is the recurring case) and leaves unit_cost null, which
+                    // posts as a silent €0 line unless the owner notices and fills it in. The stock item's own
+                    // last-known cost is offered as a starting point to correct from, not asserted as right.
+                    out.invoiceLines = lines.map((l) => {
+                        const item = l.stock_item_id ? itemById.get(l.stock_item_id) : undefined;
+                        return {
+                            ...l,
+                            stockItemName: item?.name ?? "",
+                            stockItemUnit: item?.count_unit ?? "",
+                            suggestedUnitCost: item?.current_unit_cost === undefined || item?.current_unit_cost === null ? null : Number(item.current_unit_cost),
+                        };
+                    });
                 } else {
                     out.supplierName = "";
                     out.deliveryFiles = [];
@@ -292,14 +305,24 @@ export class ActionInboxService {
             }
 
             case "AUDIT_CORRECTION_REVIEW": {
-                const ac = submissionId ? await this.prisma.auditCorrection.findFirst({ where: { submission_id: submissionId } }) : null;
-                if (ac) {
-                    const ca = await this.prisma.correctiveAction.findUnique({ where: { corrective_action_id: ac.corrective_action_id } });
-                    const question = ca ? await this.prisma.auditQuestion.findUnique({ where: { audit_question_id: ca.audit_question_id } }) : null;
-                    out.auditCorrection = { ...ac, correctiveAction: ca ?? null, questionText: question?.question_text ?? "" };
-                } else {
-                    out.auditCorrection = null;
-                }
+                // Every correction a kiosk submits while this card is open lands here together (see
+                // AuditCorrectionProcessor) — not just the one tied to this card's own source_submission_id.
+                const corrections = await this.prisma.auditCorrection.findMany({
+                    where: { owner_action_id: action.owner_action_id },
+                    orderBy: { audit_correction_id: "asc" },
+                });
+                const correctiveActions = await this.prisma.correctiveAction.findMany({
+                    where: { corrective_action_id: { in: [...new Set(corrections.map((c) => c.corrective_action_id))] } },
+                });
+                const caById = new Map(correctiveActions.map((ca) => [ca.corrective_action_id, ca]));
+                const questions = await this.prisma.auditQuestion.findMany({
+                    where: { audit_question_id: { in: [...new Set(correctiveActions.map((ca) => ca.audit_question_id))] } },
+                });
+                const questionById = new Map(questions.map((q) => [q.audit_question_id, q]));
+                out.auditCorrections = corrections.map((c) => {
+                    const ca = caById.get(c.corrective_action_id) ?? null;
+                    return { ...c, correctiveAction: ca, questionText: ca ? (questionById.get(ca.audit_question_id)?.question_text ?? "") : "" };
+                });
                 break;
             }
 

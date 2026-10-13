@@ -979,13 +979,20 @@ model AuditCorrection {
   correction_note             String?
   replacement_photo_reference String?
   validation_status           String  @default("PENDING") // PENDING | ACCEPTED | REJECTED
+  // Groups every correction a kiosk submits the same "round" under one Action Inbox card instead of one card
+  // per correction — a kiosk fixing 10 failed items used to land as 10 separate cards. Set to the kiosk's
+  // still-open AUDIT_CORRECTION_REVIEW owner_action if one exists, else a newly created one. Null on a
+  // correction whose validation failed (no review needed) or on data from before this field existed.
+  owner_action_id String?
 
   submission        Submission?      @relation(fields: [submission_id], references: [submission_id])
   corrective_action CorrectiveAction @relation(fields: [corrective_action_id], references: [corrective_action_id])
   kiosk             Kiosk            @relation(fields: [kiosk_id], references: [kiosk_id])
   staff_member      User?            @relation(fields: [staff_member_id], references: [user_id])
+  owner_action      OwnerAction?     @relation(fields: [owner_action_id], references: [owner_action_id])
 
   @@index([validation_status])
+  @@index([owner_action_id])
   @@map("audit_correction")
 }
 
@@ -1013,6 +1020,7 @@ model OwnerAction {
 
   activity_logs      ActivityLog[]
   purchasing_batches PurchasingBatch[]
+  audit_corrections  AuditCorrection[]
 
   @@index([status])
   @@index([category])

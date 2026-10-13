@@ -159,12 +159,12 @@ export class AuditReviewService {
     }
 
     /**
-     * Owner reviews replacement evidence for one corrective_action. Accept
-     * closes it for good; Reject leaves it OPEN so the kiosk must resubmit
-     * — that next audit_correction submission's own correction_cycle
-     * increments automatically (unrelated to this call), and a new
-     * AUDIT_CORRECTION_REVIEW action is what continues the loop, not this
-     * one staying open indefinitely.
+     * Owner reviews replacement evidence for one corrective_action — one of possibly several grouped onto the
+     * same AUDIT_CORRECTION_REVIEW card (see AuditCorrectionProcessor). Accept closes it for good; Reject
+     * leaves it OPEN so the kiosk must resubmit — that next audit_correction submission's own correction_cycle
+     * increments automatically (unrelated to this call). Either way this one corrective_action is no longer
+     * awaiting owner review, so the card itself only resolves once every corrective_action grouped onto it is
+     * in the same state — a Reject doesn't block the rest of the batch from being cleared.
      */
     async reviewCorrection(auditCorrectionId: string, decision: string, reviewedBy: string): Promise<void> {
         if (decision !== "ACCEPT" && decision !== "REJECT") throw new BadRequestException("Unknown decision.");
@@ -178,21 +178,26 @@ export class AuditReviewService {
                 data: { status: decision === "ACCEPT" ? "CLOSED" : "OPEN", closed_at: decision === "ACCEPT" ? new Date() : null },
             });
 
-            const action = await this.ownerActionState.findOwnerAction(tx, correction.submission_id, "AUDIT_CORRECTION_REVIEW");
-            if (action) {
-                await this.ownerActionState.logActivity(
-                    tx,
-                    action.owner_action_id,
-                    reviewedBy,
-                    "corrective_action.status",
-                    "REPLACEMENT_SUBMITTED",
-                    decision === "ACCEPT" ? "CLOSED" : "OPEN",
-                );
-                await this.ownerActionState.advanceOwnerActionOnAction(tx, action.owner_action_id, {
-                    complete: true,
-                    note: `audit correction ${decision.toLowerCase()}d`,
-                });
-            }
+            if (!correction.owner_action_id) return; // pre-grouping data with no card to update
+
+            await this.ownerActionState.logActivity(
+                tx,
+                correction.owner_action_id,
+                reviewedBy,
+                "corrective_action.status",
+                "REPLACEMENT_SUBMITTED",
+                decision === "ACCEPT" ? "CLOSED" : "OPEN",
+            );
+
+            const siblings = await tx.auditCorrection.findMany({ where: { owner_action_id: correction.owner_action_id } });
+            const siblingCaIds = [...new Set(siblings.map((s) => s.corrective_action_id))];
+            const siblingCas = await tx.correctiveAction.findMany({ where: { corrective_action_id: { in: siblingCaIds } } });
+            const stillAwaitingReview = siblingCas.some((ca) => ca.status === "REPLACEMENT_SUBMITTED");
+
+            await this.ownerActionState.advanceOwnerActionOnAction(tx, correction.owner_action_id, {
+                complete: !stillAwaitingReview,
+                note: `audit correction ${decision.toLowerCase()}d`,
+            });
         });
     }
 }

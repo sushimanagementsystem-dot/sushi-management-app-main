@@ -1410,8 +1410,6 @@ const PROBLEM_ROW = "bg-danger-bg/40";
 function InvoiceSection({ row, stockItems, onChanged }) {
     const header = row.deliveryHeader;
     const [editMode, setEditMode] = useState(false);
-    // Set once Confirm has been refused: from then on the lines that still need fixing are marked in red.
-    const [flagged, setFlagged] = useState(false);
     const [busy, setBusy] = useState(false);
     const [aiRunning, setAiRunning] = useState(false);
     const [aiMessage, setAiMessage] = useState("");
@@ -1461,7 +1459,6 @@ function InvoiceSection({ row, stockItems, onChanged }) {
         apiCall("confirm_invoice_review", { deliveryHeaderId: header.delivery_header_id }).then((res) => {
             setBusy(false);
             if (!res.ok) {
-                setFlagged(true);
                 return noticeModal(res.error || "Confirm failed.", "Can't confirm yet", { actionLabel: "Edit lines" }).then((goEdit) => goEdit && setEditMode(true));
             }
             onChanged();
@@ -1568,7 +1565,7 @@ function InvoiceSection({ row, stockItems, onChanged }) {
 
             {!editMode ? (
                 <div>
-                    <InvoiceLinesView lines={row.invoiceLines || []} showProblems={flagged} />
+                    <InvoiceLinesView lines={row.invoiceLines || []} showProblems={true} />
                     {inReview && (
                         <button type="button" className={DASH_BTN + " mt-2"} onClick={() => setEditMode(true)}>
                             Edit
@@ -1580,7 +1577,7 @@ function InvoiceSection({ row, stockItems, onChanged }) {
                     header={header}
                     lines={row.invoiceLines || []}
                     stockItems={stockItems}
-                    showProblems={flagged}
+                    showProblems={true}
                     onCancel={() => setEditMode(false)}
                     onSaved={() => {
                         setEditMode(false);
@@ -1698,7 +1695,7 @@ function InvoiceFilePage({ file, label, previous, canReplace, disabled, onReplac
     );
 }
 
-function InvoiceLinesView({ lines, showProblems }) {
+function InvoiceLinesView({ lines }) {
     return (
         <RequestTableWrap>
             <table className="w-full border-collapse text-[0.85rem]">
@@ -1714,7 +1711,7 @@ function InvoiceLinesView({ lines, showProblems }) {
                 </thead>
                 <tbody>
                     {lines.map((line) => {
-                        const problem = showProblems && line.status === "DRAFT" ? invoiceLineProblem({ stockItemId: line.stock_item_id, qty: line.qty, cost: line.unit_cost }) : "";
+                        const problem = line.status === "DRAFT" ? invoiceLineProblem({ stockItemId: line.stock_item_id, qty: line.qty, cost: line.unit_cost }) : "";
                         return (
                             <tr key={line.invoice_line_id} className={problem ? PROBLEM_ROW : ""}>
                                 <td className={TD}>{line.description_raw || ""}</td>
@@ -1722,8 +1719,10 @@ function InvoiceLinesView({ lines, showProblems }) {
                                     {line.stockItemName || ""}
                                     {problem && <div className="text-[0.75rem] font-semibold text-danger-ink">Needs attention: {problem}</div>}
                                 </td>
-                                <td className={TD}>{String(line.qty)}</td>
-                                <td className={TD}>{String(line.unit_cost)}</td>
+                                <td className={TD}>
+                                    {String(line.qty)} {line.stockItemUnit || ""}
+                                </td>
+                                <td className={TD}>{line.unit_cost === null || line.unit_cost === undefined ? "" : String(line.unit_cost)}</td>
                                 <td className={TD}>{line.source}</td>
                                 <td className={TD}>{line.status}</td>
                             </tr>
@@ -1735,14 +1734,18 @@ function InvoiceLinesView({ lines, showProblems }) {
     );
 }
 
-function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel, onSaved }) {
+function InvoiceLinesEditor({ header, lines, stockItems, onCancel, onSaved }) {
     const [rows, setRows] = useState(() =>
         lines.map((l) => ({
             line: l,
             _desc: l.description_raw || "",
             _stockItemId: l.stock_item_id || "",
             _qty: String(l.qty),
-            _cost: String(l.unit_cost),
+            // AI sometimes can't resolve a sensible unit cost (an invoice priced per kg for an item tracked
+            // per box, with no fixed conversion — salmon is the recurring case) and leaves it null, which
+            // would otherwise post as a silent €0 line. The stock item's last-known cost is offered as a
+            // starting point to correct from, not asserted as right — the owner still reviews/edits it.
+            _cost: l.unit_cost !== null && l.unit_cost !== undefined ? String(l.unit_cost) : l.suggestedUnitCost !== null && l.suggestedUnitCost !== undefined ? String(l.suggestedUnitCost) : "",
             _remove: false,
         })),
     );
@@ -1843,15 +1846,17 @@ function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel,
                                     <tr key={line.invoice_line_id}>
                                         <td className={TD}>{line.description_raw || ""}</td>
                                         <td className={TD}>{line.stockItemName || ""}</td>
-                                        <td className={TD}>{String(line.qty)}</td>
-                                        <td className={TD}>{String(line.unit_cost)}</td>
+                                        <td className={TD}>
+                                            {String(line.qty)} {line.stockItemUnit || ""}
+                                        </td>
+                                        <td className={TD}>{line.unit_cost === null || line.unit_cost === undefined ? "" : String(line.unit_cost)}</td>
                                         <td className={TD}>{line.source}</td>
                                         <td className={TD}>{line.status}</td>
                                         <td className={TD}></td>
                                     </tr>
                                 );
                             }
-                            const problem = showProblems && !r._remove ? invoiceLineProblem({ stockItemId: r._stockItemId, qty: r._qty, cost: r._cost }) : "";
+                            const problem = !r._remove ? invoiceLineProblem({ stockItemId: r._stockItemId, qty: r._qty, cost: r._cost }) : "";
                             return (
                                 <tr key={line.invoice_line_id} className={problem ? PROBLEM_ROW : ""}>
                                     <td className={TD}>
@@ -1866,10 +1871,16 @@ function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel,
                                         {problem && <div className="mt-1 text-[0.75rem] font-semibold text-danger-ink">Needs attention: {problem}</div>}
                                     </td>
                                     <td className={TD}>
-                                        <input type="number" step="0.01" className="w-full" value={r._qty} onChange={(e) => updateRow(idx, { _qty: e.target.value })} />
+                                        <div className="flex items-center gap-1">
+                                            <input type="number" step="0.01" className="w-full" value={r._qty} onChange={(e) => updateRow(idx, { _qty: e.target.value })} />
+                                            {line.stockItemUnit && <span className="flex-none text-muted">{line.stockItemUnit}</span>}
+                                        </div>
                                     </td>
                                     <td className={TD}>
                                         <input type="number" step="0.01" className="w-full" value={r._cost} onChange={(e) => updateRow(idx, { _cost: e.target.value })} />
+                                        {(line.unit_cost === null || line.unit_cost === undefined) && line.suggestedUnitCost !== null && line.suggestedUnitCost !== undefined && (
+                                            <div className="mt-1 text-[0.75rem] text-muted">AI didn't find a cost — defaulted to the stock item's last known cost. Check it's right.</div>
+                                        )}
                                     </td>
                                     <td className={TD}>{line.source}</td>
                                     <td className={TD}>{line.status}</td>
@@ -1916,9 +1927,25 @@ function InvoiceLinesEditor({ header, lines, stockItems, showProblems, onCancel,
 function AuditReviewSection({ row, onChanged }) {
     const response = row.auditResponse;
     const answers = row.auditAnswers || [];
+    const [acceptingAll, setAcceptingAll] = useState(false);
     if (!response) return <p className="text-muted">Linked audit not found.</p>;
 
     const reviewedCount = answers.filter((a) => !!a.owner_decision).length;
+    const undecided = answers.filter((a) => !a.owner_decision);
+
+    // Flag the exceptions individually first (Override -> Fail, Evidence insufficient, etc. on each answer
+    // card below), then accept everything else in one go — instead of clicking Accept 59 times.
+    async function acceptAllRemaining() {
+        if (!undecided.length) return;
+        const ok = await confirmModal(`Accept all ${undecided.length} remaining answer(s)? Anything you still need to flag should be done individually first.`, "Accept all remaining");
+        if (!ok) return;
+        setAcceptingAll(true);
+        const tasks = undecided.map((a) => () => apiCall("review_audit_answer", { auditAnswerId: a.audit_answer_id, decision: "ACCEPT", note: "" }));
+        const res = await runSequential(tasks);
+        setAcceptingAll(false);
+        if (!res || res.ok === false) return noticeModal((res && res.error) || "Could not accept all.");
+        onChanged();
+    }
 
     return (
         <div>
@@ -1935,6 +1962,11 @@ function AuditReviewSection({ row, onChanged }) {
                 >
                     View final result — score, photos &amp; corrections
                 </a>
+            )}
+            {undecided.length > 0 && (
+                <button type="button" disabled={acceptingAll} className={DASH_BTN + " mb-3"} onClick={acceptAllRemaining}>
+                    {acceptingAll ? "Accepting…" : `Accept all remaining (${undecided.length})`}
+                </button>
             )}
             {answers.map((a) => (
                 <AuditAnswerCard key={a.audit_answer_id} a={a} ownerActionId={row.owner_action_id} onChanged={onChanged} />
@@ -2002,10 +2034,31 @@ function AuditAnswerCard({ a, onChanged }) {
 
 // --- Audit Correction Review ------------------------------------------------
 
+// Every correction a kiosk submits while this card is open lands here together (see AuditCorrectionProcessor) —
+// a kiosk fixing 10 failed items used to create 10 separate Action Inbox cards with nothing tying them together.
 function AuditCorrectionSection({ row, onChanged }) {
-    const correction = row.auditCorrection;
+    const corrections = row.auditCorrections || [];
+    if (!corrections.length) return <p className="text-muted">Linked correction not found.</p>;
+    const pendingCount = corrections.filter((c) => c.correctiveAction?.status === "REPLACEMENT_SUBMITTED").length;
+
+    return (
+        <div>
+            {corrections.length > 1 && (
+                <p className="mb-3 text-muted">
+                    {pendingCount} of {corrections.length} still need a decision.
+                </p>
+            )}
+            <div className="flex flex-col gap-2.5">
+                {corrections.map((c) => (
+                    <AuditCorrectionCard key={c.audit_correction_id} correction={c} onChanged={onChanged} />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function AuditCorrectionCard({ correction, onChanged }) {
     const [busy, setBusy] = useState(false);
-    if (!correction) return <p className="text-muted">Linked correction not found.</p>;
     const ca = correction.correctiveAction;
     const pending = ca && ca.status === "REPLACEMENT_SUBMITTED";
 
@@ -2019,7 +2072,7 @@ function AuditCorrectionSection({ row, onChanged }) {
     }
 
     return (
-        <div>
+        <div className={"rounded-card border bg-card p-[0.8rem] " + (pending ? "border-line" : "border-line opacity-70")}>
             <p className="mb-2 text-muted">
                 {correction.questionText || ""} — cycle {correction.correction_cycle}
                 {ca ? " — deadline " + ca.deadline + " — status: " + ca.status : ""}
