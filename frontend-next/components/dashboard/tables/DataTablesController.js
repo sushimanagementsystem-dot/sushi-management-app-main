@@ -21,7 +21,7 @@
 
 import { TabulatorFull as Tabulator } from "tabulator-tables";
 import { apiCall, storeKioskToken } from "@/lib/api";
-import { confirmModal } from "@/components/ConfirmModal";
+import { confirmModal, noticeModal } from "@/components/ConfirmModal";
 import { makeSearchPick } from "./vanillaSearchPick";
 import { createHelpButton } from "@/lib/help/popover";
 import { columnHelpId, tableHelpId } from "@/lib/help/content";
@@ -1537,10 +1537,53 @@ class DataGrid {
         this.gridEl.appendChild(box);
     }
 
+    /**
+     * Checked right before Save ever talks to the server — the same per-field rule cell editing already
+     * enforces live (fieldValidator), just run across every dirty row's full set of fields in one pass. Catches
+     * a blank required field (or an invalid number) immediately, with nothing sent and nothing on screen
+     * touched, instead of only finding out after a round trip — the small "Add" popup already did this; the
+     * main grid's inline add-a-row-then-Save path never did.
+     */
+    findFirstInvalidDirtyRow_(entries) {
+        const titleColumn = (this.schema.find((f) => f.is_title_column === true) || {}).column_name || "name";
+        const tableLabel = this.meta.label || this.tableName;
+        for (const [, d] of entries) {
+            if (d.isDelete) continue;
+            const name = d.data[titleColumn];
+            const action = d.isNew ? "Adding" : "Editing";
+            const who = action + " " + tableLabel + (name ? ': "' + name + '"' : "");
+            for (const f of this.schema) {
+                if (f.type === "sub_table") continue;
+                const value = d.data[f.column_name];
+                // Primary key: same precedence as the backend's own validateAndCleanRow — required on
+                // create regardless of editable_on_create (that flag governs ordinary columns, not the key).
+                if (f.primary_key) {
+                    if (d.isNew && (value === "" || value === null || value === undefined)) {
+                        return { who: who, error: (f.label || f.column_name) + " is required." };
+                    }
+                    continue;
+                }
+                const allowed = d.isNew ? f.editable_on_create === true : f.editable_on_update === true;
+                if (!allowed) continue;
+                if (fieldValidator(f)(undefined, value)) continue;
+                const isBlankRequired = f.required === true && (value === "" || value === null || value === undefined);
+                const reason = isBlankRequired ? (f.label || f.column_name) + " is required." : (f.label || f.column_name) + " must be a valid " + (f.type === "integer" ? "whole number" : "number") + ".";
+                return { who: who, error: reason };
+            }
+        }
+        return null;
+    }
+
     saveDirtyRows() {
         const entries = Object.entries(this.dirty);
         const enumEntries = Object.entries(this.shared.enumOptionDirtyBox.value);
         if (!entries.length && !enumEntries.length) return;
+
+        const invalid = this.findFirstInvalidDirtyRow_(entries);
+        if (invalid) {
+            noticeModal(invalid.error, invalid.who);
+            return;
+        }
 
         const deleteKeys = new Set(entries.filter(([, d]) => d.isDelete).map(([key]) => key));
         const survivingRows = this.tabulator.getData().filter((row) => !deleteKeys.has(this.rowKeyStr(row)));
@@ -1961,8 +2004,19 @@ class DataGrid {
                     if (!btn) return;
                     e.stopPropagation();
                     const action = btn.dataset.rowAction;
-                    if (action === "view") this.openDetailView(cell.getRow());
-                    else if (action === "edit") this.toggleEditMode();
+                    if (action === "view") {
+                        // A row just added via "Add" isn't in the database yet — opening its detail view used
+                        // to hardcode isNew:false on save, so it tried to UPDATE a row that doesn't exist yet
+                        // ("Row not found") instead of creating it, and any sub-table section in there (e.g.
+                        // Stock Item's Par Levels) would reference a parent id with nothing to join against.
+                        // Simplest safe fix: save the row for real first, then its details are openable.
+                        const key = this.rowKeyStr(cell.getRow().getData());
+                        if (this.dirty[key] && this.dirty[key].isNew) {
+                            noticeModal("Save this new row first — then you can open its details.");
+                            return;
+                        }
+                        this.openDetailView(cell.getRow());
+                    } else if (action === "edit") this.toggleEditMode();
                     else if (action === "delete") this.handleDeleteRow(cell.getRow());
                     else if (action === "login-as-kiosk") this.loginAsKiosk(cell.getRow());
                 },
