@@ -5,7 +5,7 @@ import { OwnerActionStateService, RESOLVED_STATUSES } from "./owner-action-state
 import { UploadService } from "../../upload/upload.service.js";
 import { EnumOptionService } from "../../reference-data/enum-option.service.js";
 import { computeItemTrigger, loadConfirmedCounts } from "../../common/purchasing-trigger.util.js";
-import { stocktakeItems } from "../../common/stocktake-items.util.js";
+import { catalogItems, stocktakeItems } from "../../common/stocktake-items.util.js";
 import type { Kiosk, OwnerAction, Prisma, StockItem, User } from "@prisma/client";
 
 const PRIORITY_RANK: Record<string, number> = { URGENT: 0, NORMAL: 1, LOW: 2 };
@@ -111,12 +111,18 @@ export class ActionInboxService {
             counts,
             kiosks: allKiosks.filter((k) => k.active).map((k) => ({ id: k.kiosk_id, name: k.name })),
             users: allUsers.map((u) => ({ id: u.user_id, name: u.name })),
-            // Same scope as everywhere else "a real, purchasable stock item" is meant: the Stock Take list, not
-            // every active row — a Food Waste "(per 100g)" tracking-only item (Tuna, Sushi Rice...) was showing up
-            // here and could be picked for an invoice line, which invoice-ai.service.ts's own matching deliberately
-            // never does. Sorted by name so the picker's first-40-results cap (SearchPick) shows a meaningful,
+            // The catalog, not the stocktake list: a Food Waste "(per 100g)" tracking-only item (Tuna, Sushi
+            // Rice...) was showing up here and could be picked for an invoice line, which invoice-ai.service.ts's
+            // own matching deliberately never does — and neither should a "Kiosk (ambient product only)"
+            // stocktake-only duplicate, which is this list's picker's entire reason for excluding it (see
+            // catalogItems). Sorted by name so the picker's first-40-results cap (SearchPick) shows a meaningful,
             // predictable slice before the owner even types anything, not whatever order the DB happened to return.
-            stockItems: stocktakeItems(allStockItems, stockCategories)
+            stockItems: catalogItems(allStockItems, stockCategories)
+                .map((s) => ({ id: s.stock_item_id, name: s.name, unit: s.count_unit }))
+                .sort((a, b) => a.name.localeCompare(b.name)),
+            // Stocktake Review's own "add a missed line" picker needs the stocktake list instead — it must still
+            // offer an ambient duplicate, since that's exactly the kind of line a stocktake review is for catching.
+            stocktakeStockItems: stocktakeItems(allStockItems, stockCategories)
                 .map((s) => ({ id: s.stock_item_id, name: s.name, unit: s.count_unit }))
                 .sort((a, b) => a.name.localeCompare(b.name)),
         };

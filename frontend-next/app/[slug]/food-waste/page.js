@@ -17,6 +17,11 @@ import { FormActions, FormNote, ResultError, Spinner, SuccessPanel } from "@/com
 let lineSeq = 0;
 const newLine = () => ({ key: ++lineSeq, category: "", name: "", amount: "" });
 
+// Some items share a name across two rows — a whole-unit purchasable item (counted on Stocktake, e.g. "AVOCADO"
+// BOX) and a per-100g tracking-only item for logging prepped/cut waste (e.g. "Avocado" 100g). Both are meant to be
+// pickable here, so the unit is appended to tell them apart instead of showing the bare name twice.
+const itemLabel = (p) => `${p.name} — ${p.unit}`;
+
 function makeClientKey() {
     return typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
@@ -46,7 +51,7 @@ export default function FoodWastePage() {
 
     const byName = useMemo(() => {
         const m = {};
-        (boot?.items || []).forEach((p) => (m[p.name] = p.id));
+        (boot?.items || []).forEach((p) => (m[itemLabel(p)] = p.id));
         return m;
     }, [boot]);
 
@@ -144,17 +149,17 @@ export default function FoodWastePage() {
                                             placeholder="Search item…"
                                             getItems={(q) => {
                                                 const taken = new Set(
-                                                    lines.filter((o) => o.key !== l.key).map((o) => o.name.trim()).filter((v) => byName[v]),
+                                                    lines.filter((o) => o.key !== l.key).map((o) => byName[o.name.trim()]).filter(Boolean),
                                                 );
                                                 return (boot?.items || [])
                                                     .filter(
                                                         (p) =>
-                                                            !taken.has(p.name) &&
+                                                            !taken.has(p.id) &&
                                                             (!l.category || p.cat === l.category) &&
                                                             (!q || p.name.toLowerCase().includes(q)),
                                                     )
                                                     .sort((a, b) => a.name.localeCompare(b.name))
-                                                    .map((p) => ({ id: p.id, label: p.name }));
+                                                    .map((p) => ({ id: p.id, label: itemLabel(p) }));
                                             }}
                                             onSelect={(it) => {
                                                 updateLine(l.key, { name: it.label });

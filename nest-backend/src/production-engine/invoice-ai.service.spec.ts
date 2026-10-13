@@ -6,9 +6,9 @@ import { InvoiceAiService, describeError, invoiceReviewTitle } from "./invoice-a
 const textReply = (obj: unknown, stop_reason = "end_turn") => ({ stop_reason, content: [{ type: "text", text: JSON.stringify(obj) }] });
 
 const STOCK = [
-    { stock_item_id: "S1", name: "AVOCADO", count_unit: "kg", active: true },
-    { stock_item_id: "S2", name: "RICE", count_unit: "kg", active: true },
-    { stock_item_id: "S3", name: "RICE PAPER", count_unit: "pack", active: true },
+    { stock_item_id: "S1", name: "AVOCADO", count_unit: "kg", active: true, stock_category_id: "SC01", ambient_duplicate_of: null },
+    { stock_item_id: "S2", name: "RICE", count_unit: "kg", active: true, stock_category_id: "SC01", ambient_duplicate_of: null },
+    { stock_item_id: "S3", name: "RICE PAPER", count_unit: "pack", active: true, stock_category_id: "SC01", ambient_duplicate_of: null },
 ];
 
 function build(opts: { create: ReturnType<typeof vi.fn>; apiKey?: string | null; files?: Record<string, { mimeType: string; size?: number } | null>; maps?: unknown[] }) {

@@ -1,4 +1,4 @@
-import { stocktakeCategoryIds } from "../../common/stocktake-items.util.js";
+import { stocktakeItems } from "../../common/stocktake-items.util.js";
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { EnumOptionService } from "../../reference-data/enum-option.service.js";
@@ -27,9 +27,8 @@ export class WeeklyStocktakeService {
         // order (its sort_order), the same position Data Tables' Stock Item
         // layout uses — not an alphabetical sort of the category labels.
         const categoryOrder = new Map(categories.map((c, i) => [c.value, i]));
-        const nonWasteCatIds = stocktakeCategoryIds(categories);
 
-        const items = allItems.filter((r) => r.active && nonWasteCatIds.has(r.stock_category_id));
+        const items = stocktakeItems(allItems, categories);
 
         const existingCounts: Record<string, number> = {};
         if (header) {

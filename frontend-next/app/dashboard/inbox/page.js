@@ -313,6 +313,7 @@ function InboxBody() {
                         ownerActionId={activeId}
                         kiosks={res?.ok ? res.kiosks || [] : []}
                         stockItems={res?.ok ? res.stockItems || [] : []}
+                        stocktakeStockItems={res?.ok ? res.stocktakeStockItems || [] : []}
                         usersById={usersById}
                         onClose={closeModal}
                         onChanged={refreshAfterAction}
@@ -575,7 +576,7 @@ function Pager({ page, pageCount, total, pageSize, onChange }) {
 
 // --- Detail modal ------------------------------------------------------
 
-function DetailModal({ ownerActionId, kiosks, stockItems, usersById, onClose, onChanged }) {
+function DetailModal({ ownerActionId, kiosks, stockItems, stocktakeStockItems, usersById, onClose, onChanged }) {
     // Self-sufficient — get_action_detail returns the action's own fields
     // plus activity/category detail in one call, so this never needs the
     // row to already be present in whatever page/filter the list last
@@ -622,7 +623,7 @@ function DetailModal({ ownerActionId, kiosks, stockItems, usersById, onClose, on
                 <TriageEditor row={row} ownerActionId={ownerActionId} onSaved={changed} />
 
                 <div className="mt-6">
-                    <CategorySection row={row} kiosks={kiosks} stockItems={stockItems} onChanged={changed} />
+                    <CategorySection row={row} kiosks={kiosks} stockItems={stockItems} stocktakeStockItems={stocktakeStockItems} onChanged={changed} />
                 </div>
 
                 {(row.activity || []).length > 0 && (
@@ -808,12 +809,12 @@ function inboxHelpId(category) {
     return "inbox." + (category === "TRANSFER_APPLY" ? "TRANSFER_APPROVAL" : category);
 }
 
-function CategorySection({ row, kiosks, stockItems, onChanged }) {
+function CategorySection({ row, kiosks, stockItems, stocktakeStockItems, onChanged }) {
     switch (row.category) {
         case "HELP_ISSUE":
             return <HelpIssueSection row={row} onChanged={onChanged} />;
         case "STOCKTAKE_REVIEW":
-            return <StocktakeSection row={row} stockItems={stockItems} onChanged={onChanged} />;
+            return <StocktakeSection row={row} stockItems={stocktakeStockItems} onChanged={onChanged} />;
         case "TRANSFER_APPROVAL":
         case "TRANSFER_APPLY":
             return <TransferSection row={row} kiosks={kiosks} onChanged={onChanged} />;

@@ -21,6 +21,11 @@ import { createPortal } from "react-dom";
  */
 export default function SearchPick({ getItems, onSelect, placeholder, value }) {
     const [query, setQuery] = useState(value || "");
+    // Separate from `query` (what's shown in the box) on purpose: reopening an already-filled picker used to
+    // re-filter the list by the previously picked label, so everything except that one item vanished — a user
+    // had to clear/retype over it just to browse again. Focusing resets only this (browse the full list), not
+    // the displayed text, so the box never flashes blank; typing re-engages real filtering.
+    const [filterText, setFilterText] = useState("");
     const [open, setOpen] = useState(false);
     const [rect, setRect] = useState(null);
     const inputRef = useRef(null);
@@ -70,7 +75,10 @@ export default function SearchPick({ getItems, onSelect, placeholder, value }) {
         };
     }, [open]);
 
-    const items = open ? getItems(query.trim().toLowerCase()).slice(0, 40) : [];
+    // 250 is a safety cap, not a real limit — the largest list in the app (the full stock-item catalog) tops
+    // out around 190 items. A kiosk reported browsing a ~100-item list without typing and hitting a hard cutoff
+    // mid-alphabet; the old cap of 40 was the cause, so it's raised well past any real list here instead.
+    const items = open ? getItems(filterText.trim().toLowerCase()).slice(0, 250) : [];
 
     return (
         <div className="relative min-w-0 flex-1">
@@ -83,9 +91,13 @@ export default function SearchPick({ getItems, onSelect, placeholder, value }) {
                 className="w-full"
                 onChange={(e) => {
                     setQuery(e.target.value);
+                    setFilterText(e.target.value);
                     setOpen(true);
                 }}
-                onFocus={() => setOpen(true)}
+                onFocus={() => {
+                    setFilterText("");
+                    setOpen(true);
+                }}
                 onBlur={() => setTimeout(() => setOpen(false), 150)}
             />
             {items.length > 0 &&

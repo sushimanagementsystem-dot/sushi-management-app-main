@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Send } from "lucide-react";
 import { kickProcessing, readFileForUpload, requireKioskToken } from "@/lib/api";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
+import { makeFormDraft } from "@/lib/kioskDraft";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
 import KioskPageTransition from "@/components/kiosk/KioskPageTransition";
@@ -18,93 +19,10 @@ import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/
 // Waste, Fridge Count), there's a real "Back to menu" link here, and
 // following it used to wipe every answer and photo because they only ever
 // lived in this component's own React state. Saved to the browser's own
-// storage on every change and restored on load instead, so leaving and
-// coming back (even a full page reload) picks up exactly where it left
-// off — cleared only once the audit actually submits.
-//
-// IndexedDB, not localStorage: a full audit's evidence photos (even
-// compressed, see readFileForUpload) can add up past localStorage's
-// typical 5-10MB per-origin quota, especially on mobile browsers — once
-// that quota is hit, every further write throws and is silently dropped
-// (the user keeps seeing their answers on screen; only the save fails),
-// which is exactly the "an hour of work, then it's gone" report this is
-// fixing. IndexedDB's quota is a large fraction of free disk space, so
-// the same draft that used to overflow localStorage now fits comfortably.
-const DRAFT_DB_NAME = "sushi_kiosk_drafts";
-const DRAFT_STORE_NAME = "drafts";
-
-function openDraftDb() {
-    return new Promise((resolve, reject) => {
-        const req = window.indexedDB.open(DRAFT_DB_NAME, 1);
-        req.onupgradeneeded = () => {
-            if (!req.result.objectStoreNames.contains(DRAFT_STORE_NAME)) req.result.createObjectStore(DRAFT_STORE_NAME);
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-    });
-}
-
-async function idbGet(key) {
-    try {
-        const db = await openDraftDb();
-        return await new Promise((resolve, reject) => {
-            const tx = db.transaction(DRAFT_STORE_NAME, "readonly");
-            const req = tx.objectStore(DRAFT_STORE_NAME).get(key);
-            req.onsuccess = () => resolve(req.result ?? null);
-            req.onerror = () => reject(req.error);
-        });
-    } catch {
-        return null; // private browsing, storage disabled, or corrupt data — fall back to a blank form, never crash
-    }
-}
-
-async function idbSet(key, value) {
-    try {
-        const db = await openDraftDb();
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction(DRAFT_STORE_NAME, "readwrite");
-            tx.objectStore(DRAFT_STORE_NAME).put(value, key);
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error);
-        });
-    } catch {
-        // Storage unavailable — the in-memory answers the user can still see and submit right now are
-        // unaffected; only "survives a page reload" is lost.
-    }
-}
-
-async function idbDelete(key) {
-    try {
-        const db = await openDraftDb();
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction(DRAFT_STORE_NAME, "readwrite");
-            tx.objectStore(DRAFT_STORE_NAME).delete(key);
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error);
-        });
-    } catch {
-        // Nothing to clean up if storage was never usable in the first place.
-    }
-}
-
-function draftKey(slug) {
-    return "monthly_audit_draft_" + slug;
-}
-
-async function loadDraft(slug, businessDate) {
-    const parsed = await idbGet(draftKey(slug));
-    // A draft from a different day (a prior, already-submitted audit window) is stale — never resurrect it into a new one.
-    if (!parsed || parsed.businessDate !== businessDate) return null;
-    return parsed;
-}
-
-async function saveDraft(slug, businessDate, answers, currentSection) {
-    await idbSet(draftKey(slug), { businessDate, answers, currentSection });
-}
-
-async function clearDraft(slug) {
-    await idbDelete(draftKey(slug));
-}
+// storage on every change and restored on load instead (see lib/kioskDraft),
+// so leaving and coming back (even a full page reload) picks up exactly
+// where it left off — cleared only once the audit actually submits.
+const draft = makeFormDraft("monthly_audit");
 
 export default function MonthlyAuditPage() {
     const { slug } = useParams();
@@ -133,10 +51,10 @@ export default function MonthlyAuditPage() {
         if (!boot || !boot.ok || seeded.current) return;
         seeded.current = true;
         (async () => {
-            const draft = await loadDraft(slug, boot.businessDate);
+            const saved = await draft.load(slug, boot.businessDate);
             const init = {};
             (boot.questions || []).forEach((q) => {
-                const fromDraft = draft?.answers?.[q.id];
+                const fromDraft = saved?.answers?.[q.id];
                 if (fromDraft) {
                     init[q.id] = fromDraft;
                     return;
@@ -149,7 +67,7 @@ export default function MonthlyAuditPage() {
                 };
             });
             setAnswers(init);
-            if (draft && typeof draft.currentSection === "number") setCurrentSection(draft.currentSection);
+            if (saved && typeof saved.currentSection === "number") setCurrentSection(saved.currentSection);
         })();
     }, [boot, slug]);
 
@@ -157,7 +75,7 @@ export default function MonthlyAuditPage() {
     // infrequent, user-driven writes, not a hot loop, so no debouncing is needed.
     useEffect(() => {
         if (!seeded.current || !boot?.businessDate) return;
-        saveDraft(slug, boot.businessDate, answers, currentSection);
+        draft.save(slug, boot.businessDate, { answers, currentSection });
     }, [answers, currentSection, slug, boot?.businessDate]);
 
     const sections = useMemo(() => {
@@ -178,7 +96,7 @@ export default function MonthlyAuditPage() {
         onSuccess: (res) => {
             if (res.ok) {
                 setSuccess("Audit submitted for owner review.");
-                clearDraft(slug);
+                draft.clear(slug);
                 kickProcessing();
             } else {
                 setFormError(res.error);

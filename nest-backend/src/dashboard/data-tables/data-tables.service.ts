@@ -76,7 +76,7 @@ export class DataTablesService {
         // buildFieldInput, which filters the PICKABLE options itself but
         // still needs this full cache for that already-saved value's label).
         const [referenceEntries, enumEntries, rows, meta] = await Promise.all([
-            Promise.all(refTables.map(async (t) => [t, t === "stock_item" ? await this.stockTakeItemRows() : await this.tableCache.getAll(t)] as const)),
+            Promise.all(refTables.map(async (t) => [t, t === "stock_item" ? await this.stockItemReferenceRows() : await this.tableCache.getAll(t)] as const)),
             Promise.all(enumSources.map(async (e) => [e, await this.enumOptions.getOptions(e)] as const)),
             this.tableCache.getAll(tableName),
             this.getTableMeta(tableName),
@@ -432,6 +432,22 @@ export class DataTablesService {
         const [items, categories] = await Promise.all([this.tableCache.getAll<{ active: boolean; stock_category_id: string } & Record<string, unknown>>("stock_item"), this.enumOptions.getOptions("stock_category")]);
         const ids = stocktakeCategoryIds(categories);
         return items.filter((i) => ids.has(i.stock_category_id)); // inactive items stay listed so the owner can switch them back on
+    }
+
+    /**
+     * The stock items selectable from OTHER tables' own reference pickers here (e.g. Supplier Item Map, Defrost
+     * Item) — the Stock Take list, minus "Kiosk (ambient product only)" stocktake-only duplicates (ambient_duplicate_of
+     * set), which only ever belong on the Weekly Stocktake itself (see catalogItems in stocktake-items.util.ts) —
+     * still active or not, so a row that already links to one since switched off still resolves its name here,
+     * same as stockTakeItemRows above.
+     */
+    private async stockItemReferenceRows(): Promise<Record<string, unknown>[]> {
+        const [items, categories] = await Promise.all([
+            this.tableCache.getAll<{ active: boolean; stock_category_id: string; ambient_duplicate_of: string | null } & Record<string, unknown>>("stock_item"),
+            this.enumOptions.getOptions("stock_category"),
+        ]);
+        const ids = stocktakeCategoryIds(categories);
+        return items.filter((i) => ids.has(i.stock_category_id) && !i.ambient_duplicate_of);
     }
 
     private async getFieldSchema(tableName: string): Promise<FieldSchemaRow[]> {

@@ -1,9 +1,8 @@
-import { stocktakeCategoryIds } from "../../common/stocktake-items.util.js";
+import { loadStocktakeItems } from "../../common/stocktake-items.util.js";
 import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type { KeyContext, ProcessingContext, SubmissionProcessor, ValidationResult } from "../submission-processor.interface.js";
 import { SettingsService } from "../../reference-data/settings.service.js";
-import { EnumOptionService } from "../../reference-data/enum-option.service.js";
 import { toDateStr } from "../../common/date.util.js";
 
 type StocktakePayload = { counts: Record<string, number> };
@@ -20,10 +19,7 @@ export class WeeklyStocktakeProcessor implements SubmissionProcessor<StocktakePa
     readonly formType = "WEEKLY_STOCKTAKE";
     readonly tables = [{ model: "stocktake_header" }, { model: "owner_action", viaSourceSubmission: true }];
 
-    constructor(
-        private readonly settings: SettingsService,
-        private readonly enumOptions: EnumOptionService,
-    ) {}
+    constructor(private readonly settings: SettingsService) {}
 
     validate(payload: unknown): ValidationResult {
         const p = (payload ?? {}) as Partial<StocktakePayload>;
@@ -56,9 +52,7 @@ export class WeeklyStocktakeProcessor implements SubmissionProcessor<StocktakePa
     async process(tx: Prisma.TransactionClient, ctx: ProcessingContext<StocktakePayload>): Promise<string> {
         const counts = ctx.payload.counts;
 
-        const categories = await this.enumOptions.getOptions("stock_category");
-        const nonWasteCatIds = stocktakeCategoryIds(categories);
-        const items = await tx.stockItem.findMany({ where: { active: true, stock_category_id: { in: [...nonWasteCatIds] } } });
+        const items = await loadStocktakeItems(tx);
         const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
 
         const expected = items.length;

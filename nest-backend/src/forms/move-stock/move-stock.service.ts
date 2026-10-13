@@ -33,7 +33,10 @@ export class MoveStockService {
             thisKiosk: { id: kiosk.kiosk_id, name: kiosk.name },
             kiosks: allKiosks.filter((k) => k.active).map((k) => ({ id: k.kiosk_id, name: k.name })),
             items: allItems
-                .filter((r) => r.active && transferableCatIds.has(r.stock_category_id))
+                // ambient_duplicate_of excludes "Kiosk (ambient product only)" stocktake-only duplicates — the
+                // same physical stock as the real item they duplicate, never its own transferable thing (see
+                // catalogItems in stocktake-items.util.ts).
+                .filter((r) => r.active && transferableCatIds.has(r.stock_category_id) && !r.ambient_duplicate_of)
                 .map((r) => ({ id: r.stock_item_id, name: r.name, unit: r.count_unit, cat: categoryLabelById.get(r.stock_category_id) ?? "Other" })),
             reasons,
         };

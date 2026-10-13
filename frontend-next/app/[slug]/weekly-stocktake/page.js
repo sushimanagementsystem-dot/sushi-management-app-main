@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Send } from "lucide-react";
 import { kickProcessing, requireKioskToken } from "@/lib/api";
 import { useApiMutation, useBootstrap } from "@/lib/queries";
+import { makeFormDraft } from "@/lib/kioskDraft";
 import { confirmModal } from "@/components/ConfirmModal";
 import PageTitle from "@/components/PageTitle";
 import KioskTopbar from "@/components/kiosk/KioskTopbar";
@@ -13,6 +14,12 @@ import Wrap from "@/components/kiosk/Wrap";
 import StickyActionBar from "@/components/kiosk/StickyActionBar";
 import { FormNote, ResubmitBanner, ResultError, Spinner, SuccessPanel } from "@/components/kiosk/FormBits";
 
+// Counts used to live only in React state — a page reload, accidental back-navigation, or tab close
+// halfway through a count wiped everything typed so far. Saved to the browser's own storage on every
+// change and restored on load instead (see lib/kioskDraft), same fix as Monthly Audit; cleared only once
+// the stocktake actually submits.
+const draft = makeFormDraft("weekly_stocktake");
+
 export default function WeeklyStocktakePage() {
     const { slug } = useParams();
     const menuHref = "/" + slug + "/home";
@@ -20,6 +27,7 @@ export default function WeeklyStocktakePage() {
     const [counts, setCounts] = useState({});
     const [formError, setFormError] = useState("");
     const [success, setSuccess] = useState(null);
+    const seeded = useRef(false);
 
     useEffect(() => {
         const t = requireKioskToken();
@@ -33,16 +41,28 @@ export default function WeeklyStocktakePage() {
     } = useBootstrap("bootstrap_stocktake", token && { token }, { enabled: !!token });
 
     useEffect(() => {
-        if (!boot || !boot.ok) return;
-        setCounts((prev) => {
-            if (Object.keys(prev).length) return prev;
+        if (!boot || !boot.ok || seeded.current) return;
+        seeded.current = true;
+        (async () => {
+            const saved = await draft.load(slug, boot.businessDate);
+            if (saved?.counts) {
+                setCounts(saved.counts);
+                return;
+            }
             const init = {};
             boot.items.forEach((p) => {
                 if (boot.existingCounts[p.id] !== undefined) init[p.id] = String(boot.existingCounts[p.id]);
             });
-            return init;
-        });
-    }, [boot]);
+            setCounts(init);
+        })();
+    }, [boot, slug]);
+
+    // Every change (a count typed in) is persisted immediately — cheap, infrequent, user-driven writes,
+    // not a hot loop, so no debouncing is needed.
+    useEffect(() => {
+        if (!seeded.current || !boot?.businessDate) return;
+        draft.save(slug, boot.businessDate, { counts });
+    }, [counts, slug, boot?.businessDate]);
 
     // Sections follow the stock_category list's own order (catOrder, from
     // the backend), items within a section follow the client's master
@@ -69,6 +89,7 @@ export default function WeeklyStocktakePage() {
         onSuccess: (res) => {
             if (res.ok) {
                 setSuccess("Stocktake saved.");
+                draft.clear(slug);
                 kickProcessing();
             } else {
                 setFormError(res.error);
