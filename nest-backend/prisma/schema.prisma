@@ -50,6 +50,9 @@ model Kiosk {
   token            String  @unique
   production_email String?
   active           Boolean @default(true)
+  // Some suppliers (e.g. Castlebay) require their own registered store name on the order sheet, which may
+  // not match this kiosk's internal name. Null = use `name` as-is.
+  supplier_store_name String?
 
   brand Brand @relation(fields: [brand_id], references: [brand_id])
 
@@ -102,6 +105,10 @@ model Supplier {
   name                String
   contact_email       String?
   order_output_method String // ORDER_SHEET | EMAIL_ORDER | MANUAL (enum_source: order_output_method) — ONLINE_ORDER_LIST/GMAIL_DRAFT are older values some rows may still carry; purchasing-order-email.ts treats anything non-MANUAL that isn't ORDER_SHEET as a plain list, same as EMAIL_ORDER
+  // Which exact order-sheet layout this supplier requires (enum_source: order_sheet_template) — null/unset
+  // falls back to the generic sheet in purchasing-order-email.ts. Some suppliers only accept their own
+  // fixed form (e.g. a franchise-wide standard used across many kiosks), so the generic layout doesn't work.
+  order_sheet_template String?
   active              Boolean @default(true)
 
   supplier_item_maps SupplierItemMap[]

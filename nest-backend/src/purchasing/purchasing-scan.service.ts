@@ -6,12 +6,13 @@ import { MailerService } from "../mailer/mailer.service.js";
 import { applyPackRounding, fixedOrderQtyOverride, computeItemTrigger, loadConfirmedCounts, stockCountDate } from "../common/purchasing-trigger.util.js";
 import { buildOrderEmail, type OrderItemInfo } from "./purchasing-order-email.js";
 import { loadStocktakeItems } from "../common/stocktake-items.util.js";
-import { addDays, startOfTodayUtc, toDateStr } from "../common/date.util.js";
+import { addDays, startOfTodayUtc, startOfWeekUtc, toDateStr } from "../common/date.util.js";
 import type { Kiosk, StockItem, StockItemPar, StockMovement, Supplier, SupplierItemMap } from "@prisma/client";
 
 type RecommendationLine = {
     stockItemId: string;
     supplierId: string;
+    kioskId: string;
     totalShortfall: number;
     packSize: number;
     orderMultiple: number;
@@ -27,14 +28,23 @@ type DiagnosticLine = { stockItemId: string; flags: string[] };
  * backend/dashboard/Purchasing.js. Reads current stock levels (from
  * stock_movement ledger balance, same as KpiService's Stock Usage View),
  * compares against each kiosk's stock_item_par, and groups triggered
- * shortfalls by supplier into one owner_action + purchasing_batch (+lines)
- * per supplier — surfaced in the Action Inbox under the
+ * shortfalls by supplier AND kiosk into one owner_action + purchasing_batch
+ * (+lines) per supplier-kiosk pair — surfaced in the Action Inbox under the
  * PURCHASING_RECOMMENDATION category (see ActionInboxService).
+ *
+ * One batch per kiosk, not one combined batch per supplier across every
+ * kiosk: every kiosk's stocktake can complete the same day, and a single
+ * merged order gave the owner no way to tell which kiosk any of it was
+ * for. The kiosk name is carried in the owner_action (kiosk_id) and in the
+ * email subject/filename.
  *
  * The drafted order is EMAILED TO THE OWNER (never to the supplier) through the
  * same SMTP the production email uses, so the owner only reviews and forwards:
  *  - ORDER_SHEET suppliers (Tazaki, Asia Market, Castlebay): an Excel order
- *    sheet, filled from the par levels, attached;
+ *    sheet attached, filled from the par levels — in that supplier's own
+ *    exact required layout (Supplier.order_sheet_template) where one
+ *    exists, since some suppliers (a shared franchise-wide form used
+ *    across many other kiosks too) won't accept anything else;
  *  - every other non-MANUAL method (EMAIL_ORDER, and the old GMAIL_DRAFT /
  *    ONLINE_ORDER_LIST): just a message listing what to order;
  *  - MANUAL suppliers are never ordered automatically.
@@ -61,9 +71,10 @@ export class PurchasingScanService {
      * created within PURCHASING_DUPLICATE_WINDOW_DAYS (spec 20.11). MANUAL
      * suppliers never reach here — buildRecommendations already excludes them. */
     /**
-     * "When the stocktake is completed, the orders get drafted": called after the owner confirms a stocktake. The scan
-     * sums every kiosk's shortfall, so it waits until no other active kiosk still has a completed stocktake waiting
-     * for review; the last confirmation of the round triggers it, once, with every kiosk's count in.
+     * "When the stocktake is completed, the orders get drafted": called after the owner confirms a stocktake. Waits
+     * until no other active kiosk still has a completed stocktake waiting for review, so a run of same-day
+     * confirmations triggers one scan pass (covering every kiosk that's ready), not one per kiosk — the last
+     * confirmation of the round is what fires it.
      */
     async runAfterStocktakeConfirmed(): Promise<{ ran: boolean; created?: number; skipped?: number; emailed?: number }> {
         const waiting = await this.prisma.stocktakeHeader.count({ where: { reconciliation_status: "PENDING", completion_status: "COMPLETE", kiosk: { active: true } } });
@@ -75,22 +86,26 @@ export class PurchasingScanService {
     async runWeeklyScan(): Promise<{ ok: true; created: number; skipped: number; emailed: number; emailFailed: number }> {
         const rec = await this.buildRecommendations();
 
-        const suppliers = await this.prisma.supplier.findMany();
+        const [suppliers, kiosks] = await Promise.all([this.prisma.supplier.findMany(), this.prisma.kiosk.findMany()]);
         const suppliersById = new Map(suppliers.map((s) => [s.supplier_id, s]));
+        const kiosksById = new Map(kiosks.map((k) => [k.kiosk_id, k]));
 
         const windowDays = (await this.settings.getNumber("PURCHASING_DUPLICATE_WINDOW_DAYS")) ?? 1;
         const cutoff = addDays(startOfTodayUtc(), -windowDays);
         const openStatuses = ["OPEN", "IN_PROGRESS", "WAITING_FOR_OWNER"];
         const recentActions = await this.prisma.ownerAction.findMany({
             where: { category: "PURCHASING_RECOMMENDATION", status: { in: openStatuses }, created_at: { gte: cutoff } },
-            select: { owner_action_id: true },
+            select: { owner_action_id: true, kiosk_id: true },
         });
+        const kioskIdByActionId = new Map(recentActions.map((a) => [a.owner_action_id, a.kiosk_id]));
         const recentActionIds = new Set(recentActions.map((a) => a.owner_action_id));
         const recentBatches = await this.prisma.purchasingBatch.findMany({
             where: { owner_action_id: { in: [...recentActionIds] } },
-            select: { supplier_id: true },
+            select: { supplier_id: true, owner_action_id: true },
         });
-        const recentSupplierIds = new Set(recentBatches.map((b) => b.supplier_id || "__diagnostic__"));
+        // Keyed by supplier + kiosk (not supplier alone) — one kiosk's recent order for a supplier must not
+        // block a different kiosk's order for that same supplier.
+        const recentKeys = new Set(recentBatches.map((b) => `${b.supplier_id || "__diagnostic__"}|${(b.owner_action_id && kioskIdByActionId.get(b.owner_action_id)) ?? ""}`));
 
         let created = 0;
         let skipped = 0;
@@ -98,25 +113,39 @@ export class PurchasingScanService {
         let emailFailed = 0;
         const itemInfo = await this.orderItemInfo(rec.supplierBatches);
         const staleDays = (await this.settings.getNumber("STOCKTAKE_STALE_DAYS")) ?? 7;
+        const deliveryWeekStart = toDateStr(addDays(startOfWeekUtc(startOfTodayUtc()), 7));
 
-        for (const [supplierId, lines] of Object.entries(rec.supplierBatches)) {
-            if (recentSupplierIds.has(supplierId)) {
-                skipped++;
-                continue;
-            }
+        for (const [supplierId, allLines] of Object.entries(rec.supplierBatches)) {
             const supplier = suppliersById.get(supplierId);
             if (!supplier) continue;
-            const batchId = await this.createPurchasingBatch(supplierId, supplier, lines, false);
-            created++;
-            if (await this.emailOrder(batchId, supplier, lines, itemInfo.get(supplierId) ?? new Map(), staleDays)) emailed++;
-            else emailFailed++;
+            const linesByKiosk = new Map<string, RecommendationLine[]>();
+            for (const line of allLines) {
+                if (!linesByKiosk.has(line.kioskId)) linesByKiosk.set(line.kioskId, []);
+                linesByKiosk.get(line.kioskId)!.push(line);
+            }
+
+            for (const [kioskId, lines] of linesByKiosk) {
+                if (recentKeys.has(`${supplierId}|${kioskId}`)) {
+                    skipped++;
+                    continue;
+                }
+                const kiosk = kiosksById.get(kioskId);
+                const kioskName = kiosk?.name ?? kioskId;
+                // Only the exact text sent to the supplier (e.g. Castlebay's "Name of Store" cell) uses the
+                // override — the subject/filename, which the owner sees internally, always use our own name.
+                const supplierStoreName = kiosk?.supplier_store_name || kioskName;
+                const batchId = await this.createPurchasingBatch(supplierId, supplier, kioskId, lines, false);
+                created++;
+                if (await this.emailOrder(batchId, supplier, kioskName, supplierStoreName, deliveryWeekStart, lines, itemInfo.get(supplierId) ?? new Map(), staleDays)) emailed++;
+                else emailFailed++;
+            }
         }
 
         if (rec.diagnosticLines.length) {
-            if (recentSupplierIds.has("__diagnostic__")) {
+            if (recentKeys.has("__diagnostic__|")) {
                 skipped++;
             } else {
-                await this.createPurchasingBatch(null, null, rec.diagnosticLines, true);
+                await this.createPurchasingBatch(null, null, null, rec.diagnosticLines, true);
                 created++;
             }
         }
@@ -128,16 +157,19 @@ export class PurchasingScanService {
     private async createPurchasingBatch(
         supplierId: string | null,
         supplier: Supplier | null,
+        kioskId: string | null,
         lines: (RecommendationLine | DiagnosticLine)[],
         isDiagnostic: boolean,
     ): Promise<string> {
         return this.prisma.$transaction(async (tx) => {
+            const kiosk = kioskId ? await tx.kiosk.findUnique({ where: { kiosk_id: kioskId } }) : null;
             const ownerAction = await tx.ownerAction.create({
                 data: {
                     category: "PURCHASING_RECOMMENDATION",
-                    title: isDiagnostic ? "Purchasing — setup needed" : `Purchasing recommendation — ${supplier!.name}`,
+                    title: isDiagnostic ? "Purchasing — setup needed" : `Purchasing recommendation — ${supplier!.name} (${kiosk?.name ?? kioskId})`,
                     status: "OPEN",
                     priority: "NORMAL",
+                    kiosk_id: kioskId,
                 },
             });
             const batch = await tx.purchasingBatch.create({
@@ -182,18 +214,44 @@ export class PurchasingScanService {
             const item = itemById.get(m.stock_item_id);
             if (!item) continue;
             const perSupplier = out.get(m.supplier_id) ?? new Map<string, OrderItemInfo>();
-            perSupplier.set(m.stock_item_id, { name: item.name, countUnit: item.count_unit ?? "", supplierCode: m.supplier_code ?? "", supplierDescription: m.supplier_description ?? "", caseUnit: m.case_unit ?? "" });
+            perSupplier.set(m.stock_item_id, {
+                name: item.name,
+                countUnit: item.count_unit ?? "",
+                supplierCode: m.supplier_code ?? "",
+                supplierDescription: m.supplier_description ?? "",
+                caseUnit: m.case_unit ?? "",
+                sellingUnit: m.selling_unit ?? "",
+                price: m.current_price === null ? null : Number(m.current_price),
+            });
             out.set(m.supplier_id, perSupplier);
         }
         return out;
     }
 
     /** Emails the drafted order to the owner and records the outcome on the batch. Never throws: a mail problem must not lose the batch. */
-    private async emailOrder(batchId: string, supplier: Supplier, lines: RecommendationLine[], items: Map<string, OrderItemInfo>, staleDays: number): Promise<boolean> {
+    private async emailOrder(
+        batchId: string,
+        supplier: Supplier,
+        kioskName: string,
+        supplierStoreName: string,
+        deliveryWeekStart: string,
+        lines: RecommendationLine[],
+        items: Map<string, OrderItemInfo>,
+        staleDays: number,
+    ): Promise<boolean> {
         try {
             const to = await this.orderRecipients();
             if (!to) throw new Error("No owner email to send to: there is no active user with the Admin role on the Staff table.");
-            const mail = buildOrderEmail({ name: supplier.name, contactEmail: supplier.contact_email, orderOutputMethod: supplier.order_output_method ?? "" }, lines, items, toDateStr(new Date()), staleDays);
+            const mail = buildOrderEmail(
+                { name: supplier.name, contactEmail: supplier.contact_email, orderOutputMethod: supplier.order_output_method ?? "", orderSheetTemplate: supplier.order_sheet_template ?? null },
+                lines,
+                items,
+                toDateStr(new Date()),
+                staleDays,
+                kioskName,
+                supplierStoreName,
+                deliveryWeekStart,
+            );
             await this.mailer.sendMail({ to, ...mail });
             await this.prisma.purchasingBatch.update({ where: { purchasing_batch_id: batchId }, data: { emailed_at: new Date(), emailed_to: to, email_error: null } });
             return true;
@@ -277,11 +335,10 @@ export class PurchasingScanService {
 
             const balanceIds = [item.stock_item_id, ...(ambientDuplicatesByRealId.get(item.stock_item_id) ?? [])];
             const override = fixedOrderQtyOverride(supplierResult.mapping);
-            let totalShortfall = 0;
-            let fixedPacks = 0;
-            let anyTriggered = false;
-            let anyStale = false;
             let anyAwaitStocktake = false;
+            // One entry per kiosk that's actually triggered — orders are now drafted per kiosk, so each
+            // kiosk's own shortfall becomes its own line instead of being summed into everyone else's.
+            const triggeredKiosks: { kioskId: string; shortfall: number; stale: boolean }[] = [];
 
             for (const kioskId of kioskIdsWithPar) {
                 const movements = movementsByKiosk.get(kioskId) ?? [];
@@ -289,15 +346,12 @@ export class PurchasingScanService {
                 const trigger = computeItemTrigger(balanceIds, itemPars.get(kioskId) ?? null, movements, confirmedOn !== null);
                 if (trigger.flag === "AWAIT_STOCKTAKE") anyAwaitStocktake = true;
                 if (!trigger.triggered) continue;
-                anyTriggered = true;
-                if (override !== null) fixedPacks += override;
-                else totalShortfall += trigger.shortfall;
                 const countDate = stockCountDate(balanceIds, movements, confirmedOn);
                 const daysSince = countDate ? Math.floor((today.getTime() - countDate.getTime()) / 86400000) : Infinity;
-                if (daysSince > staleDays) anyStale = true;
+                triggeredKiosks.push({ kioskId, shortfall: trigger.shortfall, stale: daysSince > staleDays });
             }
 
-            if (!anyTriggered) {
+            if (!triggeredKiosks.length) {
                 if (anyAwaitStocktake && supplierResult.supplier && supplierResult.supplier.order_output_method !== "MANUAL") {
                     diagnosticLines.push({ stockItemId: item.stock_item_id, flags: ["AWAIT_STOCKTAKE"] });
                 }
@@ -312,27 +366,34 @@ export class PurchasingScanService {
 
             const packSize = Number(supplierResult.mapping!.case_multiple) || 1;
             const orderMultiple = Number(supplierResult.mapping!.order_multiple) || 1;
-            const flags: string[] = [];
-            if (anyStale) flags.push("STALE");
 
-            let recommendedPacks: number;
-            if (override !== null) {
-                recommendedPacks = fixedPacks;
-                flags.push("FIXED_ORDER_QTY");
-            } else {
-                recommendedPacks = applyPackRounding(totalShortfall, packSize, orderMultiple);
+            for (const tk of triggeredKiosks) {
+                const flags: string[] = [];
+                if (tk.stale) flags.push("STALE");
+
+                let totalShortfall: number;
+                let recommendedPacks: number;
+                if (override !== null) {
+                    totalShortfall = 0;
+                    recommendedPacks = override;
+                    flags.push("FIXED_ORDER_QTY");
+                } else {
+                    totalShortfall = tk.shortfall;
+                    recommendedPacks = applyPackRounding(totalShortfall, packSize, orderMultiple);
+                }
+
+                lines.push({
+                    stockItemId: item.stock_item_id,
+                    supplierId: supplierResult.supplier.supplier_id,
+                    kioskId: tk.kioskId,
+                    totalShortfall,
+                    packSize,
+                    orderMultiple,
+                    recommendedPacks,
+                    recommendedQty: recommendedPacks * packSize,
+                    flags,
+                });
             }
-
-            lines.push({
-                stockItemId: item.stock_item_id,
-                supplierId: supplierResult.supplier.supplier_id,
-                totalShortfall,
-                packSize,
-                orderMultiple,
-                recommendedPacks,
-                recommendedQty: recommendedPacks * packSize,
-                flags,
-            });
         }
 
         const supplierBatches: Record<string, RecommendationLine[]> = {};

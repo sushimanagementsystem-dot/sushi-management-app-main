@@ -204,7 +204,16 @@ export class ActionInboxService {
                 const transfers = submissionId ? await this.prisma.stockTransfer.findMany({ where: { submission_id: submissionId } }) : [];
                 const items = await this.tableCache.getAll<StockItem>("stock_item");
                 const itemById = new Map(items.map((i) => [i.stock_item_id, i]));
-                out.transfers = transfers.map((t) => ({ ...t, stockItemName: itemById.get(t.stock_item_id)?.name ?? t.stock_item_id }));
+                // Surfaced so the owner can sanity-check a qty/unit typo at a glance (e.g. "20 boxes" of
+                // something that should read "20 units" jumps out once it prices at 10x what's normal) —
+                // same current_unit_cost StockTransferReviewService.apply() already uses to cost the
+                // posted stock_movement, just shown earlier, at review time, not only after the fact.
+                out.transfers = transfers.map((t) => {
+                    const item = itemById.get(t.stock_item_id);
+                    const unitCost = item?.current_unit_cost ?? null;
+                    const estimatedValue = unitCost === null ? null : Math.round(Number(t.qty) * Number(unitCost) * 100) / 100;
+                    return { ...t, stockItemName: item?.name ?? t.stock_item_id, unitCost: unitCost === null ? null : Number(unitCost), estimatedValue };
+                });
                 break;
             }
 
@@ -328,6 +337,10 @@ export class ActionInboxService {
                 const kiosks = await this.tableCache.getAll<Kiosk>("kiosk");
                 const activeKiosks = kiosks.filter((k) => k.active);
                 const activeKioskIds = activeKiosks.map((k) => k.kiosk_id);
+                // Orders are now drafted per kiosk (action.kiosk_id set) rather than combined across every
+                // kiosk — a batch from before that change still has no kiosk_id, so it keeps the old
+                // all-kiosks breakdown for backward compatibility with that historical data.
+                const breakdownKiosks = action.kiosk_id ? activeKiosks.filter((k) => k.kiosk_id === action.kiosk_id) : activeKiosks;
 
                 const [batchLines, allParRows, allMovements, items, confirmedCounts] = await Promise.all([
                     this.prisma.purchasingBatchLine.findMany({ where: { purchasing_batch_id: batch.purchasing_batch_id } }),
@@ -353,7 +366,7 @@ export class ActionInboxService {
                 out.purchasingLines = batchLines.map((line) => {
                     const item = itemById.get(line.stock_item_id);
                     const balanceIds = [line.stock_item_id, ...(ambientDuplicatesByRealId.get(line.stock_item_id) ?? [])];
-                    const kioskBreakdown = activeKiosks.map((k) => {
+                    const kioskBreakdown = breakdownKiosks.map((k) => {
                         const parRow = parByItemKiosk.get(`${line.stock_item_id}|${k.kiosk_id}`) ?? null;
                         const hasConfirmed = balanceIds.some((id) => confirmedCounts.get(k.kiosk_id)?.has(id));
                         const trigger = computeItemTrigger(balanceIds, parRow, movementsByKiosk.get(k.kiosk_id) ?? [], hasConfirmed);

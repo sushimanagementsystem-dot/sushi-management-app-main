@@ -26,6 +26,7 @@ import SectionCard from "@/components/dashboard/SectionCard";
 import RefreshButton from "@/components/dashboard/RefreshButton";
 import HelpTip from "@/components/dashboard/HelpTip";
 import { getHelp } from "@/lib/help/content";
+import { moneyStr } from "@/lib/kpiUtils";
 import DashSelect from "@/components/dashboard/DashSelect";
 import EvidencePreview from "@/components/dashboard/EvidencePreview";
 import { confirmModal, noticeModal } from "@/components/ConfirmModal";
@@ -1214,6 +1215,7 @@ function TransferView({ transfers, kiosks, onChanged }) {
                         <tr>
                             <th className={TH}>Item</th>
                             <th className={TH}>Qty</th>
+                            <th className={TH}>Value</th>
                             <th className={TH}>Source</th>
                             <th className={TH}>Destination</th>
                             <th className={TH}>Status</th>
@@ -1226,6 +1228,16 @@ function TransferView({ transfers, kiosks, onChanged }) {
                                 <td className={TD}>{t.stockItemName || t.stock_item_id}</td>
                                 <td className={TD}>
                                     {t.qty} {t.count_unit}
+                                </td>
+                                <td className={TD}>
+                                    {t.estimatedValue === null ? (
+                                        <span className="text-muted">— no cost set</span>
+                                    ) : (
+                                        <>
+                                            {moneyStr(t.estimatedValue)}
+                                            <span className="text-muted"> ({moneyStr(t.unitCost)}/{t.count_unit})</span>
+                                        </>
+                                    )}
                                 </td>
                                 <td className={TD}>{kioskName(kiosks, t.source_kiosk_id)}</td>
                                 <td className={TD}>{kioskName(kiosks, t.destination_kiosk_id)}</td>
