@@ -20,6 +20,14 @@ import type { Kiosk, StockItem } from "@prisma/client";
  * way the FOOD per-100g items are), then PACKAGING, then everything else
  * falls to FOOD, so a category never silently disappears from the list
  * just because a setting wasn't kept up to date.
+ *
+ * Some per-100g items (e.g. "Avocado") are a tracking-only duplicate of a
+ * real purchasable item (e.g. "AVOCADO" BOX) that exists just so this form
+ * can log waste in grams while Stocktake/Purchasing keep counting the real
+ * item in boxes — see StockItem.food_waste_price_source_id. The real item
+ * is excluded here so staff only ever see the one entry per product; its
+ * price is looked up live at submit time (FoodWasteProcessor), never
+ * copied onto the tracking row.
  */
 @Injectable()
 export class FoodWasteService {
@@ -38,11 +46,15 @@ export class FoodWasteService {
         const packagingCats = splitList(packagingCatsRaw);
         const riceCats = splitList(riceCatsRaw);
 
+        const priceSourceIds = new Set(allItems.map((r) => r.food_waste_price_source_id).filter((id): id is string => !!id));
+
         const mapped = allItems
             // ambient_duplicate_of set = a "Kiosk (ambient product only)" stocktake-only duplicate row (same physical
             // stock as its real counterpart, counted separately just for stocktake accuracy) — Evan: these "should
             // not be issued in any other sheet". Excluded here even though it's otherwise eligible.
-            .filter((r) => r.active && r.food_waste_eligible && !r.ambient_duplicate_of)
+            // priceSourceIds = the real item another item's food_waste_price_source_id points at — hidden here so
+            // its per-100g tracking duplicate (which uses this item's price live) is the only one staff pick from.
+            .filter((r) => r.active && r.food_waste_eligible && !r.ambient_duplicate_of && !priceSourceIds.has(r.stock_item_id))
             .map((r) => ({
                 id: r.stock_item_id,
                 name: r.name,

@@ -17,9 +17,9 @@ import { FormActions, FormNote, ResultError, Spinner, SuccessPanel } from "@/com
 let lineSeq = 0;
 const newLine = () => ({ key: ++lineSeq, category: "", name: "", amount: "" });
 
-// Some items share a name across two rows — a whole-unit purchasable item (counted on Stocktake, e.g. "AVOCADO"
-// BOX) and a per-100g tracking-only item for logging prepped/cut waste (e.g. "Avocado" 100g). Both are meant to be
-// pickable here, so the unit is appended to tell them apart instead of showing the bare name twice.
+// The unit is appended for clarity (e.g. "Avocado — 100g"). Items that are purchased as a whole unit but logged
+// here per-100g (see StockItem.food_waste_price_source_id on the backend) only ever appear once — the backend
+// already hides their whole-unit counterpart from this list.
 const itemLabel = (p) => `${p.name} — ${p.unit}`;
 
 function makeClientKey() {

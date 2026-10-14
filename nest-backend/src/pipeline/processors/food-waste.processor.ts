@@ -15,6 +15,11 @@ type FoodWastePayload = { client_key: string; lines: FoodWasteLine[] };
  * purchasing/reconciliation already use — no separate per-unit waste rate).
  * Either blank = UNCOSTED, never guessed.
  *
+ * If the item has food_waste_price_source_id set (a per-100g tracking
+ * duplicate of a real purchasable item), the rate is read from that real
+ * item instead of this one — see StockItem.food_waste_price_source_id —
+ * so the two can never drift apart.
+ *
  * KNOWN GAP: the old form allows a synthetic "OTHER" line with no real
  * stock_item (free-text description instead, via reference_id) — this
  * schema's stock_movement.stock_item_id is a required FK, so that case
@@ -56,16 +61,20 @@ export class FoodWasteProcessor implements SubmissionProcessor<FoodWastePayload>
             const item = await tx.stockItem.findUnique({ where: { stock_item_id: line.stock_item_id } });
             if (!item) throw new Error(`Unknown stock item "${line.stock_item_id}".`);
 
+            const priceItem = item.food_waste_price_source_id
+                ? await tx.stockItem.findUnique({ where: { stock_item_id: item.food_waste_price_source_id } })
+                : item;
+
             let qty: number;
             let rate: Prisma.Decimal | null;
             let cost: number | null;
             if (item.measurement_type === "COUNT") {
                 qty = Math.round(line.amount);
-                rate = item.current_unit_cost;
+                rate = priceItem?.current_unit_cost ?? null;
                 cost = rate === null ? null : Math.round(qty * Number(rate) * 100) / 100;
             } else {
                 qty = line.amount;
-                rate = item.cost_per_100g;
+                rate = priceItem?.cost_per_100g ?? null;
                 cost = rate === null ? null : Math.round((qty / 100) * Number(rate) * 100) / 100;
             }
 

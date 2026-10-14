@@ -1,14 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { FoodWasteService } from "./food-waste.service.js";
 
-function build(items: Partial<{ stock_item_id: string; name: string; stock_category_id: string; active: boolean; food_waste_eligible: boolean; ambient_duplicate_of: string | null; count_unit: string; measurement_type: string }>[]) {
+function build(items: Partial<{ stock_item_id: string; name: string; stock_category_id: string; active: boolean; food_waste_eligible: boolean; ambient_duplicate_of: string | null; food_waste_price_source_id: string | null; count_unit: string; measurement_type: string }>[]) {
     const settings = { get: vi.fn(async (key: string) => (key === "FOOD_WASTE_PACKAGING_CATEGORIES" ? "SC05" : key === "FOOD_WASTE_RICE_CATEGORIES" ? "SC09" : null)) };
     const tableCache = { getAll: vi.fn(async () => items) };
     const svc = new FoodWasteService(settings as never, tableCache as never);
     return { svc };
 }
 
-const base = { active: true, food_waste_eligible: true, ambient_duplicate_of: null, count_unit: "G", measurement_type: "WEIGHT_G" };
+const base = { active: true, food_waste_eligible: true, ambient_duplicate_of: null, food_waste_price_source_id: null, count_unit: "G", measurement_type: "WEIGHT_G" };
 
 describe("FoodWasteService.getBootstrapData — three categories", () => {
     it("buckets a RICE-category item as RICE, not FOOD, even though it's tracked per-100g the same way FOOD per-100g items are", async () => {
@@ -38,5 +38,14 @@ describe("FoodWasteService.getBootstrapData — three categories", () => {
         ]);
         const res = await svc.getBootstrapData({} as never);
         expect(res.items.map((i) => i.id)).toEqual(["D"]);
+    });
+
+    it("hides the real purchasable item once a per-100g tracking duplicate points at it, keeping only the duplicate", async () => {
+        const { svc } = build([
+            { ...base, stock_item_id: "FW010", name: "Avocado", stock_category_id: "SC08", food_waste_price_source_id: "STK009" },
+            { ...base, stock_item_id: "STK009", name: "AVOCADO", stock_category_id: "SC02", count_unit: "BOX" },
+        ]);
+        const res = await svc.getBootstrapData({} as never);
+        expect(res.items.map((i) => i.id)).toEqual(["FW010"]);
     });
 });

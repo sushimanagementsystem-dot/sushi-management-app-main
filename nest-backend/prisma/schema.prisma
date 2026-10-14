@@ -157,9 +157,21 @@ model StockItem {
   // stock_movement balances; the duplicate itself never gets a supplier
   // mapping or par row, so it never generates its own order line.
   ambient_duplicate_of String?
+  // Set only on a Food-Waste-only "per 100g" tracking duplicate row (e.g.
+  // "Avocado" vs the real purchasable "AVOCADO" BOX item): points at the
+  // real item whose price this one always uses. Food Waste cost is looked
+  // up on that real item's cost_per_100g live at submit time (never copied
+  // onto this row), so the two can never drift apart again — this item's
+  // own current_unit_cost/cost_per_100g are ignored once this is set. The
+  // real item is also hidden from the Food Waste dropdown so staff only
+  // ever see this one.
+  food_waste_price_source_id String?
 
   ambient_duplicate_of_item StockItem?  @relation("AmbientDuplicate", fields: [ambient_duplicate_of], references: [stock_item_id])
   ambient_duplicates        StockItem[] @relation("AmbientDuplicate")
+
+  food_waste_price_source_item StockItem?  @relation("FoodWastePriceSource", fields: [food_waste_price_source_id], references: [stock_item_id])
+  food_waste_price_source_of   StockItem[] @relation("FoodWastePriceSource")
 
   stock_item_pars        StockItemPar[]
   defrost_items          DefrostItem[]
