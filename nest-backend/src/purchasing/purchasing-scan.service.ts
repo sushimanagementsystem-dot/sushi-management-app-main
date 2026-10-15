@@ -194,8 +194,13 @@ export class PurchasingScanService {
         });
     }
 
-    /** The owner's address(es): every active ADMIN user (the owners, as set on the Staff table). */
+    /** The owner's address(es): every active ADMIN user (the owners, as set on the Staff table).
+     * PURCHASING_ORDER_TEST_RECIPIENT, if set in .env, overrides this to a single test address instead — for
+     * trying out real purchasing runs without emailing every real admin (including the client). Only affects this
+     * one email; unset it (or remove the line from .env) to go back to the real admin list. */
     async orderRecipients(): Promise<string> {
+        const testOverride = process.env.PURCHASING_ORDER_TEST_RECIPIENT;
+        if (testOverride) return testOverride;
         const admins = await this.prisma.user.findMany({ where: { role: "ADMIN", active: true }, select: { email: true } });
         return admins.map((a) => a.email).join(", ");
     }
@@ -242,7 +247,7 @@ export class PurchasingScanService {
         try {
             const to = await this.orderRecipients();
             if (!to) throw new Error("No owner email to send to: there is no active user with the Admin role on the Staff table.");
-            const mail = buildOrderEmail(
+            const mail = await buildOrderEmail(
                 { name: supplier.name, contactEmail: supplier.contact_email, orderOutputMethod: supplier.order_output_method ?? "", orderSheetTemplate: supplier.order_sheet_template ?? null },
                 lines,
                 items,
